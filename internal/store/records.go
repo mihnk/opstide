@@ -1,0 +1,249 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+// Operation is a CronJob as OpsTide knows it: its schedule and controller
+// settings, plus the description its owners put in annotations.
+type Operation struct {
+	ID        string // the CronJob's UID; a recreated CronJob is a new operation
+	Namespace string
+	Name      string
+
+	DisplayName      string
+	Description      string
+	Owner            string
+	Criticality      string
+	RunbookURL       string
+	ExpectedDuration *time.Duration
+	// MetadataProblems names annotations that were present but unusable
+	// (a runbook that is not https, a duration that does not parse).
+	MetadataProblems []string
+
+	Schedule          string
+	TimeZone          string // spec.timeZone; "" means the controller's zone
+	Suspend           bool
+	ConcurrencyPolicy string
+	StartingDeadline  *time.Duration
+	SuccessfulHistory int
+	FailedHistory     int
+
+	CreatedAt   time.Time
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+	DeletedAt   time.Time
+}
+
+// RunStatus is a run's outcome as far as it is known.
+type RunStatus string
+
+const (
+	RunPending   RunStatus = "pending"
+	RunRunning   RunStatus = "running"
+	RunSucceeded RunStatus = "succeeded"
+	RunFailed    RunStatus = "failed"
+	RunUnknown   RunStatus = "unknown"
+)
+
+// Run is one observed Job. It is never inferred from a schedule.
+type Run struct {
+	ID          string // the Job's UID
+	OperationID string // owning CronJob's UID; "" for a Job no CronJob owns
+	Namespace   string
+	JobName     string
+
+	ScheduledAt time.Time
+	// ScheduledBasis says where ScheduledAt came from: "annotation"
+	// (batch.kubernetes.io/cronjob-scheduled-timestamp), "name" (the
+	// controller's minute suffix) or "" when unknown.
+	ScheduledBasis string
+
+	CreatedAt    time.Time
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	Status       RunStatus
+	StatusReason string
+	Attempts     int
+	Pods         []Pod
+
+	ObservedAt time.Time // first seen by OpsTide
+	UpdatedAt  time.Time
+}
+
+// Pod is what OpsTide keeps of a Job's pod: identity and how it ended.
+type Pod struct {
+	Name       string    `json:"name"`
+	UID        string    `json:"uid"`
+	Phase      string    `json:"phase"`
+	Reason     string    `json:"reason,omitempty"`
+	ExitCode   *int32    `json:"exitCode,omitempty"`
+	StartedAt  time.Time `json:"startedAt,omitzero"`
+	FinishedAt time.Time `json:"finishedAt,omitzero"`
+}
+
+// UpsertOperation inserts op or updates everything but FirstSeenAt.
+func (w *Writer) UpsertOperation(ctx context.Context, op Operation) error {
+	problems, _ := json.Marshal(nonNil(op.MetadataProblems))
+	_, err := w.tx.ExecContext(ctx, `
+INSERT INTO operations (id, namespace, name, display_name, description, owner, criticality, runbook_url,
+	expected_duration_s, metadata_problems, schedule, time_zone, suspend, concurrency_policy, starting_deadline_s,
+	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET
+	namespace=excluded.namespace, name=excluded.name, display_name=excluded.display_name,
+	description=excluded.description, owner=excluded.owner, criticality=excluded.criticality,
+	runbook_url=excluded.runbook_url, expected_duration_s=excluded.expected_duration_s,
+	metadata_problems=excluded.metadata_problems, schedule=excluded.schedule, time_zone=excluded.time_zone,
+	suspend=excluded.suspend, concurrency_policy=excluded.concurrency_policy,
+	starting_deadline_s=excluded.starting_deadline_s, successful_history=excluded.successful_history,
+	failed_history=excluded.failed_history, created_at=excluded.created_at,
+	last_seen_at=excluded.last_seen_at, deleted_at=excluded.deleted_at`,
+		op.ID, op.Namespace, op.Name, op.DisplayName, op.Description, op.Owner, op.Criticality, op.RunbookURL,
+		durS(op.ExpectedDuration), string(problems), op.Schedule, op.TimeZone, op.Suspend, op.ConcurrencyPolicy,
+		durS(op.StartingDeadline), op.SuccessfulHistory, op.FailedHistory, ms(op.CreatedAt).Int64,
+		ms(op.FirstSeenAt).Int64, ms(op.LastSeenAt).Int64, ms(op.DeletedAt))
+	return err
+}
+
+// MarkOperationDeleted records that the CronJob is gone. Its runs and
+// history stay until retention removes them.
+func (w *Writer) MarkOperationDeleted(ctx context.Context, id string, at time.Time) error {
+	_, err := w.tx.ExecContext(ctx, `UPDATE operations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at), id)
+	return err
+}
+
+const operationCols = `id, namespace, name, display_name, description, owner, criticality, runbook_url,
+	expected_duration_s, metadata_problems, schedule, time_zone, suspend, concurrency_policy, starting_deadline_s,
+	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at`
+
+func scanOperation(sc interface{ Scan(...any) error }) (Operation, error) {
+	var op Operation
+	var expected, deadline, deleted sql.NullInt64
+	var created, first, last int64
+	var problems string
+	err := sc.Scan(&op.ID, &op.Namespace, &op.Name, &op.DisplayName, &op.Description, &op.Owner, &op.Criticality,
+		&op.RunbookURL, &expected, &problems, &op.Schedule, &op.TimeZone, &op.Suspend, &op.ConcurrencyPolicy,
+		&deadline, &op.SuccessfulHistory, &op.FailedHistory, &created, &first, &last, &deleted)
+	if err != nil {
+		return op, err
+	}
+	op.ExpectedDuration, op.StartingDeadline = fromDurS(expected), fromDurS(deadline)
+	_ = json.Unmarshal([]byte(problems), &op.MetadataProblems)
+	op.CreatedAt = time.UnixMilli(created).UTC()
+	op.FirstSeenAt, op.LastSeenAt = time.UnixMilli(first).UTC(), time.UnixMilli(last).UTC()
+	op.DeletedAt = fromMS(deleted)
+	return op, nil
+}
+
+// Operation returns the operation with this ID; ok is false when unknown.
+func (s *Store) Operation(ctx context.Context, id string) (op Operation, ok bool, err error) {
+	op, err = scanOperation(s.db.QueryRowContext(ctx, `SELECT `+operationCols+` FROM operations WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Operation{}, false, nil
+	}
+	return op, err == nil, err
+}
+
+// Operations lists operations by namespace and name; deleted ones only
+// when includeDeleted.
+func (s *Store) Operations(ctx context.Context, includeDeleted bool) ([]Operation, error) {
+	q := `SELECT ` + operationCols + ` FROM operations`
+	if !includeDeleted {
+		q += ` WHERE deleted_at IS NULL`
+	}
+	rows, err := s.db.QueryContext(ctx, q+` ORDER BY namespace, name, created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Operation
+	for rows.Next() {
+		op, err := scanOperation(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// UpsertRun inserts run or updates it, keeping the first ObservedAt.
+func (w *Writer) UpsertRun(ctx context.Context, r Run) error {
+	pods, _ := json.Marshal(nonNil(r.Pods))
+	_, err := w.tx.ExecContext(ctx, `
+INSERT INTO runs (id, operation_id, namespace, job_name, scheduled_at, scheduled_basis, created_at, started_at,
+	finished_at, status, status_reason, attempts, pods, observed_at, updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET
+	operation_id=excluded.operation_id, scheduled_at=excluded.scheduled_at, scheduled_basis=excluded.scheduled_basis,
+	started_at=excluded.started_at, finished_at=excluded.finished_at, status=excluded.status,
+	status_reason=excluded.status_reason, attempts=excluded.attempts, pods=excluded.pods, updated_at=excluded.updated_at`,
+		r.ID, r.OperationID, r.Namespace, r.JobName, ms(r.ScheduledAt), r.ScheduledBasis, ms(r.CreatedAt).Int64,
+		ms(r.StartedAt), ms(r.FinishedAt), string(r.Status), r.StatusReason, r.Attempts, string(pods),
+		ms(r.ObservedAt).Int64, ms(w.now()).Int64)
+	return err
+}
+
+const runCols = `id, operation_id, namespace, job_name, scheduled_at, scheduled_basis, created_at, started_at,
+	finished_at, status, status_reason, attempts, pods, observed_at, updated_at`
+
+func scanRun(sc interface{ Scan(...any) error }) (Run, error) {
+	var r Run
+	var scheduled, started, finished sql.NullInt64
+	var created, observed, updated int64
+	var pods, status string
+	err := sc.Scan(&r.ID, &r.OperationID, &r.Namespace, &r.JobName, &scheduled, &r.ScheduledBasis, &created,
+		&started, &finished, &status, &r.StatusReason, &r.Attempts, &pods, &observed, &updated)
+	if err != nil {
+		return r, err
+	}
+	r.Status = RunStatus(status)
+	r.ScheduledAt, r.StartedAt, r.FinishedAt = fromMS(scheduled), fromMS(started), fromMS(finished)
+	r.CreatedAt = time.UnixMilli(created).UTC()
+	r.ObservedAt, r.UpdatedAt = time.UnixMilli(observed).UTC(), time.UnixMilli(updated).UTC()
+	_ = json.Unmarshal([]byte(pods), &r.Pods)
+	return r, nil
+}
+
+// Run returns the run with this Job UID; ok is false when unknown.
+func (s *Store) Run(ctx context.Context, id string) (r Run, ok bool, err error) {
+	r, err = scanRun(s.db.QueryRowContext(ctx, `SELECT `+runCols+` FROM runs WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Run{}, false, nil
+	}
+	return r, err == nil, err
+}
+
+// RunsForOperation returns the operation's runs created in [from, to),
+// newest first. A run still active from before from is included, since
+// it matters to whatever was due in the window.
+func (s *Store) RunsForOperation(ctx context.Context, operationID string, from, to time.Time) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+runCols+` FROM runs
+WHERE operation_id = ? AND created_at < ? AND (created_at >= ? OR finished_at IS NULL OR finished_at >= ?)
+ORDER BY created_at DESC`, operationID, ms(to).Int64, ms(from).Int64, ms(from).Int64)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}

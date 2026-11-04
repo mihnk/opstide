@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
+	"github.com/mihnk/opstide/internal/store"
 )
 
 var version = "dev"
@@ -37,7 +39,29 @@ func main() {
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces)
 
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return err
+	}
+	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, "opstide.db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	// Whatever the previous process was watching ended at its last
+	// heartbeat; from then until the watches sync again is a gap.
+	if err := db.Update(ctx, func(w *store.Writer) error {
+		n, err := w.CloseAfterRestart(ctx)
+		if n > 0 {
+			log.Info("closed coverage left open by the previous run", "intervals", n)
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	go db.Maintain(ctx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log)
+
 	probes := health.New()
+	probes.Add("storage", db.Writable)
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	return serve(ctx, cfg.Listen, mux, log)
