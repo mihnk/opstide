@@ -46,3 +46,14 @@ func (w *Writer) LastHeartbeat(ctx context.Context) (time.Time, error) {
 func (s *Store) LastWrite(ctx context.Context) (time.Time, error) {
 	return metaTime(ctx, s.db, "heartbeat")
 }
+
+// Version changes whenever the record does: a new log entry, a run or an
+// operation written. Live views compare it to know when to refetch.
+func (s *Store) Version(ctx context.Context) (string, error) {
+	var seq, runs, ops int64
+	err := s.db.QueryRowContext(ctx, `SELECT
+	(SELECT coalesce(max(seq), 0) FROM events),
+	(SELECT coalesce(max(updated_at), 0) FROM runs),
+	(SELECT coalesce(max(last_seen_at), 0) + coalesce(max(deleted_at), 0) FROM operations)`).Scan(&seq, &runs, &ops)
+	return strconv.FormatInt(seq, 10) + "." + strconv.FormatInt(runs, 10) + "." + strconv.FormatInt(ops, 10), err
+}

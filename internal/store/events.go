@@ -88,6 +88,7 @@ type EventQuery struct {
 	Namespace   string
 	Types       []string // exact types, or prefixes ending in "." ("job.")
 	OperationID string
+	RunID       string
 	Text        string // substring of the summary or resource name
 	// Cursor continues a previous page (its NextCursor).
 	Cursor string
@@ -122,6 +123,9 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	}
 	if q.OperationID != "" {
 		where, args = append(where, "operation_id = ?"), append(args, q.OperationID)
+	}
+	if q.RunID != "" {
+		where, args = append(where, "run_id = ?"), append(args, q.RunID)
 	}
 	if len(q.Types) > 0 {
 		var ors []string

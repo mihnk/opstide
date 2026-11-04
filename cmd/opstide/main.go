@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/mihnk/opstide/internal/api"
 	"github.com/mihnk/opstide/internal/collector"
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
@@ -43,6 +44,7 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	started := time.Now()
 	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces)
 
 	kube, where, err := kubeConfig(cfg.Kubeconfig, cfg.Context)
@@ -92,7 +94,11 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	probes.Add("watches", col.Synced)
 	mux := http.NewServeMux()
 	probes.Register(mux)
-	if err := serve(ctx, cfg.Listen, mux, log); err != nil {
+	api.New(db, col, api.Config{
+		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started,
+		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents},
+	}, log).Register(mux)
+	if err := serve(ctx, cfg.Listen, secure(mux), log); err != nil {
 		return err
 	}
 	if err := <-colErr; err != nil && !errors.Is(err, context.Canceled) {
@@ -133,6 +139,18 @@ func kubeConfig(paths, context string) (*rest.Config, string, error) {
 		return nil, "", err
 	}
 	return cfg, name, nil
+}
+
+// secure adds headers every response carries: no sniffing, no framing,
+// no referrer to links followed out of OpsTide.
+func secure(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hd := w.Header()
+		hd.Set("X-Content-Type-Options", "nosniff")
+		hd.Set("X-Frame-Options", "DENY")
+		hd.Set("Referrer-Policy", "no-referrer")
+		h.ServeHTTP(w, r)
+	})
 }
 
 // serve runs the HTTP server until ctx ends, then drains it for up to 10 s.

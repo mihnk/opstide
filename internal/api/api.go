@@ -1,0 +1,171 @@
+// Package api serves OpsTide's read-only HTTP API under /api/v1.
+//
+// Every response is JSON with a schema number. Times are RFC 3339 in UTC;
+// the browser shows them in the reader's zone and sends that zone (tz) on
+// requests that depend on where a day starts. Nothing here writes to the
+// record or to the cluster.
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/store"
+)
+
+// Schema is the response schema version; it changes when a field changes
+// meaning or goes away.
+const Schema = 1
+
+// Watcher is what the API needs from the collector.
+type Watcher interface {
+	Synced(ctx context.Context) error
+	Problems() []collector.Problem
+}
+
+// Config describes the running collector for the System screen.
+type Config struct {
+	Version    string
+	Cluster    string
+	Namespaces []string // empty: the whole cluster
+	Retention  store.Retention
+	StartedAt  time.Time
+	// ControllerZone is the zone the CronJob controller evaluates
+	// schedules in when a CronJob sets no spec.timeZone (normally UTC).
+	ControllerZone *time.Location
+}
+
+// Server answers API requests.
+type Server struct {
+	db  *store.Store
+	w   Watcher
+	cfg Config
+	log *slog.Logger
+	now func() time.Time
+
+	streams chan struct{} // bounds concurrent event streams
+}
+
+// New returns an API server.
+func New(db *store.Store, w Watcher, cfg Config, log *slog.Logger) *Server {
+	if cfg.ControllerZone == nil {
+		cfg.ControllerZone = time.UTC
+	}
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	return &Server{db: db, w: w, cfg: cfg, log: log, now: time.Now, streams: make(chan struct{}, 64)}
+}
+
+// Register adds the API routes to mux.
+func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/day", s.day)
+	mux.HandleFunc("GET /api/v1/events", s.events)
+	mux.HandleFunc("GET /api/v1/operations", s.operations)
+	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
+	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
+	mux.HandleFunc("GET /api/v1/system", s.system)
+	mux.HandleFunc("GET /api/v1/stream", s.stream)
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		fail(w, http.StatusNotFound, "no such API endpoint")
+	})
+}
+
+type errBadRequest struct{ msg string }
+
+func (e errBadRequest) Error() string { return e.msg }
+
+func badRequest(msg string) error { return errBadRequest{msg} }
+
+func reply(w http.ResponseWriter, r *http.Request, log *slog.Logger, v any, err error) {
+	var bad errBadRequest
+	switch {
+	case errors.As(err, &bad):
+		fail(w, http.StatusBadRequest, bad.msg)
+	case errors.Is(err, errNotFound):
+		fail(w, http.StatusNotFound, "not found")
+	case err != nil:
+		if r.Context().Err() == nil {
+			log.Error("api", "path", r.URL.Path, "err", err)
+		}
+		fail(w, http.StatusInternalServerError, "internal error; see the collector's log")
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(v)
+	}
+}
+
+var errNotFound = errors.New("not found")
+
+func fail(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]any{"schema": Schema, "error": msg})
+}
+
+// zone reads the tz parameter; UTC when absent.
+func zone(r *http.Request) (*time.Location, error) {
+	tz := r.URL.Query().Get("tz")
+	if tz == "" {
+		return time.UTC, nil
+	}
+	if len(tz) > 64 {
+		return nil, badRequest("tz is too long")
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil, badRequest("unknown time zone " + strconv.Quote(tz))
+	}
+	return loc, nil
+}
+
+// dayBounds is the calendar day containing t in loc: midnight to the next
+// midnight, 23 or 25 hours long on daylight-saving days.
+func dayBounds(t time.Time, loc *time.Location) (time.Time, time.Time) {
+	t = t.In(loc)
+	from := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+	return from, from.AddDate(0, 0, 1)
+}
+
+func dateParam(r *http.Request, loc *time.Location, now time.Time) (time.Time, error) {
+	d := r.URL.Query().Get("date")
+	if d == "" {
+		return now, nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", d, loc)
+	if err != nil {
+		return time.Time{}, badRequest("date must be YYYY-MM-DD")
+	}
+	return t, nil
+}
+
+func intParam(r *http.Request, name string, def, max int) (int, error) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, badRequest(name + " must be a positive number")
+	}
+	return min(n, max), nil
+}
+
+func timeParam(r *http.Request, name string) (time.Time, error) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, badRequest(name + " must be an RFC 3339 time")
+	}
+	return t, nil
+}

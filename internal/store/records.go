@@ -223,9 +223,31 @@ func (s *Store) Run(ctx context.Context, id string) (r Run, ok bool, err error) 
 // newest first. A run still active from before from is included, since
 // it matters to whatever was due in the window.
 func (s *Store) RunsForOperation(ctx context.Context, operationID string, from, to time.Time) ([]Run, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+runCols+` FROM runs
+	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
 WHERE operation_id = ? AND created_at < ? AND (created_at >= ? OR finished_at IS NULL OR finished_at >= ?)
 ORDER BY created_at DESC`, operationID, ms(to).Int64, ms(from).Int64, ms(from).Int64)
+}
+
+// RunsBetween is RunsForOperation for every run, CronJob-owned or not.
+func (s *Store) RunsBetween(ctx context.Context, from, to time.Time) ([]Run, error) {
+	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
+WHERE created_at < ? AND (created_at >= ? OR finished_at IS NULL OR finished_at >= ?)
+ORDER BY created_at DESC`, ms(to).Int64, ms(from).Int64, ms(from).Int64)
+}
+
+// RecentRuns returns the operation's latest runs, newest first, created
+// before before (zero for no bound).
+func (s *Store) RecentRuns(ctx context.Context, operationID string, before time.Time, limit int) ([]Run, error) {
+	b := int64(1) << 62
+	if !before.IsZero() {
+		b = before.UnixMilli()
+	}
+	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs WHERE operation_id = ? AND created_at < ?
+ORDER BY created_at DESC LIMIT ?`, operationID, b, limit)
+}
+
+func (s *Store) queryRuns(ctx context.Context, q string, args ...any) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,18 +272,5 @@ func nonNil[T any](s []T) []T {
 
 // ActiveRuns returns the runs last recorded as pending or running.
 func (s *Store) ActiveRuns(ctx context.Context) ([]Run, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+runCols+` FROM runs WHERE status IN ('pending', 'running') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Run
-	for rows.Next() {
-		r, err := scanRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs WHERE status IN ('pending', 'running') ORDER BY created_at`)
 }

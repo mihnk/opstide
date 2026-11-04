@@ -61,6 +61,21 @@ make run CONTEXT=kind-dev    # another context
 Probes: `/healthz` (process), `/readyz` (watches synced and storage
 writable).
 
+## Read API
+
+Everything the UI shows comes from a read-only JSON API. Times are
+RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
+
+| Endpoint | What |
+|---|---|
+| `GET /api/v1/day?date=2026-11-04&tz=Europe/Istanbul` | One day: counts, a lane per CronJob, gaps, exceptions, what is still to come |
+| `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,collection&q=&cursor=` | The log, newest first, by stable cursor |
+| `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
+| `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
+| `GET /api/v1/runs/{id}` | One run with its pods and entries |
+| `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
+| `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
