@@ -1,0 +1,65 @@
+import { useState, type ReactNode } from 'react'
+import { useLive } from '../live'
+import { savedTheme, saveTheme, systemTheme, type Theme } from '../prefs'
+import { Link } from '../router'
+import { ago } from '../time'
+
+const sections = [
+  { href: '/', label: 'Today', match: (p: string) => p === '/' },
+  { href: '/log', label: 'Log', match: (p: string) => p.startsWith('/log') },
+  { href: '/schedules', label: 'Schedules', match: (p: string) => p.startsWith('/schedules') || p.startsWith('/operations') },
+  { href: '/system', label: 'System', match: (p: string) => p.startsWith('/system') },
+]
+
+export function Shell({ path, cluster, children }: { path: string; cluster?: string; children: ReactNode }) {
+  const live = useLive()
+  const [theme, setTheme] = useState<Theme>(() => savedTheme() ?? systemTheme())
+  const other: Theme = theme === 'dark' ? 'light' : 'dark'
+
+  // Freshness: the collector writes a heartbeat every 15 s.
+  let status = 'connecting…'
+  let stale = false
+  if (live.lastWrite) {
+    const age = live.clock - Date.parse(live.lastWrite)
+    stale = age > 60_000
+    status = `${stale ? 'no write for' : 'last write'} ${ago(live.lastWrite, live.clock).replace(' ago', stale ? '' : ' ago')}`
+    if (live.synced === false) status = `watches syncing · ${status}`
+    else status = `collector up · ${status}`
+  }
+  if (!live.connected && live.lastWrite) {
+    status = 'live view offline · reload to retry'
+    stale = true
+  }
+
+  return (
+    <>
+      <header className="masthead">
+        <Link href="/" className="brand" style={{ color: 'var(--ink)', textDecoration: 'none' }}>OpsTide</Link>
+        {cluster && <span className="mono muted" style={{ fontSize: 13 }}>{cluster}</span>}
+        <nav aria-label="Sections">
+          {sections.map((s) => (
+            <Link key={s.href} href={s.href} aria-current={s.match(path) ? 'page' : undefined}>{s.label}</Link>
+          ))}
+        </nav>
+        <span className="spacer" />
+        <Link href="/system" className={`status mono${stale ? ' stale' : ''}`} title="Collector status and coverage">{status}</Link>
+        <button type="button" className="theme-toggle" aria-label={`Switch to the ${other} theme`}
+          onClick={() => {
+            saveTheme(other)
+            setTheme(other)
+          }}>
+          {other === 'light' ? 'Light' : 'Dark'}
+        </button>
+      </header>
+      <main>{children}</main>
+    </>
+  )
+}
+
+export function Failed({ error }: { error: Error }) {
+  return <div className="error" role="alert">Could not load this view: {error.message}</div>
+}
+
+export function Loading() {
+  return <div className="empty" aria-busy="true">Loading…</div>
+}

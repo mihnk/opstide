@@ -50,13 +50,41 @@ GitOps. OpsTide only reads them.
 | `opstide.mihnk.org/runbook` | `https://` link to the runbook |
 | `opstide.mihnk.org/expected-duration` | Go duration, e.g. `4m` |
 
+## The web UI
+
+Open the collector's address in a browser (in development,
+http://127.0.0.1:8080). Five pages, all reading the API below and updating
+live:
+
+- **Today**: the day as a timetable, one lane per CronJob from 00:00 to
+  24:00. Bar width is a run's duration; collection gaps and the now line
+  cut across every lane. Exceptions and what is still to come sit below.
+- **Log**: every entry, newest first, with when it occurred, was observed
+  and was recorded, and whether it is observed, derived or unknown.
+  Filters live in the link.
+- **Schedules**: every CronJob with its last 7 days, last run and next
+  expected run.
+- **Operation detail**: what a CronJob does and what is expected of it,
+  its last 7 days on one timeline each, recent runs, and a run's Job and
+  pods.
+- **System**: when each watch was watching today, failing watches,
+  storage and retention.
+
+Dark and light themes follow the system until you pick one. Times show in
+your browser's zone or UTC. The app is built into the binary; fonts and
+everything else are served by the collector itself.
+
 ## Development
 
 ```bash
+make web                     # build the UI (needs Node 22) into the binary's embed folder
 make test
 make run                     # your kubeconfig's current context, data in ./data
 make run CONTEXT=kind-dev    # another context
 ```
+
+For UI work, run `npm run dev` in `web/` next to `make run`: Vite serves
+the app with hot reload and proxies `/api` to the collector.
 
 Probes: `/healthz` (process), `/readyz` (watches synced and storage
 writable).

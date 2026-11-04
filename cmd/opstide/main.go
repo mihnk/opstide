@@ -24,6 +24,7 @@ import (
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
 	"github.com/mihnk/opstide/internal/store"
+	"github.com/mihnk/opstide/internal/webui"
 )
 
 var version = "dev"
@@ -98,6 +99,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents},
 	}, log).Register(mux)
+	mux.Handle("/", webui.Handler())
 	if err := serve(ctx, cfg.Listen, secure(mux), log); err != nil {
 		return err
 	}

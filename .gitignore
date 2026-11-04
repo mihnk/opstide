@@ -6,3 +6,5 @@
 *.db-shm
 *.db-wal
 coverage.out
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep

@@ -3,3 +3,4 @@ bin
 dist
 data
 *.db*
+web/node_modules
