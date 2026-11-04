@@ -233,6 +233,15 @@ func TestCoverageIntervals(t *testing.T) {
 	if !ivs[1].EndedAt.Equal(at(40)) || ivs[1].EndReason != "collector stopped" {
 		t.Fatalf("after restart: %+v", ivs[1])
 	}
+
+	// A process that dies before its first heartbeat claims nothing past
+	// the start of its interval.
+	update(t, s, func(w *Writer) error { return w.OpenInterval(ctx, "pods", Healthy, at(50)) })
+	update(t, s, func(w *Writer) error { _, err := w.CloseAfterRestart(ctx); return err })
+	ivs, _ = s.Coverage(ctx, at(0), at(60))
+	if last := ivs[len(ivs)-1]; last.Scope != "pods" || !last.EndedAt.Equal(at(50)) {
+		t.Fatalf("no heartbeat since: %+v", last)
+	}
 	if last, _ := s.LastWrite(ctx); !last.Equal(at(40)) {
 		t.Fatalf("last write %v", last)
 	}

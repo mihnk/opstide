@@ -14,6 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/mihnk/opstide/internal/collector"
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
 	"github.com/mihnk/opstide/internal/store"
@@ -60,11 +65,40 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	go db.Maintain(ctx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log)
 
+	kube, err := kubeConfig(cfg.Kubeconfig)
+	if err != nil {
+		return err
+	}
+	kube.UserAgent = "opstide/" + version
+	kube.QPS, kube.Burst = 20, 40
+	client, err := kubernetes.NewForConfig(kube)
+	if err != nil {
+		return err
+	}
+	col := collector.New(client, db, collector.Options{Namespaces: cfg.Namespaces, Log: log})
+	colErr := make(chan error, 1)
+	go func() { colErr <- col.Run(ctx) }()
+
 	probes := health.New()
 	probes.Add("storage", db.Writable)
+	probes.Add("watches", col.Synced)
 	mux := http.NewServeMux()
 	probes.Register(mux)
-	return serve(ctx, cfg.Listen, mux, log)
+	if err := serve(ctx, cfg.Listen, mux, log); err != nil {
+		return err
+	}
+	if err := <-colErr; err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
+// kubeConfig uses the in-cluster ServiceAccount, or path when set.
+func kubeConfig(path string) (*rest.Config, error) {
+	if path == "" {
+		return rest.InClusterConfig()
+	}
+	return clientcmd.BuildConfigFromFlags("", path)
 }
 
 // serve runs the HTTP server until ctx ends, then drains it for up to 10 s.

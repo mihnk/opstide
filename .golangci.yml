@@ -33,3 +33,7 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+      # Coverage is written with its own context on purpose (see tracker.write).
+      - path: internal/collector/(coverage|collector)\.go
+        linters:
+          - contextcheck

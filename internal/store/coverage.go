@@ -83,10 +83,11 @@ WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY scope, star
 
 // CloseAfterRestart ends every interval left open by a previous process
 // at its last heartbeat: OpsTide cannot know what happened after that.
-// It returns how many it closed.
+// An interval opened after the last heartbeat (or with none at all) ends
+// where it started. It returns how many it closed.
 func (w *Writer) CloseAfterRestart(ctx context.Context) (int, error) {
 	last, err := w.LastHeartbeat(ctx)
-	if err != nil || last.IsZero() {
+	if err != nil {
 		return 0, err
 	}
 	res, err := w.tx.ExecContext(ctx, `UPDATE coverage SET ended_at = max(started_at, ?), end_reason = 'collector stopped'
@@ -96,4 +97,12 @@ WHERE ended_at IS NULL`, ms(last).Int64)
 	}
 	n, err := res.RowsAffected()
 	return int(n), err
+}
+
+// LastIntervalEnd is when scope's most recent closed interval ended, zero
+// when it has none.
+func (w *Writer) LastIntervalEnd(ctx context.Context, scope string) (time.Time, error) {
+	var end sql.NullInt64
+	err := w.tx.QueryRowContext(ctx, `SELECT max(ended_at) FROM coverage WHERE scope = ?`, scope).Scan(&end)
+	return fromMS(end), err
 }

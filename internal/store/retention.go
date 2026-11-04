@@ -112,8 +112,9 @@ type Retention struct {
 	MaxEvents int
 }
 
-// Maintain writes the heartbeat every 15 s, checkpoints every 5 min and
-// prunes every hour (and once at start) until ctx ends.
+// Maintain writes the heartbeat at once and every 15 s, checkpoints every
+// 5 min and prunes at once and every hour until ctx ends. A crash loses at
+// most the last 15 s of coverage: it ends at the last heartbeat.
 func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) {
 	beat := time.NewTicker(15 * time.Second)
 	checkpoint := time.NewTicker(5 * time.Minute)
@@ -130,15 +131,19 @@ func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) 
 		}
 		log.Info("pruned", "events", r.Events, "runs", r.Runs, "operations", r.Operations, "intervals", r.Intervals)
 	}
+	heartbeat := func() {
+		if err := s.Update(ctx, func(w *Writer) error { return w.Heartbeat(ctx, s.now()) }); err != nil && ctx.Err() == nil {
+			log.Warn("heartbeat failed", "err", err)
+		}
+	}
+	heartbeat()
 	doPrune()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-beat.C:
-			if err := s.Update(ctx, func(w *Writer) error { return w.Heartbeat(ctx, s.now()) }); err != nil {
-				log.Warn("heartbeat failed", "err", err)
-			}
+			heartbeat()
 		case <-checkpoint.C:
 			if err := s.Checkpoint(ctx); err != nil {
 				log.Warn("checkpoint failed", "err", err)

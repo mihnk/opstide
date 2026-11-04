@@ -247,3 +247,21 @@ func nonNil[T any](s []T) []T {
 	}
 	return s
 }
+
+// ActiveRuns returns the runs last recorded as pending or running.
+func (s *Store) ActiveRuns(ctx context.Context) ([]Run, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+runCols+` FROM runs WHERE status IN ('pending', 'running') ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
