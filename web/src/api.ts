@@ -144,6 +144,7 @@ export interface OperationDetail {
   now: string
   operation: Operation
   next?: string
+  timesToday: number
   suspensions: Span[]
   days: { date: string; from: string; to: string; marks: Mark[] }[]
   gaps: Span[]

@@ -1,0 +1,6 @@
+# A one-node cluster for trying OpsTide: make demo-up, then make demo.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: opstide-demo
+nodes:
+  - role: control-plane

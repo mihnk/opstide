@@ -147,10 +147,17 @@ func attention(v opView, slots []schedule.Slot, last *Run, now time.Time) []stri
 	if v.schedErr != "" {
 		why = append(why, "schedule cannot be read")
 	}
+	dayAgo := now.Add(-24 * time.Hour)
 	if last != nil && (last.Status == string(store.RunFailed) || last.Status == string(store.RunUnknown)) {
 		why = append(why, "last run "+last.Status)
+	} else {
+		for _, r := range v.runs {
+			if r.Status == store.RunFailed && r.FinishedAt.After(dayAgo) {
+				why = append(why, "failed in the last 24 h")
+				break
+			}
+		}
 	}
-	dayAgo := now.Add(-24 * time.Hour)
 	var missed, unconfirmed int
 	for _, sl := range slots {
 		if sl.At.Before(dayAgo) {
@@ -177,11 +184,14 @@ func attention(v opView, slots []schedule.Slot, last *Run, now time.Time) []stri
 
 // OperationDetail is the Operation detail screen.
 type OperationDetail struct {
-	Schema      int       `json:"schema"`
-	TimeZone    string    `json:"timeZone"`
-	Now         time.Time `json:"now"`
-	Operation   Operation `json:"operation"`
-	Next        time.Time `json:"next,omitzero"`
+	Schema    int       `json:"schema"`
+	TimeZone  string    `json:"timeZone"`
+	Now       time.Time `json:"now"`
+	Operation Operation `json:"operation"`
+	Next      time.Time `json:"next,omitzero"`
+	// TimesToday is how many times the schedule fires today, in the
+	// reader's zone; 0 when it cannot be read.
+	TimesToday  int       `json:"timesToday"`
 	Suspensions []Span    `json:"suspensions"` // To is zero while still suspended
 	Days        []DayLane `json:"days"`        // the last 7 days, oldest first
 	Gaps        []Span    `json:"gaps"`        // when its Jobs were not watched in those days
@@ -243,6 +253,10 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 	if v.sched != nil && !op.Suspend && op.DeletedAt.IsZero() {
 		out.Next = v.sched.Next(now)
 	}
+	if v.sched != nil {
+		times, _ := v.sched.Between(todayFrom, todayTo)
+		out.TimesToday = len(times)
+	}
 	for _, w := range v.susp {
 		out.Suspensions = append(out.Suspensions, Span{w.Start, w.End})
 	}
@@ -255,7 +269,12 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 	if now.Before(end) {
 		end = now
 	}
-	out.Gaps = cov.jobGaps([]string{op.Namespace}, from, end)
+	// Before the CronJob existed nothing was expected of it, watched or not.
+	gapFrom := from
+	if op.CreatedAt.After(gapFrom) {
+		gapFrom = op.CreatedAt
+	}
+	out.Gaps = cov.jobGaps([]string{op.Namespace}, gapFrom, end)
 	if out.Gaps == nil {
 		out.Gaps = []Span{}
 	}

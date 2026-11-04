@@ -155,7 +155,8 @@ func TestDay(t *testing.T) {
 			}
 		}
 	}
-	if failed != 1 || slowOrRunning != 1 || len(d.Lanes[0].Marks) != 48 {
+	// 21 runs, then the 27 expected times still to come as one mark.
+	if failed != 1 || slowOrRunning != 1 || len(d.Lanes[0].Marks) != 22 || d.Lanes[0].Marks[21].Count != 27 {
 		t.Fatalf("marks: failed %d running %d total %d", failed, slowOrRunning, len(d.Lanes[0].Marks))
 	}
 	if m := d.Lanes[1].Marks; len(m) != 1 || m[0].State != "unconfirmed" || !m[0].Start.Equal(local(3, 12)) {
@@ -208,7 +209,8 @@ func TestOperations(t *testing.T) {
 	if recon.Week[6].State != "failed" || recon.Week[6].Runs != 21 || recon.Week[0].State != "missed" {
 		t.Fatalf("recon week %+v", recon.Week)
 	}
-	if recon.LastRun == nil || recon.LastRun.Status != "running" || !recon.Next.Equal(local(10, 30)) || recon.ExpectedSeconds != 240 {
+	if recon.LastRun == nil || recon.LastRun.Status != "running" || !recon.Next.Equal(local(10, 30)) || recon.ExpectedSeconds != 240 ||
+		len(recon.Attention) == 0 || recon.Attention[0] != "failed in the last 24 h" {
 		t.Fatalf("recon %+v", recon)
 	}
 	if inv := rows["inv"]; inv.Week[6].State != "unconfirmed" || len(inv.Attention) == 0 {
@@ -225,7 +227,7 @@ func TestOperationDetailAndRun(t *testing.T) {
 	if code := get(t, srv, "/api/v1/operations/recon?tz=Europe/Istanbul&runs=5", &d); code != 200 {
 		t.Fatal(code)
 	}
-	if len(d.Days) != 7 || len(d.Days[6].Marks) != 48 || len(d.Runs) != 5 || !d.MoreRuns || d.Runs[0].ID != "r1000" ||
+	if len(d.Days) != 7 || len(d.Days[6].Marks) != 22 || d.TimesToday != 48 || len(d.Runs) != 5 || !d.MoreRuns || d.Runs[0].ID != "r1000" ||
 		len(d.Gaps) != 1 || d.Operation.Concurrency != "Forbid" || !d.Next.Equal(local(10, 30)) {
 		t.Fatalf("detail: days %d marks %d runs %d first %s more %v gaps %+v next %v", len(d.Days), len(d.Days[6].Marks), len(d.Runs), d.Runs[0].ID, d.MoreRuns, d.Gaps, d.Next)
 	}

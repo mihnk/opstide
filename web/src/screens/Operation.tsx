@@ -17,7 +17,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
   const last = data.runs[0]
   const perDay = data.runs.length ? data.runs : []
   const expected = op.expectedSeconds ? duration(op.expectedSeconds) : ''
-  const runsPerDay = data.days[0]?.marks.length
+  const runsPerDay = data.timesToday
   const today = isoDate(data.now, tz)
 
   return (
@@ -68,7 +68,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           <h2 className="label section-title">What is expected</h2>
           <p style={{ margin: 0, fontSize: 16, lineHeight: 1.5 }}>
             {op.scheduleError ? 'The schedule cannot be read: ' + op.scheduleError : (
-              <>{runsPerDay ? `${runsPerDay} expected time${runsPerDay === 1 ? '' : 's'} a day` : 'Runs on some days'}{expected ? <>, each done in <b>up to {expected}</b></> : ''}.</>
+              <>{runsPerDay ? `${runsPerDay} expected time${runsPerDay === 1 ? '' : 's'} today` : 'Nothing expected today'}{expected ? <>, each done in <b>up to {expected}</b></> : ''}.</>
             )}
           </p>
           <dl className="facts">
@@ -89,7 +89,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           lanes={data.days.map((d) => {
             const ok = d.marks.filter((m) => m.state === 'succeeded').length
             const failed = d.marks.filter((m) => m.state === 'failed').length
-            const slow = d.marks.filter((m) => m.slow).length
+            const slow = d.marks.filter((m) => m.slow && m.state !== 'failed').length
             const sum = [ok && `${ok} ok`, failed && `${failed} failed`, slow && `${slow} slow`].filter(Boolean).join(' · ') || '—'
             return { key: d.date, name: shortDay(d.from, tz), meta: sum, from: d.from, to: d.to, marks: d.marks, emphasis: d.date === today }
           })}

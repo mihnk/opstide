@@ -243,9 +243,9 @@ func (v opView) slots(cov *coverage, from, to, now time.Time) ([]schedule.Slot, 
 	return schedule.Slots(v.sched, so, toSlotRuns(v.runs), cov.covered(v.op.Namespace), from, to, now)
 }
 
-// mergeExpectedAbove: lanes with more expected times than this show the
-// rest of the day's expected runs as one mark.
-const mergeExpectedAbove = 96
+// mergeExpectedAbove: a lane with more expected (future) times than this
+// shows each stretch of them as one mark.
+const mergeExpectedAbove = 24
 
 // marks lays out the operation's [from, to): its runs at their times and
 // the expected times that did not become runs.
@@ -277,7 +277,13 @@ func (v opView) marks(slots []schedule.Slot, from, to, now time.Time) []Mark {
 		out = append(out, v.runMark(r, now))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
-	if len(slots) > mergeExpectedAbove {
+	expected := 0
+	for _, m := range out {
+		if m.State == "expected" {
+			expected++
+		}
+	}
+	if expected > mergeExpectedAbove {
 		out = mergeExpected(out)
 	}
 	return out

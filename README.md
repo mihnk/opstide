@@ -74,6 +74,21 @@ Dark and light themes follow the system until you pick one. Times show in
 your browser's zone or UTC. The app is built into the binary; fonts and
 everything else are served by the collector itself.
 
+## Try it on kind
+
+```bash
+make demo-up      # kind cluster "opstide-demo" with demo CronJobs (needs Docker and kind)
+make demo         # OpsTide against it; open http://127.0.0.1:8080
+make demo-rollout # a Deployment rollout to see on Today
+make demo-down    # delete the cluster
+```
+
+The demo CronJobs run every 2–5 minutes, so the screens fill within a
+quarter of an hour: payment reconciliation fails every tenth minute,
+inventory sync sometimes runs long, one CronJob is suspended and one has
+no description. They only sleep and exit. Stop `make demo` for a few
+minutes and start it again to see a collection gap.
+
 ## Development
 
 ```bash
