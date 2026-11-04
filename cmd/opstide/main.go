@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,6 +45,18 @@ func main() {
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces)
 
+	kube, where, err := kubeConfig(cfg.Kubeconfig, cfg.Context)
+	if err != nil {
+		return err
+	}
+	log.Info("kubernetes", "context", where, "server", kube.Host)
+	kube.UserAgent = "opstide/" + version
+	kube.QPS, kube.Burst = 20, 40
+	client, err := kubernetes.NewForConfig(kube)
+	if err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return err
 	}
@@ -63,18 +76,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}); err != nil {
 		return err
 	}
-	go db.Maintain(ctx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log)
+	// Maintenance stops, and is waited for, before the store closes.
+	maintCtx, stopMaint := context.WithCancel(ctx)
+	var maint sync.WaitGroup
+	maint.Go(func() { db.Maintain(maintCtx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log) })
+	defer maint.Wait()
+	defer stopMaint()
 
-	kube, err := kubeConfig(cfg.Kubeconfig)
-	if err != nil {
-		return err
-	}
-	kube.UserAgent = "opstide/" + version
-	kube.QPS, kube.Burst = 20, 40
-	client, err := kubernetes.NewForConfig(kube)
-	if err != nil {
-		return err
-	}
 	col := collector.New(client, db, collector.Options{Namespaces: cfg.Namespaces, Log: log})
 	colErr := make(chan error, 1)
 	go func() { colErr <- col.Run(ctx) }()
@@ -93,12 +101,38 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	return nil
 }
 
-// kubeConfig uses the in-cluster ServiceAccount, or path when set.
-func kubeConfig(path string) (*rest.Config, error) {
-	if path == "" {
-		return rest.InClusterConfig()
+// kubeConfig returns the API client configuration and a name for where it
+// came from. With neither paths nor context it uses the in-cluster
+// ServiceAccount. Otherwise it loads kubeconfig files as kubectl does:
+// paths is a list separated like KUBECONFIG (missing files are skipped),
+// falling back to $KUBECONFIG and ~/.kube/config when empty; context
+// overrides the current context.
+func kubeConfig(paths, context string) (*rest.Config, string, error) {
+	if paths == "" && context == "" {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, "", fmt.Errorf("not running in a cluster (%w); pass -kubeconfig or -context to run outside one", err)
+		}
+		return cfg, "in-cluster", nil
 	}
-	return clientcmd.BuildConfigFromFlags("", path)
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if paths != "" {
+		rules.Precedence = filepath.SplitList(paths)
+	}
+	cc := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{CurrentContext: context})
+	raw, err := cc.RawConfig()
+	if err != nil {
+		return nil, "", err
+	}
+	name := context
+	if name == "" {
+		name = raw.CurrentContext
+	}
+	cfg, err := cc.ClientConfig()
+	if err != nil {
+		return nil, "", err
+	}
+	return cfg, name, nil
 }
 
 // serve runs the HTTP server until ctx ends, then drains it for up to 10 s.

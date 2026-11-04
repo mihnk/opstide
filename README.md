@@ -54,7 +54,8 @@ GitOps. OpsTide only reads them.
 
 ```bash
 make test
-make run        # uses your current kubeconfig context, stores data in ./data
+make run                     # your kubeconfig's current context, data in ./data
+make run CONTEXT=kind-dev    # another context
 ```
 
 Probes: `/healthz` (process), `/readyz` (watches synced and storage

@@ -126,7 +126,9 @@ func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) 
 	doPrune := func() {
 		r, err := s.Prune(ctx, s.now().AddDate(0, 0, -keep.Days), keep.MaxEvents)
 		if err != nil {
-			log.Warn("prune failed", "err", err)
+			if ctx.Err() == nil {
+				log.Warn("prune failed", "err", err)
+			}
 			return
 		}
 		log.Info("pruned", "events", r.Events, "runs", r.Runs, "operations", r.Operations, "intervals", r.Intervals)
@@ -145,7 +147,7 @@ func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) 
 		case <-beat.C:
 			heartbeat()
 		case <-checkpoint.C:
-			if err := s.Checkpoint(ctx); err != nil {
+			if err := s.Checkpoint(ctx); err != nil && ctx.Err() == nil {
 				log.Warn("checkpoint failed", "err", err)
 			}
 		case <-prune.C:

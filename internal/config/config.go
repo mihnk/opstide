@@ -27,9 +27,12 @@ type Config struct {
 	// first prunes the oldest entries.
 	RetentionDays int
 	MaxEvents     int
-	// Kubeconfig is for running outside the cluster during development.
-	// Empty means the in-cluster ServiceAccount.
+	// Kubeconfig and Context are for running outside the cluster during
+	// development. Kubeconfig may list several files separated like
+	// KUBECONFIG; they are merged as kubectl merges them. Both empty means
+	// the in-cluster ServiceAccount.
 	Kubeconfig string
+	Context    string
 	LogLevel   slog.Level
 }
 
@@ -71,7 +74,8 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&c.Cluster, "cluster", env("CLUSTER", "cluster"), "cluster name shown in the UI (OPSTIDE_CLUSTER)")
 	fs.IntVar(&c.RetentionDays, "retention-days", retention, "days of history to keep (OPSTIDE_RETENTION_DAYS)")
 	fs.IntVar(&c.MaxEvents, "max-events", maxEvents, "most log entries to keep (OPSTIDE_MAX_EVENTS)")
-	fs.StringVar(&c.Kubeconfig, "kubeconfig", env("KUBECONFIG", ""), "kubeconfig for running outside the cluster (OPSTIDE_KUBECONFIG)")
+	fs.StringVar(&c.Kubeconfig, "kubeconfig", env("KUBECONFIG", ""), "kubeconfig file(s), separated like KUBECONFIG, for running outside the cluster (OPSTIDE_KUBECONFIG)")
+	fs.StringVar(&c.Context, "context", env("CONTEXT", ""), "kubeconfig context to use; empty uses its current context (OPSTIDE_CONTEXT)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err

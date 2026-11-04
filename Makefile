@@ -12,9 +12,11 @@ lint:
 	test -z "$$(gofmt -l .)"
 	golangci-lint run
 
-# Runs against the current kubeconfig context, storing data in ./data.
+# Runs against your kubeconfig (all files in KUBECONFIG, merged like
+# kubectl) and its current context, or CONTEXT=name. Data goes to ./data.
+# OpsTide only reads from the cluster.
 run:
-	go run ./cmd/opstide -kubeconfig "$${KUBECONFIG:-$$HOME/.kube/config}" -data-dir ./data -listen 127.0.0.1:8080
+	go run ./cmd/opstide -kubeconfig "$${KUBECONFIG:-$$HOME/.kube/config}" $(if $(CONTEXT),-context "$(CONTEXT)") -data-dir ./data -listen 127.0.0.1:8080
 
 image:
 	docker build --build-arg VERSION=$(VERSION) -t opstide:$(VERSION) .
