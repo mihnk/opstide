@@ -1,0 +1,35 @@
+# Static analysis: golangci-lint v2 (CI pins the version). Zero findings is
+# the bar; a deliberate exception is suppressed on its line with
+# //nolint:<linter> // <reason>.
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - contextcheck
+    - gosec
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+    gosec:
+      excludes:
+        # Unchecked errors: errcheck reports them.
+        - G104
+        # Integer conversions here are of counts and durations far below the limits.
+        - G115
+  exclusions:
+    presets:
+      # Unchecked Close and similar where the error changes nothing the caller can act on.
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
