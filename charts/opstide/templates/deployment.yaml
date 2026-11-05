@@ -17,9 +17,15 @@ spec:
       labels:
         {{- /* the selector labels win over podLabels */}}
         {{- toYaml (merge (dict "app.kubernetes.io/name" (include "opstide.name" .) "app.kubernetes.io/instance" .Release.Name) (.Values.podLabels | default dict)) | nindent 8 }}
-      {{- with .Values.podAnnotations }}
+      {{- if or .Values.podAnnotations .Values.auth.enabled }}
       annotations:
+        {{- if .Values.auth.enabled }}
+        {{- /* The token is read at start: a changed Secret restarts the pod. */}}
+        checksum/token: {{ include "opstide.tokenChecksum" . }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       serviceAccountName: {{ include "opstide.serviceAccountName" . }}
@@ -52,6 +58,10 @@ spec:
               value: {{ .Values.retention.maxEntries | int64 | quote }}
             - name: OPSTIDE_LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: OPSTIDE_TOKEN_FILE
+              value: /etc/opstide/token
+            {{- end }}
             # SQLite may write temporary files; the root filesystem is read-only.
             - name: TMPDIR
               value: /tmp
@@ -89,6 +99,11 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.auth.enabled }}
+            - name: auth
+              mountPath: /etc/opstide
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -100,6 +115,15 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if .Values.auth.enabled }}
+        - name: auth
+          secret:
+            secretName: {{ include "opstide.authSecretName" . }}
+            defaultMode: 0444
+            items:
+              - key: token
+                path: token
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

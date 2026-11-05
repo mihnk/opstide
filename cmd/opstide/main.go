@@ -20,9 +20,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/mihnk/opstide/internal/api"
+	"github.com/mihnk/opstide/internal/auth"
 	"github.com/mihnk/opstide/internal/collector"
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
+	"github.com/mihnk/opstide/internal/metrics"
 	"github.com/mihnk/opstide/internal/store"
 	"github.com/mihnk/opstide/internal/webui"
 )
@@ -93,14 +95,26 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	probes := health.New()
 	probes.Add("storage", db.Writable)
 	probes.Add("watches", col.Synced)
+	token, err := auth.LoadToken(cfg.TokenFile, cfg.Token)
+	if err != nil {
+		return err
+	}
+	guard := auth.New(token)
+	if !guard.Enabled() && !loopback(cfg.Listen) {
+		log.Warn("no token is set and the address is not loopback: anyone who can reach it can read the record; set -token-file or put an authenticating proxy in front", "listen", cfg.Listen)
+	}
+	reg := &metrics.Registry{}
+	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started))
 	mux := http.NewServeMux()
 	probes.Register(mux)
+	guard.Register(mux)
+	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
 		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents},
 	}, log).Register(mux)
 	mux.Handle("/", webui.Handler())
-	if err := serve(ctx, cfg.Listen, secure(mux), log); err != nil {
+	if err := serve(ctx, cfg.Listen, secure(reg.Instrument(guard.Middleware(mux))), log); err != nil {
 		return err
 	}
 	if err := <-colErr; err != nil && !errors.Is(err, context.Canceled) {
@@ -141,6 +155,19 @@ func kubeConfig(paths, context string) (*rest.Config, string, error) {
 		return nil, "", err
 	}
 	return cfg, name, nil
+}
+
+// loopback reports whether addr only accepts connections from this machine.
+func loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // secure adds headers every response carries: no sniffing, no framing,

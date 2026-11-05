@@ -5,6 +5,7 @@ import './styles.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import { AuthGate } from './auth'
 import { LiveProvider } from './live'
 import { applyTheme, savedTheme, systemTheme } from './prefs'
 
@@ -16,8 +17,10 @@ window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <LiveProvider>
-      <App />
-    </LiveProvider>
+    <AuthGate>
+      <LiveProvider>
+        <App />
+      </LiveProvider>
+    </AuthGate>
   </StrictMode>,
 )

@@ -5,6 +5,19 @@ Open it:
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opstide.fullname" . }} 8080:{{ .Values.service.port }}
   open http://127.0.0.1:8080
 
+{{- if .Values.auth.enabled }}
+
+OpsTide asks for a token. Read it:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "opstide.authSecretName" . }} -o jsonpath='{.data.token}' | base64 -d; echo
+{{- end }}
+
+{{- if and .Values.networkPolicy.enabled .Values.serviceMonitor.enabled }}
+
+NOTE: networkPolicy only lets in pods from {{ .Release.Namespace }} (and networkPolicy.ingressFrom). Add
+your Prometheus's namespace to networkPolicy.ingressFrom or /metrics is blocked.
+{{- end }}
+
 Everything before this first start shows as a collection gap: OpsTide
 records only what it saw.
 {{- if not .Values.persistence.enabled }}
@@ -23,9 +36,14 @@ NOTE: on Cilium with a self-managed control plane the NetworkPolicy may
 block the Kubernetes API (ipBlock does not match node addresses there). If
 /readyz never turns ok, see networkPolicy in values.yaml.
 {{- end }}
-{{- if .Values.ingress.enabled }}
+{{- if and .Values.ingress.enabled (not .Values.auth.enabled) }}
 
-NOTE: OpsTide has no login of its own. Make sure the ingress only lets in
+NOTE: auth.enabled is false, so OpsTide has no login. Make sure the ingress only lets in
 people who should see this cluster's operations (an OIDC proxy, an
 internal-only ingress class).
+{{- end }}
+{{- if and .Values.serviceMonitor.enabled .Values.auth.enabled .Values.serviceMonitor.namespace (ne .Values.serviceMonitor.namespace .Release.Namespace) }}
+
+NOTE: the ServiceMonitor is in {{ .Values.serviceMonitor.namespace }} and reads the token from the Secret
+named {{ include "opstide.authSecretName" . }} there. Copy the Secret into that namespace.
 {{- end }}

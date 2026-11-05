@@ -60,6 +60,8 @@ type Collector struct {
 	scopes      map[string]*scope // by namespace; "" when cluster-wide
 	informers   []cache.SharedIndexInformer
 	synced      atomic.Bool
+
+	processed, failed atomic.Uint64
 }
 
 type scope struct {
@@ -235,6 +237,26 @@ func (c *Collector) Synced(context.Context) error {
 	return errors.New("watches not synced yet")
 }
 
+// Stats is a snapshot of the collector's own work.
+type Stats struct {
+	Synced bool
+	// Processed counts objects written to the record; Failed counts tries
+	// that failed (an object retried three times counts three).
+	Processed, Failed uint64
+	// Queued is how many objects wait to be written.
+	Queued int
+	// Failing is how many scopes cannot be watched right now.
+	Failing int
+}
+
+// Stats returns the collector's counters.
+func (c *Collector) Stats() Stats {
+	return Stats{
+		Synced: c.synced.Load(), Processed: c.processed.Load(), Failed: c.failed.Load(),
+		Queued: c.queue.Len(), Failing: len(c.cov.problems()),
+	}
+}
+
 // Problems lists the scopes that cannot be watched right now, with why.
 func (c *Collector) Problems() []Problem { return c.cov.problems() }
 
@@ -283,11 +305,14 @@ func (c *Collector) next(ctx context.Context) bool {
 	}
 	switch {
 	case err == nil:
+		c.processed.Add(1)
 		c.queue.Forget(it)
 	case ctx.Err() != nil:
 	case c.queue.NumRequeues(it) < 8:
+		c.failed.Add(1)
 		c.queue.AddRateLimited(it)
 	default:
+		c.failed.Add(1)
 		c.log.Error("giving up on an object", "kind", it.kind, "namespace", it.namespace, "name", it.name, "err", err)
 		c.queue.Forget(it)
 	}

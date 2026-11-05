@@ -236,10 +236,15 @@ export async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T>
     } catch {
       // not JSON; keep the status line
     }
+    // The session ended or the token changed: let the app ask for it again.
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED))
     throw new ApiError(res.status, msg)
   }
   return (await res.json()) as T
 }
+
+/** Fired on the window when the API answers 401. */
+export const UNAUTHORIZED = 'opstide:unauthorized'
 
 export function query(params: Record<string, string | number | undefined | null>): string {
   const q = new URLSearchParams()

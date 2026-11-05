@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useAuth } from '../auth'
 import { useLive } from '../live'
 import { savedTheme, saveTheme, systemTheme, type Theme } from '../prefs'
 import { Link } from '../router'
@@ -13,6 +14,7 @@ const sections = [
 
 export function Shell({ path, cluster, children }: { path: string; cluster?: string; children: ReactNode }) {
   const live = useLive()
+  const auth = useAuth()
   const [theme, setTheme] = useState<Theme>(() => savedTheme() ?? systemTheme())
   const other: Theme = theme === 'dark' ? 'light' : 'dark'
 
@@ -50,6 +52,7 @@ export function Shell({ path, cluster, children }: { path: string; cluster?: str
           }}>
           {other === 'light' ? 'Light' : 'Dark'}
         </button>
+        {auth.required && <button type="button" className="theme-toggle" onClick={auth.logout}>Sign out</button>}
       </header>
       <main>{children}</main>
     </>

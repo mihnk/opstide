@@ -46,9 +46,31 @@ service:
   port: 80
   annotations: {}
 
-# OpsTide has no login of its own. Expose it only behind something that
-# authenticates (an OIDC proxy, an internal-only ingress, a VPN). The
-# default is no ingress: use kubectl port-forward.
+# The API and /metrics ask for one shared token (Authorization: Bearer ...);
+# the web page asks for it once and keeps a session cookie. The probes stay
+# open. The token is a random Secret made on install and kept on upgrade and
+# uninstall. Read it:
+#   kubectl -n <ns> get secret <fullname>-auth -o jsonpath='{.data.token}' | base64 -d
+auth:
+  enabled: true
+  # Use your own Secret (key "token") instead of a generated one. Needed with
+  # Argo CD and other tools that render with `helm template`: they cannot look
+  # up the Secret and would make a new token on every sync. The token is read
+  # at start; changing the Secret restarts the pod (a checksum annotation).
+  existingSecret: ""
+
+# Needs the Prometheus Operator's CRDs. With auth on, it scrapes with the
+# token from the Secret, which must then be in serviceMonitor.namespace.
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  # Labels your Prometheus selects ServiceMonitors by (e.g. release: kube-prometheus-stack).
+  labels: {}
+
+# With auth on, the ingress shows a login page of its own. The default is no
+# ingress: use kubectl port-forward.
 ingress:
   enabled: false
   className: ""

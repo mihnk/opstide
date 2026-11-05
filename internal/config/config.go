@@ -34,6 +34,10 @@ type Config struct {
 	Kubeconfig string
 	Context    string
 	LogLevel   slog.Level
+	// TokenFile is a file holding the shared token (a mounted Secret); Token
+	// is the same token from the environment. Both empty turns the login off.
+	TokenFile string
+	Token     string
 }
 
 // Load parses args, using getenv for defaults (os.Getenv in main).
@@ -76,6 +80,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.IntVar(&c.MaxEvents, "max-events", maxEvents, "most log entries to keep (OPSTIDE_MAX_EVENTS)")
 	fs.StringVar(&c.Kubeconfig, "kubeconfig", env("KUBECONFIG", ""), "kubeconfig file(s), separated like KUBECONFIG, for running outside the cluster (OPSTIDE_KUBECONFIG)")
 	fs.StringVar(&c.Context, "context", env("CONTEXT", ""), "kubeconfig context to use; empty uses its current context (OPSTIDE_CONTEXT)")
+	fs.StringVar(&c.TokenFile, "token-file", env("TOKEN_FILE", ""), "file holding the token that protects the API; empty means no login (OPSTIDE_TOKEN_FILE)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -84,6 +89,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
 
+	c.Token = getenv("OPSTIDE_TOKEN")
 	for _, ns := range strings.Split(namespaces, ",") {
 		if ns = strings.TrimSpace(ns); ns != "" {
 			c.Namespaces = append(c.Namespaces, ns)

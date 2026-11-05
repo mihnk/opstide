@@ -50,3 +50,23 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
   resources: [deployments]
   verbs: [list, watch]
 {{- end -}}
+
+{{/* Name of the Secret that holds the token. */}}
+{{- define "opstide.authSecretName" -}}
+{{- default (printf "%s-auth" (include "opstide.fullname" .)) .Values.auth.existingSecret -}}
+{{- end }}
+
+{{/*
+Fingerprint of the token, for the pod annotation, so a changed token restarts the pod (it is read
+at start). Only for your own Secret: a generated one never changes, and an annotation that changed
+after the first upgrade would restart the pod, which is a gap in the record, for nothing.
+`helm template` cannot look the Secret up and gets a fixed value.
+*/}}
+{{- define "opstide.tokenChecksum" -}}
+{{- $s := lookup "v1" "Secret" .Release.Namespace (include "opstide.authSecretName" .) -}}
+{{- if and .Values.auth.existingSecret $s $s.data (hasKey $s.data "token") -}}
+{{- index $s.data "token" | sha256sum -}}
+{{- else -}}
+{{- "generated-or-unknown" | sha256sum -}}
+{{- end -}}
+{{- end }}

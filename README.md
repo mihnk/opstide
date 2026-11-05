@@ -79,14 +79,32 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
 | `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
+| `auth.enabled`, `auth.existingSecret` | The token that protects the API and the UI (on by default; see below) |
+| `serviceMonitor.enabled` | A Prometheus Operator ServiceMonitor for `/metrics` |
 | `networkPolicy.enabled` | Only the UI port in; out only DNS and the Kubernetes API's ports. Set `networkPolicy.apiServer.cidrs` to your API server's address to limit the destination too. Not for Cilium with a self-managed control plane (see values.yaml) |
 | `ingress.enabled` | Off by default |
 
 Two things to know:
 
-- **OpsTide has no login.** Put it behind something that authenticates (an
-  OIDC proxy, an internal-only ingress, a VPN), or use `kubectl
-  port-forward`. Network isolation is not authorization.
+- **OpsTide asks for one shared token.** There are no user accounts: whoever
+  holds the token can read the record. Read it from the cluster and paste it
+  into the sign-in page, or send it as `Authorization: Bearer <token>`:
+
+  ```bash
+  kubectl -n opstide get secret opstide-auth -o jsonpath='{.data.token}' | base64 -d; echo
+  ```
+
+  The chart makes a random token on install and keeps it through upgrades
+  and uninstalls. With Argo CD or anything else that renders with `helm
+  template`, create the Secret yourself (key `token`) and set
+  `auth.existingSecret`; otherwise every sync makes a new token. The token (at
+  least 16 bytes) is read at start: a change through `helm upgrade` restarts
+  the pod by itself, one made to the Secret directly needs `kubectl rollout
+  restart`. Either signs everyone out, and a session is also refused by the
+  server after 30 days. Wrong tokens are slowed down per address (five, then
+  one every 10 s); correct ones never are. A token is not a login system: for people-by-name access put an
+  OIDC proxy in front. `auth.enabled=false` turns it off. Network isolation is
+  not authorization.
 - **Uninstalling keeps the volume**, so the record survives a reinstall.
   Delete the PersistentVolumeClaim yourself to drop it.
 
@@ -157,7 +175,29 @@ For UI work, run `npm run dev` in `web/` next to `make run`: Vite serves
 the app with hot reload and proxies `/api` to the collector.
 
 Probes: `/healthz` (process), `/readyz` (watches synced and storage
-writable).
+writable). They, the page and its scripts need no token; everything else does
+when one is set (`-token-file`, or `OPSTIDE_TOKEN` for a quick try). Listening
+on a non-loopback address without one logs a warning.
+
+## Metrics
+
+`/metrics` (Prometheus text format, behind the token) describes OpsTide itself,
+not your cluster: `opstide_ready`, `opstide_last_heartbeat_timestamp_seconds`
+(far behind now means it is stuck), `opstide_watches_failing`,
+`opstide_collector_items_total`, `opstide_collector_failures_total`,
+`opstide_collector_queue_length`, `opstide_store_events`,
+`opstide_store_bytes`, `opstide_store_wal_bytes`,
+`opstide_store_oldest_event_timestamp_seconds`, `opstide_build_info` and
+`opstide_http_requests_total` by kind of request and status code. A scrape
+config with the token:
+
+```yaml
+- job_name: opstide
+  authorization: { credentials_file: /etc/prometheus/opstide-token }
+  static_configs: [{ targets: ['opstide.opstide.svc:80'] }]
+```
+
+With the Operator, `--set serviceMonitor.enabled=true`.
 
 ## Read API
 

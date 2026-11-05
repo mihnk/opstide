@@ -1,0 +1,21 @@
+{{- if and .Values.auth.enabled (not .Values.auth.existingSecret) }}
+{{- /*
+The token is made once and kept: an upgrade finds the Secret and reuses what is in it.
+`helm template` and tools built on it (Argo CD, Flux without post-render) cannot look the
+cluster up, so they would make a new token on every sync. There, set auth.existingSecret.
+*/}}
+{{- $name := include "opstide.authSecretName" . }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+  annotations:
+    # Like the volume: uninstalling keeps the token, so a reinstall does not sign everyone out.
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  token: {{ if and $existing $existing.data (hasKey $existing.data "token") }}{{ index $existing.data "token" }}{{ else }}{{ randAlphaNum 40 | b64enc }}{{ end }}
+{{- end }}

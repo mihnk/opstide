@@ -46,3 +46,24 @@ func TestRejectsBadValues(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenSettings(t *testing.T) {
+	c, err := Load([]string{"-token-file", "/etc/opstide/token"}, func(k string) string {
+		if k == "OPSTIDE_TOKEN" {
+			return "from-env"
+		}
+		return ""
+	})
+	if err != nil || c.TokenFile != "/etc/opstide/token" || c.Token != "from-env" {
+		t.Fatalf("%+v %v", c, err)
+	}
+	c, err = Load(nil, func(k string) string {
+		if k == "OPSTIDE_TOKEN_FILE" {
+			return "/t"
+		}
+		return ""
+	})
+	if err != nil || c.TokenFile != "/t" || c.Token != "" {
+		t.Fatalf("%+v %v", c, err)
+	}
+}

@@ -48,6 +48,23 @@
         }
       }
     },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingSecret": { "type": "string", "description": "A Secret in the release namespace with the token under the key \"token\"." }
+      }
+    },
+    "serviceMonitor": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespace": { "type": "string" },
+        "interval": { "type": "string", "minLength": 1 },
+        "scrapeTimeout": { "type": "string", "minLength": 1 },
+        "labels": { "type": "object" }
+      }
+    },
     "ingress": {
       "type": "object",
       "properties": { "enabled": { "type": "boolean" } }

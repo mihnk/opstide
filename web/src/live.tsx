@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { getJSON } from './api'
+import { getJSON, UNAUTHORIZED } from './api'
 
 // Live state from /api/v1/stream: a version that changes whenever the
 // record does (pages refetch on it), the last write and whether the
@@ -34,7 +34,19 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(debounce.current)
       debounce.current = window.setTimeout(() => setLive((l) => ({ ...l, version: l.version + 1 })), 600)
     })
-    es.onerror = () => setLive((l) => ({ ...l, connected: false }))
+    es.onerror = () => {
+      setLive((l) => ({ ...l, connected: false }))
+      // EventSource gives up for good on a 401 (the token changed): find out
+      // whether that is why, so the sign-in form can come back.
+      if (es.readyState === EventSource.CLOSED) {
+        fetch('/api/v1/session', { headers: { Accept: 'application/json' } })
+          .then((r) => (r.ok ? (r.json() as Promise<{ authRequired: boolean; authenticated: boolean }>) : undefined))
+          .then((s) => {
+            if (s?.authRequired && !s.authenticated) window.dispatchEvent(new Event(UNAUTHORIZED))
+          })
+          .catch(() => {})
+      }
+    }
     return () => {
       window.clearTimeout(debounce.current)
       es.close()
