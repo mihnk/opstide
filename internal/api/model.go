@@ -20,6 +20,9 @@ type Span struct {
 // intervals ending now.
 type coverage struct {
 	byScope map[string][]Span
+	// first is when each Jobs scope was first watched, from the whole record:
+	// an outage that began before the loaded stretch must still be a gap.
+	first map[string]time.Time
 }
 
 func loadCoverage(ctx context.Context, db *store.Store, from, to, now time.Time) (*coverage, error) {
@@ -28,6 +31,11 @@ func loadCoverage(ctx context.Context, db *store.Store, from, to, now time.Time)
 		return nil, err
 	}
 	c := &coverage{byScope: map[string][]Span{}}
+	first, err := db.FirstWatchedByScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.first = first
 	for _, iv := range ivs {
 		end := iv.EndedAt
 		if end.IsZero() {
@@ -98,14 +106,35 @@ func gaps(spans []Span, from, to time.Time) []Span {
 	return out
 }
 
-// jobGaps is when Jobs in any of namespaces were not watched.
+// firstWatched is when Jobs in ns were first watched (cluster-wide or in ns,
+// whichever was first); zero when they never were.
+func (c *coverage) firstWatched(ns string) time.Time {
+	first := c.first["jobs"]
+	if t := c.first["jobs/"+ns]; !t.IsZero() && (first.IsZero() || t.Before(first)) {
+		first = t
+	}
+	return first
+}
+
+// jobGaps is when Jobs in any of namespaces were not watched, after they
+// were first watched. Time before that is not a gap: OpsTide had not
+// started, and says nothing about it.
 func (c *coverage) jobGaps(namespaces []string, from, to time.Time) []Span {
 	if !from.Before(to) {
 		return nil
 	}
 	var all []Span
 	for _, ns := range namespaces {
-		all = append(all, gaps(c.jobs(ns), from, to)...)
+		first := c.firstWatched(ns)
+		if first.IsZero() {
+			continue
+		}
+		f := from
+		if first.After(f) {
+			f = first
+		}
+		// The loaded intervals may all start after f: then f up to the first is a gap.
+		all = append(all, gaps(c.jobs(ns), f, to)...)
 	}
 	return merge(all)
 }
@@ -234,9 +263,19 @@ func toSlotRuns(runs []store.Run) []schedule.Run {
 	return out
 }
 
+// slots classifies the expected times in [from, to). Time before Jobs in
+// the operation's namespace were first watched is not judged: no run is
+// "expected" of a time OpsTide did not see, and nothing there is a gap.
 func (v opView) slots(cov *coverage, from, to, now time.Time) ([]schedule.Slot, bool) {
 	if v.sched == nil {
 		return nil, false
+	}
+	first := cov.firstWatched(v.op.Namespace)
+	if first.IsZero() {
+		return nil, false
+	}
+	if first.After(from) {
+		from = first
 	}
 	so := schedule.Operation{CreatedAt: v.op.CreatedAt, DeletedAt: v.op.DeletedAt, ConcurrencyPolicy: v.op.ConcurrencyPolicy,
 		StartingDeadline: v.op.StartingDeadline, Suspensions: v.susp}
@@ -257,6 +296,9 @@ func (v opView) marks(slots []schedule.Slot, from, to, now time.Time) []Mark {
 	used := map[string]bool{}
 	var out []Mark
 	for _, sl := range slots {
+		if sl.State == schedule.Unconfirmed {
+			continue // drawn as a gap across the lanes, not as a mark of its own
+		}
 		if sl.State == schedule.Ran {
 			if r, ok := byID[sl.RunID]; ok {
 				used[r.ID] = true

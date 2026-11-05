@@ -219,20 +219,26 @@ func (s *Store) Run(ctx context.Context, id string) (r Run, ok bool, err error) 
 	return r, err == nil, err
 }
 
+// overlapsFrom is true for a run created before the window that matters to it:
+// still pending or running, finished after the window starts, or lost (its
+// outcome unknown) after it starts. Two parameters, both the window's start.
+// A run lost or pending long ago does not count: it would be loaded forever.
+const overlapsFrom = `(status IN ('pending', 'running') OR finished_at >= ? OR (status = 'unknown' AND updated_at >= ?))`
+
 // RunsForOperation returns the operation's runs created in [from, to),
 // newest first. A run still active from before from is included, since
 // it matters to whatever was due in the window.
 func (s *Store) RunsForOperation(ctx context.Context, operationID string, from, to time.Time) ([]Run, error) {
 	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
-WHERE operation_id = ? AND created_at < ? AND (created_at >= ? OR finished_at IS NULL OR finished_at >= ?)
-ORDER BY created_at DESC`, operationID, ms(to).Int64, ms(from).Int64, ms(from).Int64)
+WHERE operation_id = ? AND created_at < ? AND (created_at >= ? OR `+overlapsFrom+`)
+ORDER BY created_at DESC`, operationID, ms(to).Int64, ms(from).Int64, ms(from).Int64, ms(from).Int64)
 }
 
 // RunsBetween is RunsForOperation for every run, CronJob-owned or not.
 func (s *Store) RunsBetween(ctx context.Context, from, to time.Time) ([]Run, error) {
 	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
-WHERE created_at < ? AND (created_at >= ? OR finished_at IS NULL OR finished_at >= ?)
-ORDER BY created_at DESC`, ms(to).Int64, ms(from).Int64, ms(from).Int64)
+WHERE created_at < ? AND (created_at >= ? OR `+overlapsFrom+`)
+ORDER BY created_at DESC`, ms(to).Int64, ms(from).Int64, ms(from).Int64, ms(from).Int64)
 }
 
 // RecentRuns returns the operation's latest runs, newest first, created

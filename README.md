@@ -104,9 +104,16 @@ Open the collector's address in a browser (in development,
 http://127.0.0.1:8080). Five pages, all reading the API below and updating
 live:
 
-- **Today**: the day as a timetable, one lane per CronJob from 00:00 to
-  24:00. Bar width is a run's duration; collection gaps and the now line
-  cut across every lane. Exceptions and what is still to come sit below.
+- **Overview**: a window of time as a timetable, one lane per CronJob. Pick
+  Today, Yesterday, the last 1 h to 5 d, a day or a custom window, or drag
+  the window on the strip above it, which shows runs per hour over the last
+  24 h, 5, 7 or 30 days with failures in red. Bar width is a run's
+  duration; a lane with too many runs to draw one by one shows runs per
+  hour. Time when OpsTide was not watching is one flat band across the
+  lanes, never a claim: nothing before OpsTide first watched is judged.
+  Exceptions are grouped (a streak of failures is one line, a gap is one
+  line however many runs fell in it) and each has a Show button that moves
+  the window to it. The window is in the link.
 - **Log**: every entry, newest first, with when it occurred, was observed
   and was recorded, and whether it is observed, derived or unknown.
   Filters live in the link.
@@ -127,7 +134,7 @@ everything else are served by the collector itself.
 ```bash
 make demo-up      # kind cluster "opstide-demo" with demo CronJobs (needs Docker and kind)
 make demo         # OpsTide against it; open http://127.0.0.1:8080
-make demo-rollout # a Deployment rollout to see on Today
+make demo-rollout # a Deployment rollout to see on the Overview
 make demo-down    # delete the cluster
 ```
 
@@ -159,7 +166,8 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 
 | Endpoint | What |
 |---|---|
-| `GET /api/v1/day?date=2026-11-04&tz=Europe/Istanbul` | One day: counts, a lane per CronJob, gaps, exceptions, what is still to come |
+| `GET /api/v1/range?within=3h&tz=Europe/Istanbul` | One window of 5 minutes to 7 days: counts, a lane per CronJob, gaps, grouped exceptions, what is still to come. The window is `within=3h` (ending now; also `90m`, `5d`), `date=2026-11-04` (a calendar day in `tz`), or `from=` and `to=`; with none, today. A lane with more than 120 marks comes as runs per hour. `day` is the same endpoint |
+| `GET /api/v1/overview?span=5d&tz=` | The strip above the Overview: runs per hour (per 6 h for 30 days) and failures, when Jobs were not watched, and when OpsTide first watched. `span` is `24h`, `5d`, `7d` or `30d` |
 | `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,collection&q=&cursor=` | The log, newest first, by stable cursor |
 | `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
 | `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |

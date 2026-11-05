@@ -7,7 +7,7 @@ import { Log } from './screens/Log'
 import { Operation } from './screens/Operation'
 import { Schedules } from './screens/Schedules'
 import { System as SystemScreen } from './screens/System'
-import { Today } from './screens/Today'
+import { Overview } from './screens/Overview'
 
 export function App() {
   const { path, params } = useLocation()
@@ -23,18 +23,18 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const names: Record<string, string> = { '/': 'Today', '/log': 'Log', '/schedules': 'Schedules', '/system': 'System' }
+    const names: Record<string, string> = { '/': 'Overview', '/log': 'Log', '/schedules': 'Schedules', '/system': 'System' }
     document.title = `${names[path] ?? 'Operation'} · OpsTide${cluster ? ` · ${cluster}` : ''}`
   }, [path, cluster])
 
   let screen
   const op = /^\/operations\/([^/]+)$/.exec(path)
-  if (path === '/') screen = <Today params={params} tz={tz} setTz={setTz} />
+  if (path === '/') screen = <Overview params={params} tz={tz} setTz={setTz} />
   else if (path === '/log') screen = <Log params={params} tz={tz} />
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />
   else if (op) screen = <Operation key={op[1]} id={decodeURIComponent(op[1])} params={params} tz={tz} />
   else if (path === '/system') screen = <SystemScreen tz={tz} />
-  else screen = <div className="page"><div className="empty">There is no page here. <a href="/">Go to Today</a></div></div>
+  else screen = <div className="page"><div className="empty">There is no page here. <a href="/">Go to the Overview</a></div></div>
 
   return <Shell path={path} cluster={cluster}>{screen}</Shell>
 }

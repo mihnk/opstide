@@ -297,3 +297,48 @@ func TestPruneKeepsLiveOperationsAndCapsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunHistogramAndFirstWatched(t *testing.T) {
+	s, ctx := open(t)
+	if first, err := s.FirstWatched(ctx); err != nil || !first.IsZero() {
+		t.Fatalf("nothing watched yet: %v %v", first, err)
+	}
+	hour := func(h, m int) time.Time { return t0.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute) }
+	update(t, s, func(w *Writer) error {
+		for i, c := range []struct {
+			at     time.Time
+			status RunStatus
+		}{
+			{hour(0, 5), RunSucceeded}, {hour(0, 40), RunFailed}, {hour(0, 50), RunSucceeded},
+			{hour(2, 10), RunFailed}, {hour(5, 0), RunSucceeded},
+		} {
+			id := string(rune('a' + i))
+			if err := w.UpsertRun(ctx, Run{ID: id, OperationID: "op", Namespace: "ns", JobName: id, CreatedAt: c.at, Status: c.status, ObservedAt: c.at}); err != nil {
+				return err
+			}
+		}
+		if err := w.OpenInterval(ctx, "jobs/payments", Healthy, hour(-3, 0)); err != nil {
+			return err
+		}
+		return w.OpenInterval(ctx, "pods", Healthy, hour(-9, 0)) // not a Jobs scope
+	})
+	got, err := s.RunHistogram(ctx, t0, hour(5, 0), time.Hour, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Runs != 3 || got[0].Failed != 1 || !got[0].Start.Equal(t0) || got[1].Runs != 1 || got[1].Failed != 1 || !got[1].Start.Equal(hour(2, 0)) {
+		t.Fatalf("histogram %+v", got)
+	}
+	if first, _ := s.FirstWatched(ctx); !first.Equal(hour(-3, 0)) {
+		t.Fatalf("first watched %v", first)
+	}
+	by, err := s.FirstWatchedByScope(ctx)
+	if err != nil || len(by) != 1 || !by["jobs/payments"].Equal(hour(-3, 0)) {
+		t.Fatalf("by scope %v %v", by, err)
+	}
+	// Hours as a +05:30 reader counts them start on the half hour.
+	ist, err := s.RunHistogram(ctx, t0, hour(6, 0), time.Hour, 5*time.Hour+30*time.Minute)
+	if err != nil || len(ist) < 2 || !ist[0].Start.Equal(t0.Add(-30*time.Minute)) {
+		t.Fatalf("histogram in a +05:30 zone: %+v %v", ist, err)
+	}
+}

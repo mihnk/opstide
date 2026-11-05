@@ -118,10 +118,10 @@ func get(t *testing.T, srv *httptest.Server, path string, v any) int {
 	return resp.StatusCode
 }
 
-func TestDay(t *testing.T) {
+func TestRangeToday(t *testing.T) {
 	_, srv := fixture(t)
-	var d Day
-	if code := get(t, srv, "/api/v1/day?tz=Europe/Istanbul", &d); code != 200 {
+	var d Range
+	if code := get(t, srv, "/api/v1/range?tz=Europe/Istanbul", &d); code != 200 {
 		t.Fatal(code)
 	}
 	c := d.Counts
@@ -137,11 +137,14 @@ func TestDay(t *testing.T) {
 		t.Fatalf("gaps %+v", d.Gaps)
 	}
 	// The weekly report (Mondays) is not due on a Wednesday: idle, not a lane.
-	if len(d.Lanes) != 2 || d.Idle != 1 || d.Lanes[0].Name != "Payment reconciliation" || d.Lanes[1].Name != "inventory-sync" {
+	// Lanes are alphabetical. Inventory sync has nothing to draw (its one expected
+	// time fell in the gap) but is not idle either.
+	if len(d.Lanes) != 2 || d.Idle != 1 || d.Lanes[0].Name != "inventory-sync" || d.Lanes[1].Name != "Payment reconciliation" || d.Lanes[1].Mode != "runs" || d.BucketSeconds != 3600 {
 		t.Fatalf("lanes %d idle %d: %+v", len(d.Lanes), d.Idle, d.Lanes)
 	}
+	pay := d.Lanes[1]
 	var failed, slowOrRunning int
-	for _, m := range d.Lanes[0].Marks {
+	for _, m := range pay.Marks {
 		switch m.State {
 		case "failed":
 			failed++
@@ -156,21 +159,24 @@ func TestDay(t *testing.T) {
 		}
 	}
 	// 21 runs, then the 27 expected times still to come as one mark.
-	if failed != 1 || slowOrRunning != 1 || len(d.Lanes[0].Marks) != 22 || d.Lanes[0].Marks[21].Count != 27 {
-		t.Fatalf("marks: failed %d running %d total %d", failed, slowOrRunning, len(d.Lanes[0].Marks))
+	if failed != 1 || slowOrRunning != 1 || len(pay.Marks) != 22 || pay.Marks[21].Count != 27 {
+		t.Fatalf("marks: failed %d running %d total %d", failed, slowOrRunning, len(pay.Marks))
 	}
-	if m := d.Lanes[1].Marks; len(m) != 1 || m[0].State != "unconfirmed" || !m[0].Start.Equal(local(3, 12)) {
-		t.Fatalf("inventory marks %+v", m)
+	if m := d.Lanes[0].Marks; len(m) != 0 {
+		t.Fatalf("a gap is drawn once, not as marks: %+v", m)
 	}
 	kinds := map[string]Exception{}
 	for _, e := range d.Exceptions {
 		kinds[e.Kind] = e
 	}
-	if f := kinds["failed"]; f.Attempts != 2 || f.Seconds != 937 || f.Expected != 240 || f.Reason != "BackoffLimitExceeded" || f.Owner != "team-payments" {
+	if f := kinds["failed"]; f.Count != 1 || f.Attempts != 2 || f.Seconds != 937 || f.Expected != 240 || f.Reason != "BackoffLimitExceeded" || f.Owner != "team-payments" {
 		t.Fatalf("failed exception %+v", f)
 	}
-	if _, ok := kinds["unconfirmed"]; !ok || d.Exceptions[0].Kind != "failed" {
+	if g, ok := kinds["gap"]; !ok || g.Operations != 1 || g.Runs != 1 || !g.From.Equal(local(3, 10)) || !g.To.Equal(local(3, 14)) || d.Exceptions[0].Kind != "failed" {
 		t.Fatalf("exceptions %+v", d.Exceptions)
+	}
+	if _, ok := kinds["unconfirmed"]; ok {
+		t.Fatal("one entry per gap, not one per expected run")
 	}
 	// Inventory sync's next run is tomorrow: not in today's list.
 	if len(d.Upcoming) != 1 || !d.Upcoming[0].At.Equal(local(10, 30)) {
@@ -181,11 +187,11 @@ func TestDay(t *testing.T) {
 	}
 
 	// Another zone moves the day's edges.
-	if code := get(t, srv, "/api/v1/day?tz=UTC&date=2026-11-03", &d); code != 200 || d.Date != "2026-11-03" || !d.From.Equal(time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)) {
+	if code := get(t, srv, "/api/v1/range?tz=UTC&date=2026-11-03", &d); code != 200 || d.Date != "2026-11-03" || !d.From.Equal(time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("utc day: %d %+v", code, d.From)
 	}
-	for _, bad := range []string{"?tz=Mars/Base", "?date=4.11.2026", "?tz=" + strings.Repeat("x", 70)} {
-		if code := get(t, srv, "/api/v1/day"+bad, nil); code != 400 {
+	for _, bad := range []string{"?tz=Mars/Base", "?date=4.11.2026", "?tz=" + strings.Repeat("x", 70), "?within=8d", "?within=2m", "?within=soon", "?from=2026-11-04T10:00:00Z&to=2026-11-04T09:00:00Z"} {
+		if code := get(t, srv, "/api/v1/range"+bad, nil); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
 	}

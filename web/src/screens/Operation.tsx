@@ -94,7 +94,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
             return { key: d.date, name: shortDay(d.from, tz), meta: sum, from: d.from, to: d.to, marks: d.marks, emphasis: d.date === today }
           })}
           markHref={(m) => (m.runId ? withParams(params, { run: m.runId }) : undefined)} />
-        <Legend items={['succeeded', 'failed', 'running', 'expected', 'missed', 'unconfirmed', 'gap', 'slow']} note="Bar width is the run's duration." />
+        <Legend items={['succeeded', 'failed', 'running', 'expected', 'missed', 'gap', 'slow']} note="Bar width is the run's duration." />
       </section>
 
       <div className="split">

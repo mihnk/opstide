@@ -71,6 +71,8 @@ export interface Operation {
   deletedAt?: string
 }
 
+export interface Bucket { start: string; runs: number; failed?: number; unknown?: number; missed?: number; skipped?: number }
+
 export interface Lane {
   operationId: string
   name: string
@@ -80,15 +82,20 @@ export interface Lane {
   suspended?: boolean
   expectedSeconds?: number
   scheduleError?: string
+  mode: 'runs' | 'hourly'
   marks: Mark[]
+  buckets?: Bucket[]
   truncated?: boolean
 }
 
 export interface Exception {
+  kind: 'failing' | 'failed' | 'lost' | 'slow' | 'missed' | 'skipped' | 'gap'
   at: string
-  kind: 'failed' | 'lost' | 'missed' | 'unconfirmed' | 'skipped' | 'slow'
-  operationId: string
-  name: string
+  from?: string
+  to?: string
+  count: number
+  operationId?: string
+  name?: string
   runId?: string
   scheduledAt?: string
   seconds?: number
@@ -98,17 +105,21 @@ export interface Exception {
   owner?: string
   runbookUrl?: string
   why?: string
+  operations?: number
+  expectedRuns?: number
 }
 
-export interface Day {
+export interface Range {
   schema: number
   cluster: string
-  date: string
   timeZone: string
   from: string
   to: string
   now: string
   lastWrite?: string
+  date?: string
+  bucketSeconds: number
+  watchedSince?: string
   counts: {
     observed: number; succeeded: number; failed: number; running: number; unknown: number
     unconfirmed: number; missed: number; skipped: number; stillDue: number
@@ -119,6 +130,19 @@ export interface Day {
   rollouts: { at: string; namespace: string; name: string; revision: string; summary: string }[]
   exceptions: Exception[]
   upcoming: { at: string; operationId: string; name: string; namespace: string }[]
+}
+
+export interface Overview {
+  schema: number
+  span: string
+  from: string
+  to: string
+  now: string
+  watchedSince?: string
+  gaps: Span[]
+  bucketSeconds: number
+  buckets: { start: string; runs: number; failed?: number }[]
+  retentionDays: number
 }
 
 export type CellState = 'none' | 'suspended' | 'ok' | 'unconfirmed' | 'missed' | 'failed'

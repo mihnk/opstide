@@ -5,7 +5,7 @@ import { Link } from '../router'
 import { ago } from '../time'
 
 const sections = [
-  { href: '/', label: 'Today', match: (p: string) => p === '/' },
+  { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/log', label: 'Log', match: (p: string) => p.startsWith('/log') },
   { href: '/schedules', label: 'Schedules', match: (p: string) => p.startsWith('/schedules') || p.startsWith('/operations') },
   { href: '/system', label: 'System', match: (p: string) => p.startsWith('/system') },

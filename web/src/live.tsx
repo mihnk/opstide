@@ -60,9 +60,18 @@ type State<T> = { data?: T; error?: Error; loading: boolean }
  * request wins: a slower earlier one is aborted. Data stays on screen
  * while a refetch runs.
  */
-export function useApi<T>(path: string | null): State<T> {
+export function useApi<T>(path: string | null, opts: { keep?: boolean; refreshMs?: number } = {}): State<T> {
   const { version } = useLive()
   const [state, setState] = useState<State<T> & { path?: string | null }>({ loading: true })
+  const [tick, setTick] = useState(0)
+  const { keep, refreshMs } = opts
+
+  // A window that follows now changes as time passes, not only when the record does.
+  useEffect(() => {
+    if (!refreshMs) return
+    const t = window.setInterval(() => setTick((n) => n + 1), refreshMs)
+    return () => window.clearInterval(t)
+  }, [refreshMs])
 
   useEffect(() => {
     if (path === null) return
@@ -74,8 +83,10 @@ export function useApi<T>(path: string | null): State<T> {
         setState((s) => ({ data: s.path === path ? s.data : undefined, error, loading: false, path }))
       })
     return () => ctl.abort()
-  }, [path, version])
+  }, [path, version, tick])
 
-  if (state.path !== path) return { loading: true, data: undefined }
+  // With keep, the last answer stays on screen while the next one loads, so
+  // dragging a window does not blank the page or remount what is on it.
+  if (state.path !== path) return { loading: true, data: keep ? state.data : undefined }
   return state
 }

@@ -89,3 +89,27 @@ export function shiftDate(date: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)
 }
+
+export function offsetMs(tz: string, at: Date): number {
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(at)
+  const g = (t: string) => Number(p.find((x) => x.type === t)?.value)
+  return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute'), g('second')) - at.getTime()
+}
+
+/** "2026-11-04T08:51" read as wall-clock time in tz, as epoch ms. NaN when it is not a date. */
+export function zonedToUtc(local: string, tz: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return NaN
+  const guess = Date.parse(`${local}:00Z`)
+  if (isNaN(guess)) return NaN
+  // The offset depends on the instant, which depends on the offset: two rounds settle it, daylight saving included.
+  let t = guess - offsetMs(tz, new Date(guess))
+  t = guess - offsetMs(tz, new Date(t))
+  return t
+}
+
+/** Epoch ms as "2026-11-04T08:51" in tz, for a datetime-local input. */
+export function utcToZoned(ms: number, tz: string): string {
+  return new Date(ms + offsetMs(tz, new Date(ms))).toISOString().slice(0, 16)
+}

@@ -65,7 +65,9 @@ func New(db *store.Store, w Watcher, cfg Config, log *slog.Logger) *Server {
 
 // Register adds the API routes to mux.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/day", s.day)
+	mux.HandleFunc("GET /api/v1/range", s.rangeHandler)
+	mux.HandleFunc("GET /api/v1/day", s.rangeHandler) // the same, kept for date= links
+	mux.HandleFunc("GET /api/v1/overview", s.overview)
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("GET /api/v1/operations", s.operations)
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)

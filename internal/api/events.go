@@ -64,9 +64,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// within=48h: from that long before now, so a page's URL stays the same
 	// while it is open.
 	if w := q.Get("within"); err == nil && w != "" {
-		d, perr := time.ParseDuration(w)
-		if perr != nil || d <= 0 || d > 400*24*time.Hour {
-			err = badRequest("within must be a duration such as 48h")
+		d, perr := parseSpan(w)
+		if perr != nil || d > 400*24*time.Hour {
+			err = badRequest("within must be a duration such as 48h or 5d")
 		} else if eq.From.IsZero() {
 			eq.From = s.now().Add(-d)
 		}
