@@ -1,0 +1,117 @@
+# OpsTide runs as one pod with one SQLite writer on a PersistentVolume.
+# It only reads from the Kubernetes API (list and watch) and sends nothing
+# out of the cluster.
+
+image:
+  repository: ghcr.io/mihnk/opstide
+  # Defaults to the chart's appVersion. A whole-number tag like 2 needs
+  # --set-string image.tag=2, or Helm turns it into the number 2.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Name shown in the UI. Empty shows "cluster".
+clusterName: ""
+
+# Namespaces to watch. Empty watches the whole cluster with a ClusterRole;
+# a list creates a Role and RoleBinding in each namespace instead.
+namespaces: []
+
+retention:
+  days: 30
+  maxEntries: 2000000
+
+logLevel: info
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+persistence:
+  enabled: true
+  # Use an existing PVC instead of creating one.
+  existingClaim: ""
+  storageClass: ""
+  size: 5Gi
+  # One writer: the volume is mounted by one pod at a time.
+  accessModes: [ReadWriteOnce]
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# OpsTide has no login of its own. Expose it only behind something that
+# authenticates (an OIDC proxy, an internal-only ingress, a VPN). The
+# default is no ingress: use kubectl port-forward.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: opstide.example.internal
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Traffic in: only the UI port, only from ingressFrom. Traffic out: DNS (to
+# dnsNamespace), the Kubernetes API (apiServer below) and extraEgress.
+#
+# The API rule is only as narrow as apiServer.cidrs. The defaults limit the
+# PORTS (443, 6443) but allow any address, so set cidrs to your API server's
+# address (for example [10.0.0.1/32]) to also limit the destination.
+#
+# Cilium (and some other CNIs) do not match a self-managed control plane's
+# node address with ipBlock, so this policy would block the API and OpsTide
+# would never become ready. There, leave enabled=false and write a
+# CiliumNetworkPolicy that allows the kube-apiserver entity instead.
+networkPolicy:
+  enabled: false
+  # Who may open the UI and API. Empty allows pods in OpsTide's namespace
+  # only: an ingress controller in another namespace must be listed.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: ingress-nginx
+  # The namespace of the cluster's DNS.
+  dnsNamespace: kube-system
+  apiServer:
+    cidrs: [0.0.0.0/0, "::/0"]
+    ports: [443, 6443]
+  # More egress rules, written as in a NetworkPolicy.
+  extraEgress: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

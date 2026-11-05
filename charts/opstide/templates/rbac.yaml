@@ -1,0 +1,72 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "opstide.serviceAccountName" . }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- if .Values.rbac.create }}
+{{- if not .Values.namespaces }}
+---
+# Read-only, cluster-wide: list and watch CronJobs, Jobs, Pods, Deployments.
+# No Secrets, no logs, no exec.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "opstide.clusterRoleName" . }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+rules:
+  {{- include "opstide.rules" . | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "opstide.clusterRoleName" . }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "opstide.clusterRoleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "opstide.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else }}
+{{- range $ns := .Values.namespaces }}
+---
+# Read-only in {{ $ns }}.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "opstide.fullname" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "opstide.labels" $ | nindent 4 }}
+rules:
+  {{- include "opstide.rules" $ | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "opstide.fullname" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "opstide.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "opstide.fullname" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "opstide.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

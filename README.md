@@ -50,6 +50,54 @@ GitOps. OpsTide only reads them.
 | `opstide.mihnk.org/runbook` | `https://` link to the runbook |
 | `opstide.mihnk.org/expected-duration` | Go duration, e.g. `4m` |
 
+## Install
+
+```bash
+helm install opstide oci://ghcr.io/mihnk/charts/opstide -n opstide --create-namespace
+kubectl -n opstide port-forward svc/opstide 8080:80    # then open http://127.0.0.1:8080
+```
+
+(From a checkout: `helm install opstide charts/opstide -n opstide --create-namespace`.)
+
+The first release tag publishes the image and the chart as **private**
+GitHub packages. Make both public once (organization → Packages → each
+package → settings), or add an image pull secret and log in to the
+registry before installing.
+
+The chart installs one pod (`Recreate`, never two writers), a 5 Gi volume
+for the SQLite record, and a ServiceAccount that can only `get`, `list`
+and `watch` CronJobs, Jobs, Pods and Deployments (OpsTide reads them
+through list and watch, so the chart grants only those two). It does not read
+Secrets, logs or exec. The pod runs as a non-root user with a read-only
+root filesystem and the default seccomp profile.
+
+Useful values (see `charts/opstide/values.yaml` for all):
+
+| Value | What |
+|---|---|
+| `clusterName` | Name shown in the UI |
+| `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
+| `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
+| `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
+| `networkPolicy.enabled` | Only the UI port in; out only DNS and the Kubernetes API's ports. Set `networkPolicy.apiServer.cidrs` to your API server's address to limit the destination too. Not for Cilium with a self-managed control plane (see values.yaml) |
+| `ingress.enabled` | Off by default |
+
+Two things to know:
+
+- **OpsTide has no login.** Put it behind something that authenticates (an
+  OIDC proxy, an internal-only ingress, a VPN), or use `kubectl
+  port-forward`. Network isolation is not authorization.
+- **Uninstalling keeps the volume**, so the record survives a reinstall.
+  Delete the PersistentVolumeClaim yourself to drop it.
+
+If you set `namespaces` in the chart, the collector must watch the same
+list (the chart passes it for you). A collector that watches the whole
+cluster with namespace-only permissions never becomes ready, and System
+shows which watches fail.
+
+To run OpsTide inside the demo cluster instead of on your laptop:
+`make demo-install`, then port-forward as above.
+
 ## The web UI
 
 Open the collector's address in a browser (in development,

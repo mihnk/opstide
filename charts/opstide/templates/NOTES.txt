@@ -1,0 +1,31 @@
+OpsTide is starting in {{ .Release.Namespace }}. It reads {{ if .Values.namespaces }}{{ join ", " .Values.namespaces }}{{ else }}the whole cluster{{ end }} and never writes to it.
+
+Open it:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opstide.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://127.0.0.1:8080
+
+Everything before this first start shows as a collection gap: OpsTide
+records only what it saw.
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is off. The record is lost whenever the pod restarts.
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.networkPolicy.enabled (not .Values.networkPolicy.ingressFrom) }}
+
+WARNING: networkPolicy.ingressFrom is empty, so only pods in {{ .Release.Namespace }} may reach
+OpsTide. An ingress controller in another namespace is blocked: list it
+in networkPolicy.ingressFrom.
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+
+NOTE: on Cilium with a self-managed control plane the NetworkPolicy may
+block the Kubernetes API (ipBlock does not match node addresses there). If
+/readyz never turns ok, see networkPolicy in values.yaml.
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+NOTE: OpsTide has no login of its own. Make sure the ingress only lets in
+people who should see this cluster's operations (an OIDC proxy, an
+internal-only ingress class).
+{{- end }}

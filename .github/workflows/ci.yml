@@ -49,6 +49,17 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint and render, cluster-wide and namespaced
+        run: |
+          helm lint --strict charts/opstide
+          helm template t charts/opstide --kube-version 1.32.0 > /dev/null
+          helm template t charts/opstide --kube-version 1.32.0 --set 'namespaces={payments,data}' --set networkPolicy.enabled=true --set ingress.enabled=true > /dev/null
+
   image:
     runs-on: ubuntu-latest
     steps:

@@ -18,6 +18,9 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/opstide ./cmd/opstide
 
 FROM gcr.io/distroless/static-debian12:nonroot
+# Links the package to this repository on GitHub.
+LABEL org.opencontainers.image.source="https://github.com/mihnk/opstide" \
+      org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/opstide /opstide
 USER 65532:65532
 EXPOSE 8080

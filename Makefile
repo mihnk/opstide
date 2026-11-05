@@ -5,7 +5,7 @@ KUBECONFIG_FILE ?=
 DEMO_CONTEXT = kind-opstide-demo
 DEMO_KUBECONFIG = ./data-demo/kubeconfig
 
-.PHONY: build web test lint run image demo-up demo demo-rollout demo-down
+.PHONY: build web test lint run image demo-up demo demo-install demo-rollout demo-down
 
 # The web app, built into internal/webui/dist and embedded by build.
 web:
@@ -53,6 +53,16 @@ demo: $(if $(wildcard internal/webui/dist/index.html),,web)
 # A rollout to see on Today and in the Log.
 demo-rollout:
 	kubectl --kubeconfig $(DEMO_KUBECONFIG) -n payments rollout restart deployment/payments-api
+
+# OpsTide inside the demo cluster, installed with the chart from an image
+# built here (nothing is pulled from a registry). Then:
+#   kubectl --kubeconfig ./data-demo/kubeconfig -n opstide port-forward svc/opstide 8080:80
+demo-install:
+	docker build --build-arg VERSION=demo -t opstide:demo .
+	kind load docker-image opstide:demo --name opstide-demo
+	helm --kubeconfig $(DEMO_KUBECONFIG) upgrade --install opstide charts/opstide -n opstide --create-namespace \
+		--set image.repository=opstide --set image.tag=demo --set image.pullPolicy=Never --set clusterName=opstide-demo
+	kubectl --kubeconfig $(DEMO_KUBECONFIG) -n opstide rollout status deployment/opstide --timeout=120s
 
 demo-down:
 	kind delete cluster --name opstide-demo

@@ -4,3 +4,4 @@ dist
 data
 *.db*
 web/node_modules
+data-demo

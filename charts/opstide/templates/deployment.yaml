@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opstide.fullname" . }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+spec:
+  # One SQLite writer: never two pods at once, also not during an upgrade.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "opstide.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- /* the selector labels win over podLabels */}}
+        {{- toYaml (merge (dict "app.kubernetes.io/name" (include "opstide.name" .) "app.kubernetes.io/instance" .Release.Name) (.Values.podLabels | default dict)) | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "opstide.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: opstide
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: OPSTIDE_LISTEN
+              value: ":8080"
+            - name: OPSTIDE_DATA_DIR
+              value: /data
+            - name: OPSTIDE_CLUSTER
+              value: {{ default "cluster" .Values.clusterName | quote }}
+            - name: OPSTIDE_NAMESPACES
+              value: {{ join "," .Values.namespaces | quote }}
+            - name: OPSTIDE_RETENTION_DAYS
+              value: {{ .Values.retention.days | quote }}
+            - name: OPSTIDE_MAX_EVENTS
+              value: {{ .Values.retention.maxEntries | int64 | quote }}
+            - name: OPSTIDE_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            # SQLite may write temporary files; the root filesystem is read-only.
+            - name: TMPDIR
+              value: /tmp
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # Gives the process time to open the database and start listening
+          # (/healthz does not wait for the informers; /readyz does).
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "opstide.fullname" .) .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

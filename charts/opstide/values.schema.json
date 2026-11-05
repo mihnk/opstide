@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "description": "A whole-number tag like 2 needs --set-string, or Helm turns it into a number." },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "clusterName": { "type": "string" },
+    "namespaces": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "A list: --set 'namespaces={payments,data}'."
+    },
+    "retention": {
+      "type": "object",
+      "properties": {
+        "days": { "type": "integer", "minimum": 1 },
+        "maxEntries": { "type": "integer", "minimum": 1000, "description": "A whole number of at least 1000 (write 10000000, not 1e7)." }
+      }
+    },
+    "logLevel": { "enum": ["debug", "info", "warn", "error"] },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "size": { "type": "string" },
+        "accessModes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingressFrom": { "type": "array" },
+        "dnsNamespace": { "type": "string", "minLength": 1 },
+        "extraEgress": { "type": "array" },
+        "apiServer": {
+          "type": "object",
+          "properties": {
+            "cidrs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+            "ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "minItems": 1 }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+name: release
+
+# A tag v1.2.3 publishes the image ghcr.io/mihnk/opstide:1.2.3 (amd64 and
+# arm64) and the chart oci://ghcr.io/mihnk/charts/opstide:1.2.3.
+# GitHub creates both packages as private on their first push: make them
+# public once (organization -> Packages -> each package -> settings), or
+# nobody else can install them.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check before publishing
+        run: |
+          helm lint --strict charts/opstide
+          go test ./...
+
+      - name: Version from the tag
+        id: v
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          # "latest" only for releases, not for 1.2.3-rc.1.
+          case "$v" in *-*) echo "latest=" >> "$GITHUB_OUTPUT" ;; *) echo "latest=ghcr.io/${{ github.repository_owner }}/opstide:latest" >> "$GITHUB_OUTPUT" ;; esac
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ steps.v.outputs.version }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/opstide:${{ steps.v.outputs.version }}
+            ${{ steps.v.outputs.latest }}
+
+      - name: Chart
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          helm package charts/opstide --version "$VERSION" --app-version "$VERSION"
+          echo "$TOKEN" | helm registry login ghcr.io -u "$ACTOR" --password-stdin
+          helm push "opstide-$VERSION.tgz" "oci://ghcr.io/$OWNER/charts"
