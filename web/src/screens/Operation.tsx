@@ -43,6 +43,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           </span>
         </span>
         <span className="grow" />
+        {data.clustrailUrl && <a className="button" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }} href={data.clustrailUrl} rel="noopener noreferrer" title="Opens this CronJob in Clustrail, if it is installed on this computer">Open in Clustrail</a>}
         <button type="button" className="button" disabled title="No investigator is configured. See System.">Investigate · not configured</button>
       </div>
 

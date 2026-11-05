@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,6 +245,10 @@ func TestOverviewStrip(t *testing.T) {
 
 // setup builds a store with ops and whatever fn writes, and a server whose clock is now.
 func setup(t *testing.T, now time.Time, ops []store.Operation, fn func(ctx context.Context, w *store.Writer) error) *httptest.Server {
+	return setupWith(t, now, ops, fn, func(*Config) {})
+}
+
+func setupWith(t *testing.T, now time.Time, ops []store.Operation, fn func(ctx context.Context, w *store.Writer) error, tune func(*Config)) *httptest.Server {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "opstide.db"))
@@ -261,7 +266,9 @@ func setup(t *testing.T, now time.Time, ops []store.Operation, fn func(ctx conte
 	}); err != nil {
 		t.Fatal(err)
 	}
-	s := New(db, watcher{}, Config{Version: "test", Cluster: "c", Retention: store.Retention{Days: 30, MaxEvents: 1000}, StartedAt: now}, nil)
+	cfg := Config{Version: "test", Cluster: "c", Retention: store.Retention{Days: 30, MaxEvents: 1000}, StartedAt: now}
+	tune(&cfg)
+	s := New(db, watcher{}, cfg, nil)
 	s.now = func() time.Time { return now }
 	mux := http.NewServeMux()
 	s.Register(mux)
@@ -401,5 +408,116 @@ func TestOverviewHoursFollowTheReadersClock(t *testing.T) {
 	get(t, srv, "/api/v1/overview?span=24h&tz=Asia/Kolkata", &o)
 	if len(o.Buckets) != 1 || !o.Buckets[0].Start.Equal(at(7, 30)) {
 		t.Fatalf("08:10 UTC is 13:40 in India, in the hour that starts at 13:30 = 08:00 UTC? got %+v", o.Buckets)
+	}
+}
+
+func TestLogFiltersBySeverityOutcomeAndOwner(t *testing.T) {
+	pay, nightly, gone := operation("pay", "*/5 * * * *"), operation("nightly", "0 3 * * *"), operation("gone", "0 4 * * *")
+	pay.Owner, nightly.Owner, gone.Owner = "payments-team", "data-team", "ümit-ekibi"
+	gone.DeletedAt = base.Add(-time.Hour)
+	srv := setup(t, base, []store.Operation{pay, nightly, gone}, func(ctx context.Context, w *store.Writer) error {
+		// Newest first is f1, s1, l1, f2, g1, r1: ten minutes apart.
+		for i, e := range []struct{ id, typ, op, sev string }{
+			{"f1", "job.failed", "pay", "error"}, {"s1", "job.succeeded", "pay", "info"},
+			{"l1", "job.lost", "pay", "warning"}, {"f2", "job.failed", "nightly", "error"},
+			{"g1", "job.failed", "gone", "error"}, {"r1", "deployment.rollout", "", "info"},
+		} {
+			at := base.Add(-time.Duration(10*(i+1)) * time.Minute)
+			if _, err := w.AddEvent(ctx, store.Event{ID: e.id, Type: e.typ, OperationID: e.op, Severity: e.sev,
+				Confidence: store.Derived, ObservedAt: at, OccurredAt: at, Summary: e.id}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	ids := func(qs string) string {
+		var e Entries
+		if code := get(t, srv, "/api/v1/events?within=48h"+qs, &e); code != 200 {
+			t.Fatalf("%s: %d", qs, code)
+		}
+		var out []string
+		for _, x := range e.Entries {
+			out = append(out, x.ID)
+		}
+		return strings.Join(out, ",") // newest first, as served
+	}
+	for qs, want := range map[string]string{
+		"&show=runs&outcome=failed":                   "f1,f2,g1",
+		"&show=runs&outcome=succeeded,unknown":        "s1,l1",
+		"&show=runs&outcome=failed,failed":            "f1,f2,g1",
+		"&show=runs,rollouts&outcome=failed":          "f1,f2,g1,r1",
+		"&outcome=failed":                             "f1,f2,g1,r1", // no show: every group, runs narrowed
+		"&show=runs&severity=error":                   "f1,f2,g1",
+		"&show=runs&severity=warning,error":           "f1,l1,f2,g1",
+		"&show=runs&severity=error&outcome=succeeded": "",
+		"&show=runs,rollouts&owner=payments-team":     "f1,s1,l1",
+		"&show=runs&owner=data-team&outcome=failed":   "f2",
+		"&show=runs&owner=ümit-ekibi":                 "g1", // a deleted CronJob's entries stay filterable
+		"&show=runs&owner=nobody":                     "",
+		"&show=runs&limit=2&owner=payments-team":      "f1,s1",
+	} {
+		if got := ids(qs); got != want {
+			t.Errorf("%s: got %q want %q", qs, got, want)
+		}
+	}
+	// A page of a filtered log continues where it stopped.
+	var first, second Entries
+	get(t, srv, "/api/v1/events?within=48h&show=runs&severity=error&limit=2", &first)
+	get(t, srv, "/api/v1/events?within=48h&show=runs&severity=error&limit=2&cursor="+first.NextCursor, &second)
+	if len(first.Entries) != 2 || first.NextCursor == "" || len(second.Entries) != 1 || second.Entries[0].ID != "g1" {
+		t.Fatalf("pages: %+v %+v", first, second)
+	}
+	for _, bad := range []string{"&outcome=bad", "&severity=fatal", "&show=starts&outcome=failed", "&show=rollouts&outcome=failed", "&owner=" + strings.Repeat("ü", 121)} {
+		if code := get(t, srv, "/api/v1/events?x=1"+bad, nil); code != 400 {
+			t.Errorf("%s: %d", bad, code)
+		}
+	}
+	if code := get(t, srv, "/api/v1/events?owner="+strings.Repeat("ü", 120), nil); code != 200 {
+		t.Errorf("120 characters: %d", code)
+	}
+	var o Owners
+	if get(t, srv, "/api/v1/owners", &o); strings.Join(o.Owners, ",") != "data-team,payments-team,ümit-ekibi" {
+		t.Fatalf("owners %v", o.Owners)
+	}
+}
+
+func TestClustrailTemplatesAndLinks(t *testing.T) {
+	for _, bad := range []string{
+		"javascript:alert(1)", "ftp://x/{name}", "//x", "not a url", "HTTPS://x/{name}", "https:foo", "clustrail:open?n={name}",
+		"{cluster}lustrail://x", "https://{name}.example/", "https://x{name}/", "https:///path", "https://x/a b", "https://x/\t", "https://x/\n",
+	} {
+		if ValidClustrailURL(bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	for _, ok := range []string{"", "https://c.example/{cluster}/{namespace}/{name}", "http://localhost:3000/?n={name}", "clustrail://open?ns={namespace}&name={name}", "clustrail://{cluster}/{namespace}/{name}"} {
+		if err := ValidClustrailURL(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	// Path values are path-escaped, query values query-escaped.
+	c := Config{Cluster: "prod eu", ClustrailURL: "https://c.example/{cluster}/{namespace}/{name}?cluster={cluster}&name={name}"}
+	if got := c.clustrailLink("pay/ments", "a&b+c"); got != "https://c.example/prod%20eu/pay%2Fments/a&b+c?cluster=prod+eu&name=a%26b%2Bc" {
+		t.Fatal(got)
+	}
+	if (Config{}).clustrailLink("a", "b") != "" {
+		t.Fatal("link without a template")
+	}
+
+	// The operation detail carries it, except for a deleted CronJob.
+	live, gone := operation("live", "0 3 * * *"), operation("gone", "0 3 * * *")
+	gone.DeletedAt = base.Add(-time.Hour)
+	noop := func(context.Context, *store.Writer) error { return nil }
+	var d OperationDetail
+	if get(t, setup(t, base, []store.Operation{live}, noop), "/api/v1/operations/live", &d); d.ClustrailURL != "" {
+		t.Fatalf("link without a template: %q", d.ClustrailURL)
+	}
+	srv := setupWith(t, base, []store.Operation{live, gone}, noop, func(c *Config) { c.ClustrailURL = "clustrail://open/{namespace}/{name}" })
+	if get(t, srv, "/api/v1/operations/live", &d); d.ClustrailURL != "clustrail://open/ns/live" {
+		t.Fatalf("link: %q", d.ClustrailURL)
+	}
+	var deleted OperationDetail
+	if get(t, srv, "/api/v1/operations/gone", &deleted); deleted.ClustrailURL != "" {
+		t.Fatalf("a deleted CronJob has a link: %q", deleted.ClustrailURL)
 	}
 }

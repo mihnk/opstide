@@ -280,3 +280,22 @@ func nonNil[T any](s []T) []T {
 func (s *Store) ActiveRuns(ctx context.Context) ([]Run, error) {
 	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs WHERE status IN ('pending', 'running') ORDER BY created_at`)
 }
+
+// Owners lists the distinct owner annotations of every CronJob seen,
+// deleted ones included, for the Log's Owner filter.
+func (s *Store) Owners(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT owner FROM operations WHERE owner <> '' ORDER BY owner`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var o string
+		if err := rows.Scan(&o); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}

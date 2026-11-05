@@ -37,6 +37,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "opstide:", err)
 		os.Exit(2)
 	}
+	if err := api.ValidClustrailURL(cfg.ClustrailURL); err != nil {
+		fmt.Fprintln(os.Stderr, "opstide:", err)
+		os.Exit(2)
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -110,7 +114,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	guard.Register(mux)
 	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
-		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started,
+		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents},
 	}, log).Register(mux)
 	mux.Handle("/", webui.Handler())

@@ -39,6 +39,9 @@ type Config struct {
 	// ControllerZone is the zone the CronJob controller evaluates
 	// schedules in when a CronJob sets no spec.timeZone (normally UTC).
 	ControllerZone *time.Location
+	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
+	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
+	ClustrailURL string
 }
 
 // Server answers API requests.
@@ -70,6 +73,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/overview", s.overview)
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("GET /api/v1/operations", s.operations)
+	mux.HandleFunc("GET /api/v1/owners", s.owners)
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("GET /api/v1/system", s.system)

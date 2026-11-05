@@ -48,6 +48,10 @@
         }
       }
     },
+    "clustrail": {
+      "type": "object",
+      "properties": { "url": { "type": "string", "pattern": "^((https?://[^\\s/?#{}]+([/?#][^\\s]*)?)|(clustrail://[^\\s]*))?$" } }
+    },
     "auth": {
       "type": "object",
       "properties": {

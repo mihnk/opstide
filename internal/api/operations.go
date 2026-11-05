@@ -1,8 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mihnk/opstide/internal/schedule"
@@ -197,6 +201,39 @@ type OperationDetail struct {
 	Gaps        []Span    `json:"gaps"`        // when its Jobs were not watched in those days
 	Runs        []Run     `json:"runs"`        // newest first
 	MoreRuns    bool      `json:"moreRuns"`
+	// ClustrailURL opens this CronJob in Clustrail, when a link is configured.
+	ClustrailURL string `json:"clustrailUrl,omitempty"`
+}
+
+// clustrailTemplate is what a link template must look like: a lowercase
+// http, https or clustrail scheme written out in full, and for http and https
+// a host with no placeholder in it. charts/opstide/values.schema.json carries
+// the same pattern, so Helm refuses what the collector would refuse to start with.
+var clustrailTemplate = regexp.MustCompile(`^((https?://[^\s/?#{}]+([/?#][^\s]*)?)|(clustrail://[^\s]*))?$`)
+
+// ValidClustrailURL reports whether t is a usable link template.
+func ValidClustrailURL(t string) error {
+	if !clustrailTemplate.MatchString(t) {
+		return fmt.Errorf("clustrail url %q must start with http://, https:// or clustrail://, have a host without {placeholders}, and contain no spaces", t)
+	}
+	return nil
+}
+
+// clustrailLink fills the template. Before a "?" the values go into a path
+// (space is %20); after it they go into a query (space is +).
+func (c Config) clustrailLink(namespace, name string) string {
+	if c.ClustrailURL == "" {
+		return ""
+	}
+	fill := func(part string, esc func(string) string) string {
+		return strings.NewReplacer("{cluster}", esc(c.Cluster), "{namespace}", esc(namespace), "{name}", esc(name)).Replace(part)
+	}
+	path, query, hasQuery := strings.Cut(c.ClustrailURL, "?")
+	out := fill(path, url.PathEscape)
+	if hasQuery {
+		out += "?" + fill(query, url.QueryEscape)
+	}
+	return out
 }
 
 // DayLane is one day of one operation on its own timeline.
@@ -250,6 +287,10 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 		return OperationDetail{}, err
 	}
 	out := OperationDetail{Schema: Schema, TimeZone: loc.String(), Now: now, Operation: v.operation(), Suspensions: []Span{}, Runs: []Run{}}
+	// Templates address a CronJob by namespace and name: a deleted one has nothing to open.
+	if op.DeletedAt.IsZero() {
+		out.ClustrailURL = s.cfg.clustrailLink(op.Namespace, op.Name)
+	}
 	if v.sched != nil && !op.Suspend && op.DeletedAt.IsZero() {
 		out.Next = v.sched.Next(now)
 	}

@@ -48,13 +48,13 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
       </div>
 
       {rows.length === 0 ? (
-        <div className="empty">{data.operations.length === 0 ? 'No CronJobs seen yet.' : 'None in this group.'}</div>
+        <div className="empty">{data.operations.length === 0 ? 'OpsTide has not seen a CronJob yet. If it only watches some namespaces, System lists them; a watch that lacks permission is shown there too.' : 'None in this group.'}</div>
       ) : (
         <div className="table-wrap">
-          <table className="data" style={{ minWidth: 1060 }}>
+          <table className="data compact" style={{ minWidth: 940 }}>
             <thead>
               <tr>
-                {['Operation', 'Schedule', 'Last 7 days', 'Last run', 'Next, expected', 'Owner'].map((h) => (
+                {['Operation', 'Schedule', 'Last 7 days', 'Last run', 'Next, expected', 'Owner', 'Criticality'].map((h) => (
                   <th key={h} scope="col" className="label">{h}</th>
                 ))}
               </tr>
@@ -102,6 +102,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       {o.next ? relativeTime(o.next, data.now, tz) : o.suspended ? '— suspended' : '—'}
                     </td>
                     <td style={{ color: o.owner ? undefined : 'var(--muted)' }}>{o.owner || '—'}</td>
+                    <td style={{ textTransform: 'capitalize', color: o.criticality ? undefined : 'var(--muted)', fontWeight: o.criticality === 'critical' || o.criticality === 'high' ? 500 : 400 }}>{o.criticality || '—'}</td>
                   </tr>
                 )
               })}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mihnk/opstide/internal/store"
 )
@@ -51,6 +52,9 @@ var typeGroups = map[string][]string{
 	"collection": {"collection."},
 }
 
+// outcomeTypes maps the outcome filter to the entry types of finished runs.
+var outcomeTypes = map[string]string{"failed": "job.failed", "succeeded": "job.succeeded", "unknown": "job.lost"}
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var eq store.EventQuery
@@ -82,15 +86,54 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	} else {
 		eq.Text = t
 	}
-	if show := q.Get("show"); show != "" {
+	// outcome narrows the run outcomes the "runs" group shows.
+	runTypes := typeGroups["runs"]
+	if oc := q.Get("outcome"); oc != "" {
+		runTypes = nil
+		for _, o := range strings.Split(oc, ",") {
+			t, ok := outcomeTypes[o]
+			if !ok {
+				reply(w, r, s.log, nil, badRequest("outcome takes failed, succeeded or unknown"))
+				return
+			}
+			runTypes = append(runTypes, t)
+		}
+	}
+	show := q.Get("show")
+	if show == "" && q.Get("outcome") != "" {
+		// An outcome with no group named narrows the run entries among all groups.
+		show = "runs,starts,schedules,rollouts,collection"
+	}
+	if show != "" {
+		hasRuns := false
 		for _, g := range strings.Split(show, ",") {
 			types, ok := typeGroups[g]
 			if !ok {
 				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts or collection"))
 				return
 			}
+			if g == "runs" {
+				types, hasRuns = runTypes, true
+			}
 			eq.Types = append(eq.Types, types...)
 		}
+		if q.Get("outcome") != "" && !hasRuns {
+			reply(w, r, s.log, nil, badRequest("outcome narrows run entries: add runs to show"))
+			return
+		}
+	}
+	if sv := q.Get("severity"); sv != "" {
+		for _, v := range strings.Split(sv, ",") {
+			if v != "info" && v != "warning" && v != "error" {
+				reply(w, r, s.log, nil, badRequest("severity takes info, warning or error"))
+				return
+			}
+			eq.Severities = append(eq.Severities, v)
+		}
+	}
+	if eq.Owner = q.Get("owner"); utf8.RuneCountInString(eq.Owner) > 120 { // the collector keeps at most 120 characters
+		reply(w, r, s.log, nil, badRequest("owner is too long"))
+		return
 	}
 	page, err := s.db.Events(r.Context(), eq)
 	out := Entries{Schema: Schema, Entries: []Entry{}, NextCursor: page.NextCursor}
@@ -146,4 +189,15 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 		out.Entries = append(out.Entries, entry(e))
 	}
 	reply(w, r, s.log, out, err)
+}
+
+// Owners is the list behind the Log's Owner filter.
+type Owners struct {
+	Schema int      `json:"schema"`
+	Owners []string `json:"owners"`
+}
+
+func (s *Server) owners(w http.ResponseWriter, r *http.Request) {
+	o, err := s.db.Owners(r.Context())
+	reply(w, r, s.log, Owners{Schema: Schema, Owners: o}, err)
 }

@@ -164,6 +164,7 @@ export interface Operations {
 
 export interface OperationDetail {
   schema: number
+  clustrailUrl?: string
   timeZone: string
   now: string
   operation: Operation

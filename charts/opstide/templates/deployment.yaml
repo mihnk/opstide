@@ -58,6 +58,10 @@ spec:
               value: {{ .Values.retention.maxEntries | int64 | quote }}
             - name: OPSTIDE_LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            {{- with .Values.clustrail.url }}
+            - name: OPSTIDE_CLUSTRAIL_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.auth.enabled }}
             - name: OPSTIDE_TOKEN_FILE
               value: /etc/opstide/token

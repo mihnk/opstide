@@ -10,6 +10,12 @@ image:
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
+# Adds an "Open in Clustrail" link to each CronJob. A URL template with
+# {cluster}, {namespace} and {name}; http, https or clustrail:// only.
+# Empty shows no link. Set it with --set-string or -f: --set splits on commas.
+clustrail:
+  url: ""
+
 # Name shown in the UI. Empty shows "cluster".
 clusterName: ""
 

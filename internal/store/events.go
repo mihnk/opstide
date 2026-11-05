@@ -89,7 +89,10 @@ type EventQuery struct {
 	Types       []string // exact types, or prefixes ending in "." ("job.")
 	OperationID string
 	RunID       string
-	Text        string // substring of the summary or resource name
+	Text        string   // substring of the summary or resource name
+	Severities  []string // info, warning or error
+	// Owner keeps entries of operations whose owner annotation is exactly this.
+	Owner string
 	// Cursor continues a previous page (its NextCursor).
 	Cursor string
 	Limit  int // default 100, at most 500
@@ -126,6 +129,16 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	}
 	if q.RunID != "" {
 		where, args = append(where, "run_id = ?"), append(args, q.RunID)
+	}
+	if len(q.Severities) > 0 {
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(q.Severities)), ",")
+		where = append(where, "severity IN ("+marks+")")
+		for _, v := range q.Severities {
+			args = append(args, v)
+		}
+	}
+	if q.Owner != "" {
+		where, args = append(where, "operation_id IN (SELECT id FROM operations WHERE owner = ?)"), append(args, q.Owner)
 	}
 	if len(q.Types) > 0 {
 		var ors []string

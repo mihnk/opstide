@@ -29,13 +29,31 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
   // Run starts are many and say little; they are off unless asked for.
   const show = params.get('show') ?? defaultShow
   const selected = params.get('entry')
-  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, limit: 100 })}`
+  const severity = params.get('severity') ?? ''
+  const outcome = params.get('outcome') ?? ''
+  const owner = params.get('owner') ?? ''
+  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, severity, outcome: show.split(',').includes('runs') ? outcome : '', owner, limit: 100 })}`
+  // The owners that exist (deleted CronJobs included), fetched once.
+  const [ownerList, setOwnerList] = useState<string[]>([])
+  useEffect(() => {
+    getJSON<{ owners: string[] }>('/api/v1/owners').then((o) => setOwnerList(o.owners)).catch(() => {})
+  }, [])
+  const owners = owner && !ownerList.includes(owner) ? [...ownerList, owner] : ownerList
+  const runsShown = show.split(',').includes('runs')
+  // Run starts are off by default, so a changed Show list narrows the log as well.
+  const filtered = !!(q || ns || severity || owner || (outcome && runsShown) || show !== defaultShow)
   const { data, error } = useApi<Entries>(path)
 
   // Older pages, appended below the live first page.
   const [older, setOlder] = useState<{ base: string; entries: Entry[]; cursor?: string }>({ base: path, entries: [] })
   const [loadingMore, setLoadingMore] = useState(false)
   const [text, setText] = useState(q)
+  // The link is the truth: clearing filters, or going back, resets the box.
+  const [seenQ, setSeenQ] = useState(q)
+  if (q !== seenQ) {
+    setSeenQ(q)
+    setText(q)
+  }
   useEffect(() => {
     const t = window.setTimeout(() => {
       if (text !== q) navigate(withParams(params, { q: text || null, entry: null }), true)
@@ -89,9 +107,34 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
           </select>
         </label>
         <label className="field"><span className="label">Namespace</span>
-          <input className="control" style={{ width: 150 }} defaultValue={ns} placeholder="all"
+          <input key={ns} className="control" style={{ width: 150 }} defaultValue={ns} placeholder="all"
             onBlur={(e) => e.target.value !== ns && navigate(withParams(params, { namespace: e.target.value.trim() || null }), true)}
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+        </label>
+        <label className="field"><span className="label">Severity</span>
+          <select className="control" value={severity} onChange={(e) => navigate(withParams(params, { severity: e.target.value || null, entry: null }), true)}>
+            <option value="">Any</option>
+            <option value="error">Errors</option>
+            <option value="warning,error">Warnings and errors</option>
+            {severity && !['error', 'warning,error'].includes(severity) && <option value={severity}>{severity.replace(',', ', ')}</option>}
+          </select>
+        </label>
+        {shown.has('runs') && (
+          <label className="field"><span className="label">Run outcome</span>
+            <select className="control" value={outcome} onChange={(e) => navigate(withParams(params, { outcome: e.target.value || null, entry: null }), true)}>
+              <option value="">Any</option>
+              <option value="failed">Failed</option>
+              <option value="succeeded">Succeeded</option>
+              <option value="unknown">Unknown</option>
+              {outcome && !['failed', 'succeeded', 'unknown'].includes(outcome) && <option value={outcome}>{outcome.replace(',', ', ')}</option>}
+            </select>
+          </label>
+        )}
+        <label className="field"><span className="label">Owner</span>
+          <select className="control" value={owner} onChange={(e) => navigate(withParams(params, { owner: e.target.value || null, entry: null }), true)}>
+            <option value="">Anyone</option>
+            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </label>
         <fieldset>
           <legend className="label" style={{ padding: '0 0 4px' }}>Show</legend>
@@ -110,7 +153,13 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
       {data && (
         <div className="split">
           <section aria-label="Log entries" className="main">
-            {entries.length === 0 && <div className="empty">No entries match. Widen the range or clear the filters.</div>}
+            {entries.length === 0 && (
+              <div className="empty">
+                {filtered
+                  ? <>Nothing in this range matches these filters. <Link href={withParams(params, { q: null, namespace: null, severity: null, outcome: null, owner: null, show: null, entry: null })} replace>Clear the filters</Link></>
+                  : <>Nothing of the kinds shown was recorded in this range. Run starts are off; if OpsTide was not running, System shows when it was not watching.</>}
+              </div>
+            )}
             {[...byDay.entries()].map(([d, es]) => (
               <div key={d} className="daygroup">
                 <h2>{longDay(es[0].at, tz)}</h2>

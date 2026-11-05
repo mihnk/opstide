@@ -80,6 +80,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
 | `auth.enabled`, `auth.existingSecret` | The token that protects the API and the UI (on by default; see below) |
+| `clustrail.url` | Adds "Open in Clustrail" to each CronJob: a URL template with `{cluster}`, `{namespace}`, `{name}` (http, https or `clustrail://`) |
 | `serviceMonitor.enabled` | A Prometheus Operator ServiceMonitor for `/metrics` |
 | `networkPolicy.enabled` | Only the UI port in; out only DNS and the Kubernetes API's ports. Set `networkPolicy.apiServer.cidrs` to your API server's address to limit the destination too. Not for Cilium with a self-managed control plane (see values.yaml) |
 | `ingress.enabled` | Off by default |
@@ -134,9 +135,10 @@ live:
   the window to it. The window is in the link.
 - **Log**: every entry, newest first, with when it occurred, was observed
   and was recorded, and whether it is observed, derived or unknown.
-  Filters live in the link.
-- **Schedules**: every CronJob with its last 7 days, last run and next
-  expected run.
+  Filter by text, namespace, severity, run outcome (failed, succeeded,
+  unknown) and owner; filters live in the link.
+- **Schedules**: every CronJob with its last 7 days, last run, next
+  expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
   its last 7 days on one timeline each, recent runs, and a run's Job and
   pods.
@@ -208,10 +210,11 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 |---|---|
 | `GET /api/v1/range?within=3h&tz=Europe/Istanbul` | One window of 5 minutes to 7 days: counts, a lane per CronJob, gaps, grouped exceptions, what is still to come. The window is `within=3h` (ending now; also `90m`, `5d`), `date=2026-11-04` (a calendar day in `tz`), or `from=` and `to=`; with none, today. A lane with more than 120 marks comes as runs per hour. `day` is the same endpoint |
 | `GET /api/v1/overview?span=5d&tz=` | The strip above the Overview: runs per hour (per 6 h for 30 days) and failures, when Jobs were not watched, and when OpsTide first watched. `span` is `24h`, `5d`, `7d` or `30d` |
-| `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,collection&q=&cursor=` | The log, newest first, by stable cursor |
+| `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,collection&severity=warning,error&outcome=failed&owner=&q=&cursor=` | The log, newest first, by stable cursor. `severity` is `info`, `warning`, `error`; `outcome` narrows the run entries to `failed`, `succeeded` or `unknown` (with `show`, it must include `runs`; without `show` all groups are returned); `owner` is an exact owner annotation |
 | `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
 | `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
 | `GET /api/v1/runs/{id}` | One run with its pods and entries |
+| `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |
 
