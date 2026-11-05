@@ -202,7 +202,10 @@ type opView struct {
 	susp     []schedule.Window
 }
 
-func (s *Server) view(ctx context.Context, op store.Operation, runs []store.Run) (opView, error) {
+// view builds what one operation needs. susp holds the suspend and resume
+// entries of all operations when the caller has them (one query for a whole
+// screen); nil makes view ask for this operation's alone.
+func (s *Server) view(ctx context.Context, op store.Operation, runs []store.Run, susp map[string][]store.Event) (opView, error) {
 	v := opView{op: op, runs: runs}
 	sc, err := schedule.Parse(op.Schedule, op.TimeZone, s.cfg.ControllerZone)
 	if err != nil {
@@ -210,19 +213,19 @@ func (s *Server) view(ctx context.Context, op store.Operation, runs []store.Run)
 	} else {
 		v.sched = sc
 	}
-	v.susp, err = s.suspensions(ctx, op)
-	return v, err
+	if susp == nil {
+		if susp, err = s.db.SuspensionEvents(ctx, op.ID); err != nil {
+			return v, err
+		}
+	}
+	v.susp = suspensionWindows(op, susp[op.ID])
+	return v, nil
 }
 
-// suspensions rebuilds when spec.suspend was true from the logged
+// suspensionWindows rebuilds when spec.suspend was true from the logged
 // suspends and resumes. A CronJob already suspended when OpsTide first saw
 // it counts as suspended from then.
-func (s *Server) suspensions(ctx context.Context, op store.Operation) ([]schedule.Window, error) {
-	page, err := s.db.Events(ctx, store.EventQuery{OperationID: op.ID, Types: []string{"cronjob.suspended", "cronjob.resumed"}, Limit: 500})
-	if err != nil {
-		return nil, err
-	}
-	evs := page.Events
+func suspensionWindows(op store.Operation, evs []store.Event) []schedule.Window {
 	sort.Slice(evs, func(i, j int) bool { return evs[i].At().Before(evs[j].At()) })
 	var ws []schedule.Window
 	var open *schedule.Window
@@ -248,7 +251,7 @@ func (s *Server) suspensions(ctx context.Context, op store.Operation) ([]schedul
 		}
 		ws = append(ws, schedule.Window{Start: start})
 	}
-	return ws, nil
+	return ws
 }
 
 func toSlotRuns(runs []store.Run) []schedule.Run {

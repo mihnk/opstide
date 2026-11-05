@@ -101,6 +101,7 @@ func Slots(s *Schedule, op Operation, runs []Run, covered Coverage, from, to, no
 		window = *op.StartingDeadline
 	}
 
+	active := newActiveIndex(ordered)
 	slots = make([]Slot, 0, len(times))
 	for _, t := range times {
 		sl := Slot{At: t}
@@ -111,7 +112,7 @@ func Slots(s *Schedule, op Operation, runs []Run, covered Coverage, from, to, no
 			sl.State, sl.Why = Suspended, "The CronJob was suspended."
 		case t.After(now):
 			sl.State = Expected
-		case op.ConcurrencyPolicy == "Forbid" && activeAt(ordered, t):
+		case op.ConcurrencyPolicy == "Forbid" && active.at(t):
 			sl.State, sl.Why = Skipped, "The previous run was still active and concurrencyPolicy is Forbid."
 		case now.Before(t.Add(window)):
 			sl.State = Due
@@ -134,15 +135,43 @@ func suspendedAt(ws []Window, t time.Time) bool {
 	return false
 }
 
-// activeAt reports whether some run was started before t and had not
-// finished by t.
-func activeAt(runs []Run, t time.Time) bool {
-	for _, r := range runs {
-		if r.CreatedAt.Before(t) && (r.FinishedAt.IsZero() || r.FinishedAt.After(t)) {
-			return true
+// activeIndex answers "was some run started before t and not finished by t"
+// in O(log n): the runs started before t are a prefix of those ordered by
+// start, so the latest finish over that prefix decides (a run with no
+// finish never ends).
+type activeIndex struct {
+	created   []time.Time
+	maxFinish []time.Time // over the prefix; zero means a run still going
+}
+
+func newActiveIndex(ordered []Run) activeIndex {
+	ix := activeIndex{created: make([]time.Time, len(ordered)), maxFinish: make([]time.Time, len(ordered))}
+	var maxF time.Time
+	open := false
+	for i, r := range ordered {
+		ix.created[i] = r.CreatedAt
+		switch {
+		case r.FinishedAt.IsZero():
+			open = true
+		case r.FinishedAt.After(maxF):
+			maxF = r.FinishedAt
+		}
+		if open {
+			ix.maxFinish[i] = time.Time{}
+		} else {
+			ix.maxFinish[i] = maxF
 		}
 	}
-	return false
+	return ix
+}
+
+func (ix activeIndex) at(t time.Time) bool {
+	n := sort.Search(len(ix.created), func(i int) bool { return !ix.created[i].Before(t) }) // runs created before t
+	if n == 0 {
+		return false
+	}
+	f := ix.maxFinish[n-1]
+	return f.IsZero() || f.After(t)
 }
 
 // JobNameTime returns the scheduled time the CronJob controller encoded in

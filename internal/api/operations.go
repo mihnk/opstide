@@ -68,13 +68,17 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 		return out, err
 	}
 	byOp := groupRuns(runs)
+	susp, err := s.db.SuspensionEvents(ctx, "")
+	if err != nil {
+		return out, err
+	}
 	cov, err := loadCoverage(ctx, s.db, from.Add(-24*time.Hour), todayTo, now)
 	if err != nil {
 		return out, err
 	}
 	sort.Slice(ops, func(i, j int) bool { return byName(ops[i], ops[j]) })
 	for _, op := range ops {
-		v, err := s.view(ctx, op, byOp[op.ID])
+		v, err := s.view(ctx, op, byOp[op.ID], susp)
 		if err != nil {
 			return out, err
 		}
@@ -278,7 +282,7 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 	if err != nil {
 		return OperationDetail{}, err
 	}
-	v, err := s.view(ctx, op, windowRuns)
+	v, err := s.view(ctx, op, windowRuns, nil)
 	if err != nil {
 		return OperationDetail{}, err
 	}

@@ -90,6 +90,21 @@ CREATE TABLE meta (
 	value TEXT NOT NULL
 );
 `,
+	// 2: the Log filters by kind and severity, and every view asks for the
+	// suspends and resumes of all CronJobs at once; without these each of
+	// them walks the whole table.
+	`
+CREATE INDEX events_type_at ON events(type, at);
+CREATE INDEX events_severity_at ON events(severity, at);
+-- Runs in a window are found by when they were created; the few created
+-- before it that still matter (active, finished inside it, lost) by these.
+CREATE INDEX runs_created ON runs(created_at, status);
+CREATE INDEX runs_finished ON runs(finished_at, created_at);
+CREATE INDEX runs_active ON runs(created_at) WHERE status IN ('pending', 'running');
+CREATE INDEX runs_lost ON runs(updated_at) WHERE status = 'unknown';
+-- The live views ask for max(updated_at) every couple of seconds.
+CREATE INDEX runs_updated ON runs(updated_at);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

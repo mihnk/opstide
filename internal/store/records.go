@@ -172,7 +172,10 @@ func (s *Store) Operations(ctx context.Context, includeDeleted bool) ([]Operatio
 	return out, rows.Err()
 }
 
-// UpsertRun inserts run or updates it, keeping the first ObservedAt.
+// UpsertRun inserts run or updates it, keeping the first ObservedAt. The run
+// must come from Run or ActiveRuns, or be built from the Job itself: lists
+// (RunsBetween and the like) leave the pods out, and writing such a run back
+// would erase them.
 func (w *Writer) UpsertRun(ctx context.Context, r Run) error {
 	pods, _ := json.Marshal(nonNil(r.Pods))
 	_, err := w.tx.ExecContext(ctx, `
@@ -192,6 +195,13 @@ ON CONFLICT(id) DO UPDATE SET
 const runCols = `id, operation_id, namespace, job_name, scheduled_at, scheduled_basis, created_at, started_at,
 	finished_at, status, status_reason, attempts, pods, observed_at, updated_at`
 
+// runColsLite is runCols without the pods, which are the bulk of a row and
+// only the run's own page shows. Lists of runs use it.
+// Runs read with runColsLite have no pods: never write one back with
+// UpsertRun, which would replace the stored pods with none.
+const runColsLite = `id, operation_id, namespace, job_name, scheduled_at, scheduled_basis, created_at, started_at,
+	finished_at, status, status_reason, attempts, '[]', observed_at, updated_at`
+
 func scanRun(sc interface{ Scan(...any) error }) (Run, error) {
 	var r Run
 	var scheduled, started, finished sql.NullInt64
@@ -206,7 +216,9 @@ func scanRun(sc interface{ Scan(...any) error }) (Run, error) {
 	r.ScheduledAt, r.StartedAt, r.FinishedAt = fromMS(scheduled), fromMS(started), fromMS(finished)
 	r.CreatedAt = time.UnixMilli(created).UTC()
 	r.ObservedAt, r.UpdatedAt = time.UnixMilli(observed).UTC(), time.UnixMilli(updated).UTC()
-	_ = json.Unmarshal([]byte(pods), &r.Pods)
+	if pods != "[]" {
+		_ = json.Unmarshal([]byte(pods), &r.Pods)
+	}
 	return r, nil
 }
 
@@ -226,19 +238,38 @@ func (s *Store) Run(ctx context.Context, id string) (r Run, ok bool, err error) 
 const overlapsFrom = `(status IN ('pending', 'running') OR finished_at >= ? OR (status = 'unknown' AND updated_at >= ?))`
 
 // RunsForOperation returns the operation's runs created in [from, to),
-// newest first. A run still active from before from is included, since
+// newest first, without their pods (Run has them). A run still active from before from is included, since
 // it matters to whatever was due in the window.
 func (s *Store) RunsForOperation(ctx context.Context, operationID string, from, to time.Time) ([]Run, error) {
-	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
+	return s.queryRuns(ctx, `SELECT `+runColsLite+` FROM runs
 WHERE operation_id = ? AND created_at < ? AND (created_at >= ? OR `+overlapsFrom+`)
 ORDER BY created_at DESC`, operationID, ms(to).Int64, ms(from).Int64, ms(from).Int64, ms(from).Int64)
 }
 
-// RunsBetween is RunsForOperation for every run, CronJob-owned or not.
+// RunsBetween is RunsForOperation for every run, CronJob-owned or not. The
+// "created before the window but still matters" rule is an OR that SQLite
+// answers by reading every older run, so it is written as one lookup per
+// index, each leaving out what an earlier one returned:
+//
+//	created in the window;
+//	created before it and still pending or running;
+//	created before it and finished inside it;
+//	created before it, lost (outcome unknown) inside it, and not finished inside it.
 func (s *Store) RunsBetween(ctx context.Context, from, to time.Time) ([]Run, error) {
-	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs
-WHERE created_at < ? AND (created_at >= ? OR `+overlapsFrom+`)
-ORDER BY created_at DESC`, ms(to).Int64, ms(from).Int64, ms(from).Int64, ms(from).Int64)
+	if !from.Before(to) {
+		return nil, nil
+	}
+	f, t := ms(from).Int64, ms(to).Int64
+	return s.queryRuns(ctx, `
+SELECT `+runColsLite+` FROM runs INDEXED BY runs_created WHERE created_at >= ? AND created_at < ?
+UNION ALL
+SELECT `+runColsLite+` FROM runs INDEXED BY runs_active WHERE created_at < ? AND status IN ('pending', 'running')
+UNION ALL
+SELECT `+runColsLite+` FROM runs INDEXED BY runs_finished WHERE finished_at >= ? AND created_at < ? AND status NOT IN ('pending', 'running')
+UNION ALL
+SELECT `+runColsLite+` FROM runs INDEXED BY runs_lost WHERE status = 'unknown' AND updated_at >= ? AND created_at < ?
+	AND (finished_at IS NULL OR finished_at < ?)
+ORDER BY created_at DESC`, f, t, f, f, f, f, f, f)
 }
 
 // RecentRuns returns the operation's latest runs, newest first, created
@@ -248,7 +279,7 @@ func (s *Store) RecentRuns(ctx context.Context, operationID string, before time.
 	if !before.IsZero() {
 		b = before.UnixMilli()
 	}
-	return s.queryRuns(ctx, `SELECT `+runCols+` FROM runs WHERE operation_id = ? AND created_at < ?
+	return s.queryRuns(ctx, `SELECT `+runColsLite+` FROM runs WHERE operation_id = ? AND created_at < ?
 ORDER BY created_at DESC LIMIT ?`, operationID, b, limit)
 }
 

@@ -5,7 +5,7 @@ KUBECONFIG_FILE ?=
 DEMO_CONTEXT = kind-opstide-demo
 DEMO_KUBECONFIG = ./data-demo/kubeconfig
 
-.PHONY: build web test lint run image demo-up demo demo-install demo-rollout demo-down
+.PHONY: build web test lint run image perf demo-up demo demo-install demo-rollout demo-down
 
 # The web app, built into internal/webui/dist and embedded by build.
 web:
@@ -17,6 +17,13 @@ build: web
 test:
 	go test -race ./...
 	cd web && npm test
+
+# Times the read API on a synthetic big cluster (500 CronJobs, 30 days, about
+# 1.1 million log entries; takes a couple of minutes and ~500 MB of disk).
+# OPSTIDE_PERF_OPS and OPSTIDE_PERF_DAYS scale it; OPSTIDE_PERF_DIR keeps the
+# database between runs; OPSTIDE_PERF_ONLY="within=7d" times one request.
+perf:
+	OPSTIDE_PERF=1 go test -count=1 -run PerfLargeCluster -v -timeout 40m ./internal/api
 
 lint:
 	test -z "$$(gofmt -l .)"

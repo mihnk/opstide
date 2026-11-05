@@ -106,6 +106,23 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	return st, nil
 }
 
+// Analyze refreshes the statistics SQLite plans queries with. Without them it
+// takes an index for a window that is most of the table and reads every row
+// twice. A sample of each index is enough, so it takes well under a second
+// on millions of rows.
+func (s *Store) Analyze(ctx context.Context) error {
+	conn, err := s.db.Conn(ctx) // the limit is per connection
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA analysis_limit = 2000`); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `ANALYZE`)
+	return err
+}
+
 // Retention is what Maintain keeps.
 type Retention struct {
 	Days      int
@@ -113,7 +130,7 @@ type Retention struct {
 }
 
 // Maintain writes the heartbeat at once and every 15 s, checkpoints every
-// 5 min and prunes at once and every hour until ctx ends. A crash loses at
+// 5 min and prunes (then refreshes the query statistics) at once and every hour until ctx ends. A crash loses at
 // most the last 15 s of coverage: it ends at the last heartbeat.
 func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) {
 	beat := time.NewTicker(15 * time.Second)
@@ -125,13 +142,16 @@ func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) 
 
 	doPrune := func() {
 		r, err := s.Prune(ctx, s.now().AddDate(0, 0, -keep.Days), keep.MaxEvents)
-		if err != nil {
-			if ctx.Err() == nil {
-				log.Warn("prune failed", "err", err)
-			}
-			return
+		switch {
+		case err != nil && ctx.Err() == nil:
+			log.Warn("prune failed", "err", err)
+		case err == nil:
+			log.Info("pruned", "events", r.Events, "runs", r.Runs, "operations", r.Operations, "intervals", r.Intervals)
 		}
-		log.Info("pruned", "events", r.Events, "runs", r.Runs, "operations", r.Operations, "intervals", r.Intervals)
+		// Whether or not the prune worked: the planner needs fresh statistics.
+		if err := s.Analyze(ctx); err != nil && ctx.Err() == nil {
+			log.Warn("analyze failed", "err", err)
+		}
 	}
 	heartbeat := func() {
 		if err := s.Update(ctx, func(w *Writer) error { return w.Heartbeat(ctx, s.now()) }); err != nil && ctx.Err() == nil {

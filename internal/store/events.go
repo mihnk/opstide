@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -218,4 +219,28 @@ func parseCursor(c string) (at, seq int64, err error) {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// SuspensionEvents returns the suspend and resume entries of every CronJob
+// (or of one, when operationID is set), grouped by operation, oldest first
+// within each. Views build a CronJob's suspended periods from them.
+func (s *Store) SuspensionEvents(ctx context.Context, operationID string) (map[string][]Event, error) {
+	out := map[string][]Event{}
+	q := EventQuery{OperationID: operationID, Types: []string{"cronjob.suspended", "cronjob.resumed"}, Limit: 500}
+	for {
+		page, err := s.Events(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range page.Events { // newest first
+			out[e.OperationID] = append(out[e.OperationID], e)
+		}
+		if page.NextCursor == "" {
+			for _, evs := range out {
+				slices.Reverse(evs) // oldest first
+			}
+			return out, nil
+		}
+		q.Cursor = page.NextCursor
+	}
 }

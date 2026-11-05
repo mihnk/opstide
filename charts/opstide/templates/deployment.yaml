@@ -118,7 +118,7 @@ spec:
           {{- end }}
         - name: tmp
           emptyDir:
-            sizeLimit: 64Mi
+            sizeLimit: 256Mi
         {{- if .Values.auth.enabled }}
         - name: auth
           secret:

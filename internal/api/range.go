@@ -229,6 +229,10 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 		return d, err
 	}
 	byOp := groupRuns(runs)
+	susp, err := s.db.SuspensionEvents(ctx, "")
+	if err != nil {
+		return d, err
+	}
 	// A day back, so start windows that began before the window can be judged.
 	cov, err := loadCoverage(ctx, s.db, from.Add(-24*time.Hour), to, now)
 	if err != nil {
@@ -242,7 +246,7 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 			continue
 		}
 		namespaces[op.Namespace] = true
-		v, err := s.view(ctx, op, byOp[op.ID])
+		v, err := s.view(ctx, op, byOp[op.ID], susp)
 		if err != nil {
 			return d, err
 		}

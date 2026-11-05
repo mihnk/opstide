@@ -1,6 +1,8 @@
 package schedule
 
 import (
+	"math/rand/v2"
+	"sort"
 	"testing"
 	"time"
 )
@@ -99,5 +101,41 @@ func TestSuspensionAndLifetime(t *testing.T) {
 	}
 	if got, _ := Slots(s, op, nil, always, at(10, 0), at(12, 0), at(11, 0)); len(got) != 0 {
 		t.Fatalf("after deletion: %v", got)
+	}
+}
+
+// activeAt was a scan of every run; the index must give the same answer.
+func TestActiveIndexMatchesAScan(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	t0 := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
+	scan := func(runs []Run, at time.Time) bool {
+		for _, r := range runs {
+			if r.CreatedAt.Before(at) && (r.FinishedAt.IsZero() || r.FinishedAt.After(at)) {
+				return true
+			}
+		}
+		return false
+	}
+	for range 300 {
+		var runs []Run
+		for range rng.IntN(25) {
+			c := t0.Add(time.Duration(rng.IntN(600)) * time.Minute)
+			r := Run{CreatedAt: c}
+			if rng.IntN(4) > 0 { // some never finish
+				r.FinishedAt = c.Add(time.Duration(rng.IntN(120)) * time.Minute)
+			}
+			runs = append(runs, r)
+		}
+		sort.Slice(runs, func(i, j int) bool { return runs[i].CreatedAt.Before(runs[j].CreatedAt) })
+		ix := newActiveIndex(runs)
+		for m := -5; m < 760; m++ {
+			at := t0.Add(time.Duration(m) * time.Minute)
+			if got, want := ix.at(at), scan(runs, at); got != want {
+				t.Fatalf("at +%dm with %+v: index %v, scan %v", m, runs, got, want)
+			}
+		}
+	}
+	if newActiveIndex(nil).at(t0) {
+		t.Fatal("no runs, yet active")
 	}
 }

@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"math/rand/v2"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -111,8 +115,80 @@ func TestRunsInWindowIncludeOnesStillActive(t *testing.T) {
 	if len(got) != 2 || got[0].ID != "in" || got[1].ID != "old-active" {
 		t.Fatalf("got %+v", got)
 	}
-	if p := got[0].Pods; len(p) != 1 || *p[0].ExitCode != 1 || !p[0].FinishedAt.Equal(t0.Add(25*time.Minute)) || got[0].ScheduledBasis != "name" {
-		t.Fatalf("pods: %+v", got[0])
+	// Lists leave the pods out (they are most of a row); a run's own read has them.
+	if len(got[0].Pods) != 0 || got[0].ScheduledBasis != "name" {
+		t.Fatalf("a list carries pods: %+v", got[0])
+	}
+	full, ok, err := s.Run(ctx, "in")
+	if err != nil || !ok {
+		t.Fatal(err, ok)
+	}
+	if p := full.Pods; len(p) != 1 || *p[0].ExitCode != 1 || !p[0].FinishedAt.Equal(t0.Add(25*time.Minute)) {
+		t.Fatalf("pods: %+v", full)
+	}
+}
+
+func TestSuspensionEventsAreGroupedOldestFirst(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		for i, e := range []struct{ op, typ string }{
+			{"a", "cronjob.suspended"}, {"b", "cronjob.suspended"}, {"a", "cronjob.resumed"}, {"a", "cronjob.suspended"},
+		} {
+			at := t0.Add(time.Duration(i) * time.Minute)
+			if _, err := w.AddEvent(ctx, Event{ID: fmt.Sprintf("%s/%d", e.typ, i), Type: e.typ, OperationID: e.op, OccurredAt: at, ObservedAt: at,
+				Severity: "info", Confidence: Observed, Summary: "x"}); err != nil {
+				return err
+			}
+		}
+		// Unrelated entries and a flood past one page must not matter.
+		for i := range 700 {
+			if _, err := w.AddEvent(ctx, Event{ID: fmt.Sprintf("noise/%d", i), Type: "job.created", OperationID: "a", ObservedAt: t0, Severity: "info", Confidence: Observed, Summary: "x"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	all, err := s.SuspensionEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var types []string
+	for _, e := range all["a"] {
+		types = append(types, e.Type)
+	}
+	if strings.Join(types, ",") != "cronjob.suspended,cronjob.resumed,cronjob.suspended" || len(all["b"]) != 1 || len(all) != 2 {
+		t.Fatalf("grouped: %v / %d groups", types, len(all))
+	}
+	one, _ := s.SuspensionEvents(ctx, "b")
+	if len(one) != 1 || len(one["b"]) != 1 {
+		t.Fatalf("one operation: %v", one)
+	}
+}
+
+func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v1.db")
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	// Take it back to version 1, as a database written before the indexes would be.
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; PRAGMA user_version = 1`); err != nil {
+		t.Fatalf("rewinding to version 1: %v", err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name IN ('events_type_at','events_severity_at','runs_created','runs_finished','runs_active','runs_lost','runs_updated')`).Scan(&n); err != nil || n != 7 {
+		t.Fatalf("indexes after migrating: %d %v", n, err)
+	}
+	// INDEXED BY must find its indexes on a migrated database too, not only a fresh one.
+	if _, err := s.RunsBetween(ctx, t0, t0.Add(time.Hour)); err != nil {
+		t.Fatalf("RunsBetween on a migrated database: %v", err)
 	}
 }
 
@@ -340,5 +416,169 @@ func TestRunHistogramAndFirstWatched(t *testing.T) {
 	ist, err := s.RunHistogram(ctx, t0, hour(6, 0), time.Hour, 5*time.Hour+30*time.Minute)
 	if err != nil || len(ist) < 2 || !ist[0].Start.Equal(t0.Add(-30*time.Minute)) {
 		t.Fatalf("histogram in a +05:30 zone: %+v %v", ist, err)
+	}
+}
+
+// The big record is read by window many times a minute. RunsBetween names
+// its indexes (INDEXED BY), so SQLite refuses to run it if one cannot serve
+// its lookup; this makes sure it still runs, and that the other hot lookups
+// have their index.
+func TestWindowQueriesUseIndexes(t *testing.T) {
+	s, ctx := open(t)
+	if _, err := s.RunsBetween(ctx, t0, t0.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	explain := func(q string, args ...any) string {
+		rows, err := s.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+q, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var plan []string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			plan = append(plan, detail)
+		}
+		return strings.Join(plan, "\n")
+	}
+	// The suspension lookup exactly as Events builds it.
+	if p := explain(`SELECT seq FROM events WHERE (type = ? OR type = ?) ORDER BY at DESC, seq DESC LIMIT 501`, "cronjob.suspended", "cronjob.resumed"); !strings.Contains(p, "events_type_at") {
+		t.Errorf("suspension lookup does not use its index:\n%s", p)
+	}
+	if p := explain(`SELECT coalesce(max(updated_at), 0) FROM runs`); !strings.Contains(p, "runs_updated") {
+		t.Errorf("Version scans every run:\n%s", p)
+	}
+}
+
+// What RunsBetween returns must be what the one-OR query used to return.
+func TestRunsBetweenKeepsRunsThatStillMatter(t *testing.T) {
+	s, ctx := open(t)
+	from, to := t0, t0.Add(time.Hour)
+	before := from.Add(-3 * time.Hour)
+	mk := func(id string, created time.Time, st RunStatus, fin, upd time.Time) Run {
+		return Run{ID: id, OperationID: "op", Namespace: "ns", JobName: id, CreatedAt: created, FinishedAt: fin, Status: st, ObservedAt: created, UpdatedAt: upd}
+	}
+	// UpsertRun stamps updated_at from the store's clock, so each run is
+	// written as of the time its "last news" should be.
+	write := func(asOf time.Time, runs ...Run) {
+		s.now = func() time.Time { return asOf }
+		update(t, s, func(w *Writer) error {
+			for _, r := range runs {
+				if err := w.UpsertRun(ctx, r); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	write(before, mk("old-lost-long-ago", before, RunUnknown, time.Time{}, before))
+	write(from.Add(20*time.Minute),
+		mk("old-lost-inside", before, RunUnknown, time.Time{}, time.Time{}),
+		// lost inside the window AND finished inside it: once, not twice
+		mk("old-lost-and-finished", before, RunUnknown, from.Add(15*time.Minute), time.Time{}))
+	write(from, mk("in-window", from.Add(5*time.Minute), RunSucceeded, from.Add(6*time.Minute), time.Time{}),
+		mk("after-window", to.Add(time.Minute), RunSucceeded, to.Add(2*time.Minute), time.Time{}),
+		mk("old-done", before, RunSucceeded, before.Add(time.Minute), time.Time{}),
+		mk("old-running", before, RunRunning, time.Time{}, time.Time{}),
+		mk("old-pending", before, RunPending, time.Time{}, time.Time{}),
+		mk("old-finished-inside", before, RunFailed, from.Add(10*time.Minute), time.Time{}))
+	got, err := s.RunsBetween(ctx, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, r := range got {
+		seen[r.ID]++
+	}
+	want := map[string]int{"in-window": 1, "old-running": 1, "old-pending": 1, "old-finished-inside": 1, "old-lost-inside": 1, "old-lost-and-finished": 1}
+	if len(seen) != len(want) {
+		t.Fatalf("got %v, want %v", seen, want)
+	}
+	for id, n := range want {
+		if seen[id] != n {
+			t.Errorf("%s: %d times, want %d (all: %v)", id, seen[id], n, seen)
+		}
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].CreatedAt.After(got[i-1].CreatedAt) {
+			t.Fatal("not newest first")
+		}
+	}
+}
+
+// RunsBetween was one query with an OR; it is four lookups now. They must
+// agree on everything, boundaries included.
+func TestRunsBetweenAgreesWithTheOneQueryItReplaced(t *testing.T) {
+	s, ctx := open(t)
+	rng := rand.New(rand.NewPCG(7, 9))
+	base := t0
+	minute := func(n int) time.Time { return base.Add(time.Duration(n) * time.Minute) }
+	statuses := []RunStatus{RunPending, RunRunning, RunSucceeded, RunFailed, RunUnknown}
+	// Few distinct minutes, so created/finished/updated often equal a window edge.
+	var runs []Run
+	for i := range 250 {
+		st := statuses[rng.IntN(len(statuses))]
+		r := Run{ID: fmt.Sprintf("r%03d", i), OperationID: "op", Namespace: "ns", JobName: "j", CreatedAt: minute(rng.IntN(40)), Status: st, ObservedAt: base}
+		if rng.IntN(3) > 0 {
+			r.FinishedAt = r.CreatedAt.Add(time.Duration(rng.IntN(20)-3) * time.Minute) // sometimes before it was created
+		}
+		runs = append(runs, r)
+	}
+	for i := range runs {
+		s.now = func() time.Time { return minute(rng.IntN(40)) } // updated_at
+		update(t, s, func(w *Writer) error { return w.UpsertRun(ctx, runs[i]) })
+	}
+	old := func(from, to time.Time) []string {
+		rows, err := s.db.QueryContext(ctx, `SELECT id FROM runs WHERE created_at < ? AND (created_at >= ? OR `+overlapsFrom+`) ORDER BY created_at DESC, id`,
+			to.UnixMilli(), from.UnixMilli(), from.UnixMilli(), from.UnixMilli())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id string
+			rows.Scan(&id)
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	for _, analyze := range []bool{false, true} {
+		if analyze {
+			if err := s.Analyze(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for range 100 {
+			from, to := minute(rng.IntN(45)), minute(rng.IntN(60)+1)
+			if !from.Before(to) {
+				if got, err := s.RunsBetween(ctx, from, to); err != nil || len(got) != 0 {
+					t.Fatalf("an empty or backwards window returned %d runs (%v)", len(got), err)
+				}
+				continue
+			}
+			got, err := s.RunsBetween(ctx, from, to)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var gotIDs []string
+			for i, r := range got {
+				gotIDs = append(gotIDs, r.ID)
+				if i > 0 && r.CreatedAt.After(got[i-1].CreatedAt) {
+					t.Fatalf("not newest first at %d", i)
+				}
+			}
+			want := old(from, to)
+			sort.Strings(gotIDs)
+			sort.Strings(want)
+			if strings.Join(gotIDs, ",") != strings.Join(want, ",") {
+				t.Fatalf("window %d-%d (analyzed: %v): %d runs, the old query gave %d\nnew %v\nold %v",
+					from.Sub(base)/time.Minute, to.Sub(base)/time.Minute, analyze, len(gotIDs), len(want), gotIDs, want)
+			}
+		}
 	}
 }

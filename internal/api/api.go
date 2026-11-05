@@ -68,11 +68,12 @@ func New(db *store.Store, w Watcher, cfg Config, log *slog.Logger) *Server {
 
 // Register adds the API routes to mux.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/range", s.rangeHandler)
-	mux.HandleFunc("GET /api/v1/day", s.rangeHandler) // the same, kept for date= links
-	mux.HandleFunc("GET /api/v1/overview", s.overview)
+	heavy := newCache(s.db.Version).wrap // the endpoints that read a long stretch of the record
+	mux.HandleFunc("GET /api/v1/range", heavy(s.rangeHandler))
+	mux.HandleFunc("GET /api/v1/day", heavy(s.rangeHandler)) // the same, kept for date= links
+	mux.HandleFunc("GET /api/v1/overview", heavy(s.overview))
 	mux.HandleFunc("GET /api/v1/events", s.events)
-	mux.HandleFunc("GET /api/v1/operations", s.operations)
+	mux.HandleFunc("GET /api/v1/operations", heavy(s.operations))
 	mux.HandleFunc("GET /api/v1/owners", s.owners)
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)

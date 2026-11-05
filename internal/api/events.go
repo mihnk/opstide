@@ -173,7 +173,7 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok {
-			v, err := s.view(ctx, op, nil)
+			v, err := s.view(ctx, op, nil, nil)
 			if err != nil {
 				reply(w, r, s.log, nil, err)
 				return
