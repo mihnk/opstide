@@ -401,6 +401,14 @@ UPDATE evidence SET node_id = '', link_via = '' WHERE node_id <> '' AND link_via
 ALTER TABLE workload_state ADD COLUMN change_basis TEXT NOT NULL DEFAULT 'observed';
 UPDATE workload_state SET change_basis = 'baseline' WHERE kind = 'Deployment';
 `,
+	// 7: a Kubernetes Event's place on the Explorer timeline is fixed when it is first recorded. It was computed from
+	// first_at, which Kubernetes may fill in later; stored, it can never move, so a cursor never skips or repeats it.
+	`
+ALTER TABLE evidence ADD COLUMN record_key INTEGER;
+UPDATE evidence SET record_key = coalesce(first_at, observed_at);
+DROP INDEX IF EXISTS evidence_explorer;
+CREATE INDEX evidence_record_key ON evidence(record_key, id);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

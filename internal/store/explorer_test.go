@@ -318,3 +318,24 @@ func TestExplorerQueriesUseIndexes(t *testing.T) {
 		}
 	}
 }
+
+// A Kubernetes Event first recorded without a time keeps its place when Kubernetes later gives it one: the record time
+// is stored once, so a reader paging through the timeline cannot see it skipped or repeated.
+func TestEvidenceRecordTimeNeverMoves(t *testing.T) {
+	s, ctx := open(t)
+	e := Evidence{ID: "k1", Source: SourceEventsV1, SourceUID: "s1", Namespace: "ns", Name: "n", Reason: "BackOff", EventType: "Warning",
+		Regarding: Ref{Kind: "Pod", Name: "p", UID: "u"}, ObservedAt: t0, Origin: OriginObservedEvidence}
+	update(t, s, func(w *Writer) error { return w.SaveEvidence(ctx, e) })
+	e.FirstAt, e.LastAt = t0.Add(-time.Hour), t0.Add(-time.Hour)
+	update(t, s, func(w *Writer) error { return w.SaveEvidence(ctx, e) })
+	pg, err := s.Explorer(ctx, ExplorerQuery{From: t0.Add(-3 * time.Hour), To: t0.Add(time.Hour), Routine: true})
+	if err != nil || len(pg.Rows) != 1 {
+		t.Fatalf("%v %+v", err, pg.Rows)
+	}
+	if !pg.Rows[0].Key.Equal(t0) {
+		t.Fatalf("the record time moved to %v when Kubernetes added a timestamp", pg.Rows[0].Key)
+	}
+	if pg.Rows[0].Evidence.FirstAt.IsZero() {
+		t.Fatal("the source's own time is still stored")
+	}
+}

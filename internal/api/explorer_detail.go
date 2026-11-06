@@ -198,6 +198,11 @@ func (s *Server) detailOf(ctx context.Context, row store.ExplorerRow) (ExplorerD
 	if err := s.resolve(ctx, d.Relationships); err != nil {
 		return d, err
 	}
+	extra, err := s.podRelationships(ctx, rec, d.Relationships)
+	if err != nil {
+		return d, err
+	}
+	d.Relationships = append(d.Relationships, extra...)
 	d.Observation = ExplorerObservation{RecordTime: rec.At, ObservedAt: rec.ObservedAt, OccurredAt: rec.OccurredAt, LastOccurredAt: rec.LastOccurredAt}
 	switch {
 	case row.Evidence != nil:
@@ -249,7 +254,6 @@ func (s *Server) detailOf(ctx context.Context, row store.ExplorerRow) (ExplorerD
 			d.Provenance = ExplorerProvenance{ProvObserved, rec.Source, "Read from Kubernetes or from OpsTide's own watching, and recorded as seen."}
 		}
 	}
-	var err error
 	if d.Coverage, err = s.coverageAtRecord(ctx, rec); err != nil {
 		return d, err
 	}
@@ -258,6 +262,65 @@ func (s *Server) detailOf(ctx context.Context, row store.ExplorerRow) (ExplorerD
 	}
 	d.Current = s.currentLink(rec)
 	return d, nil
+}
+
+// podRelationships adds, for a record about a Pod OpsTide recorded, the revision it belongs to: the release of its
+// ReplicaSet for a Deployment's Pod, the ControllerRevision its label names for a StatefulSet's or DaemonSet's. These
+// are what the Pod record itself says; nothing is inferred. Relationships the record already has are not repeated.
+func (s *Server) podRelationships(ctx context.Context, rec ExplorerRecord, have []Relationship) ([]Relationship, error) {
+	if rec.Resource.Kind != "Pod" || rec.Resource.UID == "" {
+		return nil, nil
+	}
+	p, ok, err := s.db.PodByUID(ctx, rec.Resource.UID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	var out []Relationship
+	has := func(kind, uid string) bool {
+		for _, r := range have {
+			if r.Kind == kind && r.UID == uid {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case p.ReleaseID != "" && (p.Kind == "" || p.Kind == store.KindDeployment):
+		if has("Release", p.ReleaseID) {
+			return nil, nil
+		}
+		rel, found, err := s.db.Release(ctx, p.ReleaseID)
+		if err != nil {
+			return nil, err
+		}
+		r := Relationship{Kind: "Release", UID: p.ReleaseID, Classification: Ownership, Via: "the Pod's ownerReference names a ReplicaSet, which is this release's, as OpsTide recorded it"}
+		f := found
+		r.Resolved = &f
+		if found {
+			r.Path, r.Name = "/releases/"+pathValue(p.ReleaseID), rel.Workload+" "+rel.Revision
+		}
+		out = append(out, r)
+	case p.Revision != "" && p.WorkloadID != "":
+		revs, err := s.db.Revisions(ctx, p.WorkloadID)
+		if err != nil {
+			return nil, err
+		}
+		r := Relationship{Kind: "Revision", Name: p.Revision, Classification: Direct, Via: "the Pod's controller-revision-hash label names this revision, as recorded"}
+		found := false
+		for _, rv := range revs {
+			if rv.Name == p.Revision || (rv.Hash != "" && rv.Hash == p.Revision) {
+				found, r.Name = true, rv.Name
+			}
+		}
+		r.Resolved = &found
+		if found {
+			r.Path = "/workloads/" + pathValue(p.WorkloadID) + "?tab=revisions"
+		} else {
+			r.Note = "OpsTide holds no record of this revision (it may have been removed, or never observed)."
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // derivationOf names the rule behind a derived Log entry, its version where one is recorded, and its inputs.

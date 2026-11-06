@@ -906,7 +906,7 @@ func TestMigrationFiveKeepsDeploymentsAndNamesTheirEntries(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners;
 DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin;
 DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
-DROP INDEX evidence_explorer; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; PRAGMA user_version = 4`); err != nil {
+DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; PRAGMA user_version = 4`); err != nil {
 		t.Fatalf("rewinding to version 4: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at) VALUES ('d1','ns','api',1,1)`); err != nil {
@@ -1076,7 +1076,7 @@ func TestMigrationSixKeepsDeploymentsFromLookingRecentlyChanged(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_explorer; ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
 		t.Fatalf("rewinding to version 5: %v", err)
 	}
 	s.Close()
@@ -1119,7 +1119,7 @@ func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -1135,5 +1135,10 @@ func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
 	}
 	if got["before"] != "" || got["after"] != "n-new" {
 		t.Fatalf("%v", got)
+	}
+	// Migration 7 gave every existing Event its record time, so the Explorer still finds them.
+	ex, err := s.Explorer(ctx, ExplorerQuery{From: t0.Add(-3 * time.Hour), To: t0.Add(3 * time.Hour), Routine: true})
+	if err != nil || len(ex.Rows) != 2 {
+		t.Fatalf("%v %d", err, len(ex.Rows))
 	}
 }

@@ -493,3 +493,62 @@ func TestExplorerRoutineCountFollowsTheTypeFilter(t *testing.T) {
 		t.Fatalf("asking for a routine type hides it and counts it: %d", l.SuppressedRoutine)
 	}
 }
+
+// A record about a Pod leads on to the revision it belongs to: the release of a Deployment's Pod, the ControllerRevision a
+// StatefulSet Pod's label names; a revision OpsTide does not hold is said to be not recorded.
+func TestExplorerDetailLeadsFromAPodToItsRevision(t *testing.T) {
+	at := base.Add(-2 * time.Hour)
+	srv := setupWith(t, base, nil, func(ctx context.Context, w *store.Writer) error {
+		for _, wl := range []store.Workload{{ID: "sts-1", Kind: store.KindStatefulSet, Namespace: "shop", Name: "web", FirstSeen: at, LastSeen: at}, {ID: "d-1", Kind: store.KindDeployment, Namespace: "shop", Name: "api", FirstSeen: at, LastSeen: at}} {
+			if err := w.UpsertWorkload(ctx, wl); err != nil {
+				return err
+			}
+		}
+		if _, err := w.AddRevision(ctx, store.WorkloadRevision{ID: "wr1", WorkloadID: "sts-1", Kind: store.KindStatefulSet, Name: "web-aaa", Hash: "aaa", Number: 1, ControllerRevisionUID: "u1", ObservedAt: at, Origin: store.OriginObserved, Fingerprint: "f", Snapshot: "{}"}); err != nil {
+			return err
+		}
+		rel := relRow("rx", "api", "7", 7, at, "completed", "healthy", "observed", "", snap("api:1", "", 3))
+		rel.WorkloadID = "d-1"
+		if err := w.UpsertRelease(ctx, rel); err != nil {
+			return err
+		}
+		pod := func(uid, kind, wl, rev, rel string) store.PodRecord {
+			return store.PodRecord{UID: uid, Namespace: "shop", Name: uid, Kind: kind, WorkloadID: wl, Revision: rev, ReleaseID: rel, CreatedAt: at, State: "{}"}
+		}
+		for _, p := range []store.PodRecord{pod("p-sts", store.KindStatefulSet, "sts-1", "web-aaa", ""), pod("p-gone", store.KindStatefulSet, "sts-1", "web-zzz", ""), pod("p-dep", store.KindDeployment, "d-1", "", "rx")} {
+			if err := w.UpsertPod(ctx, p); err != nil {
+				return err
+			}
+			e := ev("k-"+p.UID, "su-"+p.UID, "BackOff", "Warning", "Pod", p.Name, p.UID, at.Add(time.Minute))
+			if err := w.SaveEvidence(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, func(*Config) {})
+	rel := func(pod string) Relationship {
+		var d ExplorerDetail
+		var l ExplorerList
+		get(t, srv, "/api/v1/explorer?range=24h&routine=1&uid="+pod, &l)
+		if len(l.Records) != 1 {
+			t.Fatalf("%s: %d records", pod, len(l.Records))
+		}
+		get(t, srv, "/api/v1/explorer/records/"+l.Records[0].ID, &d)
+		for _, r := range d.Relationships {
+			if r.Kind == "Revision" || r.Kind == "Release" {
+				return r
+			}
+		}
+		t.Fatalf("%s: no revision relationship in %+v", pod, d.Relationships)
+		return Relationship{}
+	}
+	if r := rel("p-sts"); r.Kind != "Revision" || r.Name != "web-aaa" || r.Resolved == nil || !*r.Resolved || r.Path != "/workloads/sts-1?tab=revisions" {
+		t.Fatalf("%+v", r)
+	}
+	if r := rel("p-gone"); r.Resolved == nil || *r.Resolved || r.Path != "" || r.Note == "" {
+		t.Fatalf("a revision OpsTide does not hold is said so: %+v", r)
+	}
+	if r := rel("p-dep"); r.Kind != "Release" || r.Path != "/releases/rx" || r.Classification != Ownership {
+		t.Fatalf("%+v", r)
+	}
+}

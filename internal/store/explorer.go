@@ -151,7 +151,9 @@ func EventRecordID(seq int64) string { return eventRID(seq) }
 // EvidenceRecordID is the Explorer id of a Kubernetes Event record.
 func EvidenceRecordID(id string) string { return "k." + id }
 
-const evidenceKey = "coalesce(first_at, observed_at)"
+// evidenceKey is a Kubernetes Event's record time: the first occurrence the source gave when OpsTide first recorded it, else
+// when OpsTide first saw it. It is stored once and never rewritten (see SaveEvidence).
+const evidenceKey = "record_key"
 
 // explorerWhere builds one branch's conditions. A branch that cannot match gives ok=false.
 type clause struct {

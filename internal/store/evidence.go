@@ -126,11 +126,27 @@ func (w *Writer) SaveEvidence(ctx context.Context, e Evidence) error {
 	if e.MessageTruncated {
 		trunc = 1
 	}
+	// The record time is fixed the first time the Event is recorded; a later update (Kubernetes adding a timestamp) keeps it.
+	var key sql.NullInt64
+	if err := w.tx.QueryRowContext(ctx, `SELECT record_key FROM evidence WHERE id = ?`, e.ID).Scan(&key); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !key.Valid {
+		if e.FirstAt.IsZero() {
+			key = ms(e.ObservedAt)
+		} else {
+			key = ms(e.FirstAt)
+		}
+	}
 	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO evidence (`+evidenceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.Source, e.SourceUID, e.Namespace, e.Name, e.Reason, e.EventType, e.Message, trunc, e.Action, e.Reporter,
 		e.Regarding.Kind, e.Regarding.Name, e.Regarding.UID, e.Related.Kind, e.Related.Name, e.Related.UID, ms(e.FirstAt), ms(e.LastAt), e.Count, e.CountBasis,
 		ms(e.ObservedAt).Int64, e.Origin, ms(e.SortTime()).Int64, ms(w.now()).Int64, ms(e.SourceDeletedAt), e.CountLogged, ms(e.CountLoggedAt),
 		e.ReplicaSetUID, e.WorkloadID, e.RunID, e.OperationID, e.HPAUID, e.LinkVia, e.NodeID)
+	if err != nil {
+		return err
+	}
+	_, err = w.tx.ExecContext(ctx, `UPDATE evidence SET record_key = ? WHERE id = ?`, key.Int64, e.ID)
 	return err
 }
 
