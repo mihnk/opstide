@@ -239,9 +239,6 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		LastCheckpoint: st.LastCheckpoint, RetentionDays: s.cfg.Retention.Days, MaxEntries: s.cfg.Retention.MaxEvents}
 	out.Integrations = []Integration{
 		{Name: "Clustrail link", State: "not configured", Note: "Open an object in Clustrail from any entry."},
-		{Name: "Investigation agent", State: "not configured", Note: "Not part of v0.1. Investigate stays off."},
-		{Name: "Prometheus", State: "not configured", Note: "Optional, for resource use around a run."},
-		{Name: "Notifications", State: "not configured", Note: "Webhook for failures and gaps. Off by default."},
 	}
 	reply(w, r, s.log, out, nil)
 }

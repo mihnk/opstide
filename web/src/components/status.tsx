@@ -8,8 +8,10 @@ const rolloutWord: Record<RolloutState, string> = {
   observed: 'Observed', progressing: 'Progressing', completed: 'Completed', stalled: 'Stalled',
   failed: 'Failed', superseded: 'Superseded', unknown: 'Unknown',
 }
+// The result of OpsTide's rules over the observation window, in plain words. "Healthy" invited reading it as a verdict
+// to gate a deploy on; "no findings" says what the rules found and no more. (The API's values are unchanged.)
 const healthWord: Record<HealthState, string> = {
-  still_observing: 'Still observing', healthy: 'Healthy', degraded: 'Degraded', insufficient_evidence: 'Insufficient evidence',
+  still_observing: 'Still observing', healthy: 'No findings', degraded: 'Rule findings', insufficient_evidence: 'Insufficient evidence',
 }
 
 export const rolloutWords = rolloutWord

@@ -69,7 +69,8 @@ func GroupOfType(t string) string {
 
 // Routine entries are the ordinary life of Pods, and Kubernetes Events of type Normal. Views may leave them
 // out by default, say how many they left out, and show them on request.
-var routineTypes = []string{"pod.created", "pod.ready", "pod.terminated"}
+// Reported replica counts and Job creation say little on their own; they are routine too.
+var routineTypes = []string{"pod.created", "pod.ready", "pod.terminated", "job.created", "statefulset.counts_changed", "daemonset.counts_changed"}
 
 // IsRoutineType says whether a Log entry type is routine.
 func IsRoutineType(t string) bool {
@@ -116,13 +117,18 @@ type ExplorerQuery struct {
 	Groups                             []string
 	Types                              []string // exact Log entry types; EvidenceTypeName selects Kubernetes Events
 	Reason                             string
-	Sources                            []string
-	Provenance                         []string // observed | derived | unknown
-	Text                               string   // names, reasons and summaries only; never Event messages
-	Routine                            bool     // include routine records
-	Cursor                             string
-	Limit                              int  // default 100, at most 500
-	Asc                                bool // oldest first (exports)
+	// Severities keeps Log entries of these severities (info, warning, error); a Kubernetes Event is "warning" when
+	// Kubernetes typed it Warning, else "info".
+	Severities []string
+	// Owner keeps records of operations whose owner annotation is exactly this.
+	Owner      string
+	Sources    []string
+	Provenance []string // observed | derived | unknown
+	Text       string   // names, reasons and summaries only; never Event messages
+	Routine    bool     // include routine records
+	Cursor     string
+	Limit      int  // default 100, at most 500
+	Asc        bool // oldest first (exports)
 
 	routineOnly bool // counting the routine records a query leaves out
 }
@@ -257,6 +263,13 @@ func (q ExplorerQuery) eventsClause(cursor *explorerCursor) clause {
 	if q.Reason != "" {
 		c.add("reason = ? AND reason <> ''", q.Reason)
 	}
+	if q.Owner != "" {
+		c.add("operation_id IN (SELECT id FROM operations WHERE owner = ?)", q.Owner)
+	}
+	if len(q.Severities) > 0 {
+		s, a := in("severity", q.Severities)
+		c.add(s, a...)
+	}
 	if len(q.Provenance) > 0 {
 		s, a := in("confidence", q.Provenance)
 		c.add(s, a...)
@@ -360,6 +373,20 @@ AND `+evidenceKey+` >= ?`, q.ReleaseReplicaSet, q.ReleaseWorkload, q.ReleaseFrom
 	}
 	if q.Reason != "" {
 		c.add("reason = ?", q.Reason)
+	}
+	if q.Owner != "" {
+		c.add("operation_id IN (SELECT id FROM operations WHERE owner = ?)", q.Owner)
+	}
+	if len(q.Severities) > 0 {
+		switch {
+		case has(q.Severities, "warning") && has(q.Severities, "info"):
+		case has(q.Severities, "warning"):
+			c.add("event_type = 'Warning'")
+		case has(q.Severities, "info"):
+			c.add("event_type <> 'Warning'")
+		default:
+			c.add("0") // Kubernetes Events are never an error
+		}
 	}
 	if len(q.Sources) > 0 {
 		var srcs []string
@@ -909,4 +936,13 @@ func (s *Store) FirstWatchedAll(ctx context.Context) (map[string]time.Time, erro
 		out[scope] = time.UnixMilli(ms).UTC()
 	}
 	return out, rows.Err()
+}
+
+// ExplorerCount counts the records q matches (the query's range, filters and routine setting apply; paging does not).
+func (s *Store) ExplorerCount(ctx context.Context, q ExplorerQuery) (int, error) {
+	if err := q.check(); err != nil {
+		return 0, err
+	}
+	q.Cursor = ""
+	return s.explorerCount(ctx, q)
 }

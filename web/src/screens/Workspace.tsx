@@ -6,6 +6,7 @@ import { Link } from '../router'
 import { hhmmss, isoDate } from '../time'
 import { clearWorkspace, removeFromWorkspace, useWorkspace, WORKSPACE_MAX } from '../workspace'
 import { ZoneSelect } from './common'
+import { Note } from '../components/Note'
 
 // The Investigation Workspace: records a person picked, kept in this tab only. It counts what is there and says where
 // coverage was not whole. It writes no conclusion: no summary, no ranking, no suggestion of cause.
@@ -109,7 +110,7 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
         <Link href="/explorer" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>Back to Explorer</Link>
       </div>
       <p className="muted" style={{ margin: 0, maxWidth: 820 }}>
-        Kept in this browser tab only. Nothing is saved on the server, and closing the tab clears it. It holds up to {WORKSPACE_MAX} records. OpsTide counts what is here and says where its watching was not whole; it does not tell you what it means.
+        Kept in this tab only; nothing is saved on the server. Up to {WORKSPACE_MAX} records. <Note more="OpsTide counts what is here and says where its watching was not whole; it does not tell you what it means.">Counts, not conclusions</Note>
       </p>
       {error && <Failed error={error} />}
 

@@ -5,6 +5,7 @@ import { rolloutWords } from '../components/status'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { relativeTime } from '../time'
+import { Note } from '../components/Note'
 
 // What a rollout state means, in Kubernetes' terms. None of these says a workload is healthy or broken.
 export const workloadRollout: Record<string, string> = {
@@ -118,7 +119,7 @@ export function Workloads({ params, tz }: { params: URLSearchParams; tz: string 
         </div>
       )}
       {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start' }} disabled={loadingMore} onClick={loadMore}>{loadingMore ? 'Loading…' : 'Older changes'}</button>}
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>Ordered by the last change Kubernetes reported to OpsTide. There is no score: counts are Kubernetes' own, the update state follows a documented rule per kind, and an absent Warning Event means none was recorded, not that nothing is wrong.</p>
+      <Note block more="Ordered by the last change Kubernetes reported to OpsTide. There is no score: counts are Kubernetes' own, the update state follows a documented rule per kind, and an absent Warning Event means none was recorded, not that nothing is wrong.">Ordered by last reported change · no score</Note>
     </div>
   )
 }

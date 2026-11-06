@@ -339,3 +339,46 @@ func TestEvidenceRecordTimeNeverMoves(t *testing.T) {
 		t.Fatal("the source's own time is still stored")
 	}
 }
+
+// The filters the Log offered live in the Explorer: severity, the owner of the operation, and job.created and reported
+// counts count as routine.
+func TestExplorerSeverityOwnerAndRoutine(t *testing.T) {
+	s, ctx := open(t)
+	op := Operation{ID: "op1", Namespace: "ns", Name: "backup", Owner: "data-team", Schedule: "0 * * * *", ConcurrencyPolicy: "Allow", CreatedAt: t0, FirstSeenAt: t0, LastSeenAt: t0}
+	update(t, s, func(w *Writer) error {
+		if err := w.UpsertOperation(ctx, op); err != nil {
+			return err
+		}
+		add := func(id, typ, sev, opid string) error {
+			_, err := w.AddEvent(ctx, Event{ID: id, Type: typ, Namespace: "ns", Kind: "Job", ResourceUID: id, ResourceName: id, OperationID: opid, OccurredAt: t0, ObservedAt: t0, Severity: sev, Confidence: Observed, Summary: id})
+			return err
+		}
+		for _, e := range [][4]string{{"a", "job.failed", "error", "op1"}, {"b", "job.succeeded", "info", "op1"}, {"c", "job.failed", "error", ""}, {"d", "job.created", "info", "op1"}, {"e", "statefulset.counts_changed", "info", ""}} {
+			if err := add(e[0], e[1], e[2], e[3]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	count := func(q ExplorerQuery) int {
+		q.From, q.To, q.Limit = t0.Add(-time.Hour), t0.Add(time.Hour), 100
+		pg, err := s.Explorer(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(pg.Rows)
+	}
+	if n := count(ExplorerQuery{Severities: []string{"error"}}); n != 2 {
+		t.Fatalf("errors: %d", n)
+	}
+	if n := count(ExplorerQuery{Owner: "data-team"}); n != 2 { // a and b; d is routine and hidden
+		t.Fatalf("owner: %d", n)
+	}
+	if n := count(ExplorerQuery{Owner: "data-team", Severities: []string{"error"}}); n != 1 {
+		t.Fatalf("owner and severity: %d", n)
+	}
+	pg, _ := s.Explorer(ctx, ExplorerQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Limit: 100})
+	if pg.SuppressedRoutine != 2 || len(pg.Rows) != 3 {
+		t.Fatalf("job.created and reported counts are routine: suppressed %d, shown %d", pg.SuppressedRoutine, len(pg.Rows))
+	}
+}

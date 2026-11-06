@@ -5,6 +5,7 @@ import { classWords, explorerLink, typeWord, type ExplorerDetail, type ExplorerS
 import { useApi } from '../live'
 import { Link } from '../router'
 import { hhmmss } from '../time'
+import { Note } from '../components/Note'
 
 // The drilldown of one record: what it is, when it was observed, where the fact comes from, what it is connected to,
 // and the record as stored. Live state is only ever offered as a labelled link to the current view.
@@ -132,7 +133,7 @@ export function RecordPanel({ id, tz, close }: { id: string; tz: string; close: 
         {d.relationships.length === 0 ? <p className="muted" style={{ margin: 0 }}>This record names no other resource.</p> : (
           <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>{d.relationships.map((x, i) => <Rel key={i} r={x} />)}</ul>
         )}
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>A relationship says how two records are connected. It does not say one caused the other.</p>
+        <Note more="A relationship says how two records are connected. It does not say one caused the other.">Connection, not cause</Note>
       </Section>
 
       <Section title="The record as stored">

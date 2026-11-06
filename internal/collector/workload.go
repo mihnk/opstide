@@ -662,7 +662,7 @@ func (c *Collector) reassess(ctx context.Context, w *store.Writer, r store.Relea
 		}
 		summary := fmt.Sprintf("%s revision %s: post-deployment health %s", r.Workload, r.Revision, strings.ReplaceAll(v.Health, "_", " "))
 		if v.Health == store.HealthDegraded {
-			summary = fmt.Sprintf("%s revision %s degraded during observation", r.Workload, r.Revision)
+			summary = fmt.Sprintf("%s revision %s had rule findings during observation", r.Workload, r.Revision)
 		}
 		if len(v.Reasons) > 0 {
 			summary += ": " + v.Reasons[0]

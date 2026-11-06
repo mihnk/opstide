@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { explorerLink, type ExplorerSummary } from '../explorer'
 import { type Entries, type Entry, type Exception, type Range } from '../api'
 import { Strip } from '../components/Strip'
 import { Failed, Loading } from '../components/Shell'
@@ -10,6 +11,7 @@ import { Link, navigate, withParams } from '../router'
 import { hhmm, offset, utcToZoned, zonedToUtc } from '../time'
 import { HOUR, MAX_WINDOW, MIN_WINDOW, MINUTE, params as selParams, presets, presetSelection, pressedPreset, rangeQuery, selection, selectionFor, title, type Selection } from '../window'
 import { ZoneSelect } from './common'
+import { Note } from '../components/Note'
 
 export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: string; setTz: (z: string) => void }) {
   const sel = selection(params)
@@ -39,7 +41,7 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
   }))
   if (data.rollouts.length) {
     lanes.push({
-      key: 'rollouts', name: 'Rollouts', meta: 'Deployments, observed', href: '/log?show=rollouts',
+      key: 'rollouts', name: 'Rollouts', meta: 'Deployments, observed', href: '/explorer?range=24h&group=releases',
       marks: data.rollouts.map((r) => ({ start: r.at, state: 'running' as const, why: `${hhmm(r.at, tz)} ${r.summary}` })),
       markTitle: (m) => m.why ?? '',
     })
@@ -48,10 +50,11 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
 
   return (
     <div className="page" aria-busy={loading} style={{ opacity: loading ? 0.7 : 1, transition: 'opacity .15s' }}>
+      <LastDay />
       <div className="head-row">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span className="label">Window</span>
-          <h1 className="title">{t.title}</h1>
+          <span className="label">Scheduled operations · window</span>
+          <h2 className="title" style={{ fontSize: 28 }}>{t.title}</h2>
           <span className="mono muted" style={{ fontSize: 13 }}>{t.sub} · {offset(tz, new Date(data.from))}</span>
         </div>
         <span className="grow" />
@@ -84,7 +87,7 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
             {anyHourly && (
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 14px', paddingBottom: 10 }}>
                 <span className="mono" style={{ fontSize: 12, padding: '2px 8px', border: '1px solid var(--line)' }}>runs per hour</span>
-                <span className="muted" style={{ fontSize: 12 }}>A lane with too many runs to draw one by one shows how many there were per hour, failures in red. Narrow the window to see single runs.</span>
+                <Note more="A lane with too many runs to draw one by one shows how many there were per hour, failures in red. Narrow the window to see single runs.">drawn per hour</Note>
               </div>
             )}
             <Timeline label="Operation" from={data.from} to={data.to} tz={tz} now={hasNow ? data.now : undefined} gaps={data.gaps}
@@ -121,6 +124,30 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
   )
 }
 
+// The last 24 hours across everything OpsTide records: counts of records by kind, each a link to the records, and the
+// watches that were not whole. A zero means nothing of that kind was recorded, which is only as good as the watches.
+function LastDay() {
+  const { data } = useApi<ExplorerSummary>('/api/v1/explorer/summary?range=24h', { refreshMs: 60_000 })
+  if (!data) return null
+  const shown = data.items.filter((i) => i.count > 0)
+  return (
+    <section aria-label="Last 24 hours" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <h1 className="title" style={{ fontSize: 28 }}>Last 24 hours</h1>
+      <p className="sentence" style={{ margin: 0, fontSize: 16 }}>
+        {shown.length === 0 ? 'Nothing of the kinds below was recorded.' : shown.map((i, k) => (
+          <span key={i.key}>{k > 0 ? ' · ' : ''}<Link href={`/explorer?range=24h&routine=1&${i.query}`}><b className="mono">{i.count}</b> {i.count === 1 ? i.label : i.plural}</Link></span>
+        ))}
+      </p>
+      {(data.notWhole.length > 0 || data.dropped > 0) && (
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Not whole: {[...new Set(data.notWhole.map((n) => `${n.label} (${n.state})`))].join(', ')}{data.dropped > 0 ? `${data.notWhole.length ? '; ' : ''}${data.dropped} object${data.dropped === 1 ? '' : 's'} given up on` : ''}. <Link href="/explorer?range=24h&group=observation">Where</Link> · <Link href="/system">System</Link>
+        </p>
+      )}
+      <Link href={explorerLink({ range: '24h' })} style={{ fontSize: 13 }}>Everything recorded in the last 24 hours</Link>
+    </section>
+  )
+}
+
 // What changed in the last day, in order: revisions, reported availability, Node conditions and the Warning
 // Events Kubernetes recorded. It is a list of what was reported, not a verdict: scheduled operations that failed
 // are under Exceptions, and an empty list means nothing of these kinds was recorded, not that nothing is wrong.
@@ -139,7 +166,7 @@ function changeHref(e: Entry): string {
   if (e.kind === 'Node' && e.resourceUid) return `/nodes/${encodeURIComponent(e.resourceUid)}`
   if (e.releaseId && e.type.startsWith('release.')) return `/releases/${encodeURIComponent(e.releaseId)}`
   if (e.workloadId) return `/workloads/${encodeURIComponent(e.workloadId)}`
-  return `/log?q=${encodeURIComponent(e.resourceName ?? '')}&range=7d`
+  return explorerLink({ q: e.resourceName ?? '', range: '7d' })
 }
 
 function RecentChanges({ tz }: { tz: string }) {
@@ -167,7 +194,7 @@ function RecentChanges({ tz }: { tz: string }) {
           <span style={{ overflowWrap: 'anywhere' }}>{e.summary}</span>
         </Link>
       ))}
-      <Link href="/log?show=releases,statefulsets,daemonsets,nodes,kubernetes,counts&range=24h" style={{ paddingTop: 10, fontSize: 13 }}>All of these in the Log</Link>
+      <Link href={explorerLink({ range: '24h', routine: '1' })} style={{ paddingTop: 10, fontSize: 13 }}>All of these in the Explorer</Link>
     </section>
   )
 }

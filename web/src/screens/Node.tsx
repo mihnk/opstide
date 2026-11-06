@@ -7,6 +7,7 @@ import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { explorerLink } from '../explorer'
 import { EntryRow } from './Release'
 import { relationWords } from './ReleaseEvidence'
+import { Note } from '../components/Note'
 
 // Node context: what OpsTide recorded of one Node, and the Pods that reported running on it. It is not a node
 // inventory and not a capacity view: capacity, labels, taints and images are never read.
@@ -45,7 +46,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
           <h2 className="label section-title">Scheduling</h2>
           <p style={{ margin: 0 }}>
             <span className="mono">spec.unschedulable = {String(n.unschedulable)}</span>{' '}
-            <span className="muted">The field alone does not say who or what set it, nor whether Pods can be scheduled here: taints and conditions are separate.</span>
+            <Note more="The field alone does not say who or what set it, nor whether Pods can be scheduled here: taints and conditions are separate.">as reported</Note>
           </p>
         </section>
         <section aria-label="Conditions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -66,7 +67,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
               </tbody>
             </table>
           )}
-          <p className="muted" style={{ margin: 0, fontSize: 12 }}>A condition of Unknown means Kubernetes stopped receiving status for it; it is not a statement about the machine.</p>
+          <Note more="A condition of Unknown means Kubernetes stopped receiving status for it; it is not a statement about the machine." block>What Unknown means</Note>
         </section>
       </div>
 

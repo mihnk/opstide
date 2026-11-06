@@ -146,6 +146,15 @@ export interface ExplorerState {
   current: null | { label: string; path: string }
 }
 
+export interface ExplorerSummary {
+  schema: number
+  from: string
+  to: string
+  items: { key: string; label: string; plural: string; count: number; query: string }[]
+  notWhole: { label: string; state: string }[]
+  dropped: number
+}
+
 export interface ExplorerLookup { schema: number; records: ExplorerRecord[]; missing: string[] }
 
 export const emptyTitle: Record<EmptyKind, string> = {
@@ -169,7 +178,7 @@ export const groupWords: Record<string, string> = {
 }
 
 /** The filters the page keeps in its link. Nothing sensitive: no token, no Event message. */
-export const filterKeys = ['range', 'from', 'to', 'q', 'namespace', 'kind', 'name', 'uid', 'workload', 'release', 'run', 'operation', 'node', 'group', 'type', 'reason', 'source', 'provenance', 'routine'] as const
+export const filterKeys = ['range', 'from', 'to', 'q', 'namespace', 'kind', 'name', 'uid', 'workload', 'release', 'run', 'operation', 'node', 'group', 'type', 'reason', 'source', 'provenance', 'severity', 'outcome', 'owner', 'routine'] as const
 
 export const quickRanges = ['15m', '1h', '6h', '24h', '7d'] as const
 
@@ -193,6 +202,36 @@ export function rangeAround(from: string, to?: string): { from: string; to: stri
 export function recordIdOf(e: { recordId: string; type: string; facts?: Record<string, string> }): string {
   if (e.type.startsWith('evidence.') && e.facts?.evidenceId) return `k.${e.facts.evidenceId}`
   return e.recordId
+}
+
+// The Log is the Explorer with its old filters: a link to /log still works, and lands here.
+const logGroups: Record<string, string[]> = {
+  runs: ['operations'], starts: ['operations'], schedules: ['operations'], rollouts: ['releases'], releases: ['releases'], health: ['releases'], pods: ['pods'],
+  kubernetes: ['events'], scaling: ['scaling'], statefulsets: ['workloads'], daemonsets: ['workloads'], nodes: ['nodes'], collection: ['observation'],
+}
+
+/** The Explorer link for what a link to the removed Log screen asked for. */
+export function logToExplorer(p: URLSearchParams, now = Date.now()): string {
+  const out: Partial<Record<(typeof filterKeys)[number], string>> = {}
+  for (const k of ['q', 'namespace', 'severity', 'outcome', 'owner', 'release', 'reason', 'kind', 'workload'] as const) {
+    const v = p.get(k)
+    if (v) out[k] = v
+  }
+  const range = p.get('range') ?? '48h'
+  if (range === '24h' || range === '7d') out.range = range
+  else {
+    const hours = range === '30d' ? 720 : 48
+    out.from = new Date(now - hours * 3600e3).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    out.to = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  }
+  const show = p.get('show')
+  if (show) {
+    const parts = show.split(',')
+    const groups = [...new Set(parts.flatMap((s) => logGroups[s] ?? []))]
+    if (groups.length > 0 && groups.length < 7) out.group = groups.join(',')
+    if (parts.includes('counts') || parts.includes('starts') || parts.includes('pods')) out.routine = '1'
+  }
+  return explorerLink(out)
 }
 
 /** The word shown for a record's type: the part after the last dot, readable. */

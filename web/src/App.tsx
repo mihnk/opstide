@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { getJSON, type System } from './api'
 import { Shell } from './components/Shell'
 import { savedZone, saveZone } from './prefs'
-import { useLocation } from './router'
+import { logToExplorer } from './explorer'
+import { navigate, useLocation } from './router'
 import { Explorer } from './screens/Explorer'
-import { Log } from './screens/Log'
 import { Operation } from './screens/Operation'
 import { Schedules } from './screens/Schedules'
 import { System as SystemScreen } from './screens/System'
@@ -15,6 +15,12 @@ import { Releases } from './screens/Releases'
 import { Workload } from './screens/Workload'
 import { Workloads } from './screens/Workloads'
 import { Workspace } from './screens/Workspace'
+
+/** The Log became the Explorer; an old link or bookmark lands on the same records there. */
+function LogMoved({ params }: { params: URLSearchParams }) {
+  useEffect(() => navigate(logToExplorer(params), true), [params])
+  return null
+}
 
 export function App() {
   const { path, params } = useLocation()
@@ -31,7 +37,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/log': 'Log', '/schedules': 'Schedules', '/system': 'System' }
+    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/schedules': 'Schedules', '/system': 'System' }
     document.title = `${names[path] ?? 'Operation'} · OpsTide${cluster ? ` · ${cluster}` : ''}`
   }, [path, cluster])
 
@@ -48,7 +54,7 @@ export function App() {
   else if (path === '/workloads') screen = <Workloads params={params} tz={tz} />
   else if (wl) screen = <Workload key={wl[1]} id={decodeURIComponent(wl[1])} params={params} tz={tz} />
   else if (node) screen = <Node key={node[1]} id={decodeURIComponent(node[1])} tz={tz} />
-  else if (path === '/log') screen = <Log params={params} tz={tz} />
+  else if (path === '/log') screen = <LogMoved params={params} />
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />
   else if (op) screen = <Operation key={op[1]} id={decodeURIComponent(op[1])} params={params} tz={tz} />
   else if (path === '/system') screen = <SystemScreen tz={tz} />

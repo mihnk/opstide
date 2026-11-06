@@ -282,7 +282,7 @@ func TestEventsAndSystem(t *testing.T) {
 	if code := get(t, srv, "/api/v1/system?tz=Europe/Istanbul", &sys); code != 200 {
 		t.Fatal(code)
 	}
-	if !sys.Synced || sys.Storage.RetentionDays != 30 || len(sys.Integrations) != 4 || len(sys.Scopes) != 2 {
+	if !sys.Synced || sys.Storage.RetentionDays != 30 || len(sys.Integrations) != 1 || len(sys.Scopes) != 2 {
 		t.Fatalf("system %+v", sys)
 	}
 	if j := sys.Scopes[0]; j.Kind != "jobs" || len(j.Watching) != 2 || !j.Watching[0].To.Equal(local(3, 10)) {

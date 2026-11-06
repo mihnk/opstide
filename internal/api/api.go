@@ -107,6 +107,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/explorer", s.explorer)
 	mux.HandleFunc("GET /api/v1/explorer/filters", heavy(s.explorerFilters)) // counts over the whole range
 	mux.HandleFunc("GET /api/v1/explorer/context", s.explorerContext)
+	mux.HandleFunc("GET /api/v1/explorer/summary", heavy(s.explorerSummary))
 	mux.HandleFunc("GET /api/v1/explorer/state", s.explorerState)
 	mux.HandleFunc("GET /api/v1/explorer/records/{id}", s.explorerRecordOne)
 	mux.HandleFunc("GET /api/v1/explorer/export", s.explorerExport)

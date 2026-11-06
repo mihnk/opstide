@@ -12,6 +12,7 @@ import { hhmm, hhmmss, isoDate, longDay, offset, utcToZoned, zonedToUtc } from '
 import { addToWorkspace, useWorkspace, WORKSPACE_MAX } from '../workspace'
 import { RecordPanel } from './ExplorerPanel'
 import { ZoneSelect } from './common'
+import { Note } from '../components/Note'
 
 // Explorer: everything OpsTide recorded, on one timeline. It shows evidence; it does not interpret it. Routine records
 // are hidden by default and counted; nothing else is hidden. Filters live in the link (no token, no Event message).
@@ -55,7 +56,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
   const filter = {
     range, from: get('from'), to: get('to'), q: get('q'), namespace: get('namespace'), kind: get('kind'), name: get('name'), uid: get('uid'), workload: get('workload'),
     release: get('release'), run: get('run'), operation: get('operation'), node: get('node'), group: get('group'), type: get('type'), reason: get('reason'),
-    source: get('source'), provenance: get('provenance'), routine: get('routine'),
+    source: get('source'), provenance: get('provenance'), severity: get('severity'), outcome: get('outcome'), owner: get('owner'), routine: get('routine'),
   }
   const rec = get('rec')
   const groupBy = get('by') === 'resource'
@@ -125,8 +126,14 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
     set({ [key]: next.join(',') || null })
   }
   const scopeChips = scopeKeys.filter((k) => filter[k])
-  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || scopeChips.length)
-  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, routine: null, rec: null })
+  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || filter.severity || filter.outcome || filter.owner || scopeChips.length)
+  // The owners that exist (deleted CronJobs included), fetched once.
+  const [ownerList, setOwnerList] = useState<string[]>([])
+  useEffect(() => {
+    getJSON<{ owners: string[] }>('/api/v1/owners').then((o) => setOwnerList(o.owners)).catch(() => {})
+  }, [])
+  const owners = filter.owner && !ownerList.includes(filter.owner) ? [...ownerList, filter.owner] : ownerList
+  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, severity: null, outcome: null, owner: null, routine: null, rec: null })
   const wsIds = useWorkspace()
 
   // Custom range inputs: wall-clock in the chosen zone.
@@ -216,6 +223,29 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
             {facets?.sources.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
+        <label className="field"><span className="label">Severity</span>
+          <select className="control" value={filter.severity} onChange={(e) => set({ severity: e.target.value || null })}>
+            <option value="">Any</option>
+            <option value="error">Errors</option>
+            <option value="warning,error">Warnings and errors</option>
+            {filter.severity && !['error', 'warning,error'].includes(filter.severity) && <option value={filter.severity}>{filter.severity.replace(',', ', ')}</option>}
+          </select>
+        </label>
+        <label className="field"><span className="label">Run outcome</span>
+          <select className="control" value={filter.outcome} onChange={(e) => set({ outcome: e.target.value || null })}>
+            <option value="">Any</option>
+            <option value="failed">Failed</option>
+            <option value="succeeded">Succeeded</option>
+            <option value="unknown">Unknown</option>
+            {filter.outcome && !['failed', 'succeeded', 'unknown'].includes(filter.outcome) && <option value={filter.outcome}>{filter.outcome.replace(',', ', ')}</option>}
+          </select>
+        </label>
+        <label className="field"><span className="label">Owner</span>
+          <select className="control" value={filter.owner} onChange={(e) => set({ owner: e.target.value || null })}>
+            <option value="">Anyone</option>
+            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
         <fieldset>
           <legend className="label" style={{ padding: '0 0 4px' }}>Provenance</legend>
           <span className="checks">
@@ -267,7 +297,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
         <div className="split">
           <section aria-label="Timeline" className="main">
             <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
-              {hhmmss(data.from, tz)} {isoDate(data.from, tz)} → {hhmmss(data.to, tz)} {isoDate(data.to, tz)} · newest first · ordered by record time, then id (it never changes, so paging neither skips nor repeats)
+              {hhmmss(data.from, tz)} {isoDate(data.from, tz)} → {hhmmss(data.to, tz)} {isoDate(data.to, tz)} · newest first · <Note more={data.orderBasis}>record time order</Note>
             </p>
             {records.length === 0 && data.empty && (
               <div className={`empty-box ${data.empty.kind}`} role="status">

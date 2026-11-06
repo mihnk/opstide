@@ -203,6 +203,9 @@ type explorerFilters struct {
 	Reason     string   `json:"reason,omitempty"`
 	Sources    []string `json:"sources,omitempty"`
 	Provenance []string `json:"provenance,omitempty"`
+	Severity   []string `json:"severity,omitempty"`
+	Outcome    []string `json:"outcome,omitempty"`
+	Owner      string   `json:"owner,omitempty"`
 	Text       string   `json:"text,omitempty"`
 	Routine    bool     `json:"includeRoutine"`
 }
@@ -218,7 +221,7 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 	v := r.URL.Query()
 	known := map[string]bool{"range": true, "from": true, "to": true, "namespace": true, "kind": true, "name": true, "uid": true, "workload": true, "release": true, "run": true,
 		"operation": true, "node": true, "group": true, "type": true, "reason": true, "source": true, "provenance": true, "q": true, "routine": true, "cursor": true, "limit": true,
-		"order": true, "messages": true, "tz": true}
+		"order": true, "messages": true, "tz": true, "severity": true, "outcome": true, "owner": true}
 	for k := range v {
 		if !known[k] {
 			return q, f, badRequest("unknown parameter " + fmt.Sprintf("%.40q", k))
@@ -272,9 +275,29 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 		}
 		f.Provenance = append(f.Provenance, p)
 	}
+	for _, sv := range splitList(strings.ToLower(v.Get("severity"))) {
+		if sv != "info" && sv != "warning" && sv != "error" {
+			return q, f, badRequest("severity takes info, warning or error")
+		}
+		f.Severity = append(f.Severity, sv)
+	}
+	// outcome narrows to finished runs: failed, succeeded or unknown.
+	outcomeTypes := map[string]string{"failed": "job.failed", "succeeded": "job.succeeded", "unknown": "job.lost"}
+	for _, o := range splitList(strings.ToLower(v.Get("outcome"))) {
+		t, ok := outcomeTypes[o]
+		if !ok {
+			return q, f, badRequest("outcome takes failed, succeeded or unknown")
+		}
+		f.Outcome = append(f.Outcome, o)
+		f.Types = append(f.Types, t)
+	}
+	if f.Owner = strings.TrimSpace(v.Get("owner")); len([]rune(f.Owner)) > 120 {
+		return q, f, badRequest("owner is too long")
+	}
 	f.Routine = v.Get("routine") == "1" || v.Get("routine") == "true"
 	q.Namespace, q.Kind, q.Name, q.UID, q.WorkloadID, q.RunID, q.OperationID, q.NodeID = f.Namespace, f.Kind, f.Name, f.UID, f.Workload, f.Run, f.Operation, f.Node
 	q.Groups, q.Types, q.Reason, q.Sources, q.Provenance, q.Text, q.Routine = f.Groups, f.Types, f.Reason, f.Sources, f.Provenance, f.Text, f.Routine
+	q.Severities, q.Owner = f.Severity, f.Owner
 	if c := v.Get("cursor"); c != "" {
 		if !cursorRe.MatchString(c) {
 			return q, f, badRequest("cursor is not one this API gave")

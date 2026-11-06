@@ -9,7 +9,6 @@ import { useWorkspace } from '../workspace'
 const sections = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/explorer', label: 'Explorer', match: (p: string) => p.startsWith('/explorer') || p.startsWith('/workspace') },
-  { href: '/log', label: 'Log', match: (p: string) => p.startsWith('/log') },
   { href: '/workloads', label: 'Workloads', match: (p: string) => p.startsWith('/workloads') || p.startsWith('/nodes') },
   { href: '/releases', label: 'Releases', match: (p: string) => p.startsWith('/releases') },
   { href: '/schedules', label: 'Schedules', match: (p: string) => p.startsWith('/schedules') || p.startsWith('/operations') },

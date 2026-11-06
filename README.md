@@ -147,7 +147,7 @@ Open the collector's address in a browser (in development,
 http://127.0.0.1:8080). Six pages, all reading the API below and updating
 live:
 
-- **Overview**: a window of time as a timetable, one lane per CronJob. Pick
+- **Overview**: the last 24 hours across everything (counts of what was recorded, each a link, and the watches that were not whole), then a window of time as a timetable, one lane per CronJob. Pick
   Today, Yesterday, the last 1 h to 5 d, a day or a custom window, or drag
   the window on the strip above it, which shows runs per hour over the last
   24 h, 5, 7 or 30 days with failures in red. Bar width is a run's
@@ -157,13 +157,9 @@ live:
   Exceptions are grouped (a streak of failures is one line, a gap is one
   line however many runs fell in it) and each has a Show button that moves
   the window to it. The window is in the link.
-- **Log**: every entry, newest first, with when it occurred, was observed
-  and was recorded, and whether it is observed, derived or unknown.
-  Filter by text, namespace, severity, run outcome (failed, succeeded,
-  unknown) and owner; filters live in the link.
 - **Releases**: every Deployment revision OpsTide saw appear: whether the
-  rollout completed, stalled or failed, whether its Pods stayed healthy in the
-  minutes after, what changed from the previous revision, and its Pods' restarts,
+  rollout completed, stalled or failed, what OpsTide's rules found in the
+  minutes after (no findings, rule findings, or not enough evidence), what changed from the previous revision, and its Pods' restarts,
   OOMKills and readiness. A revision that already existed when OpsTide started is
   marked adopted and never assessed. See [docs/M2.5-WORKLOAD-RELEASES.md](docs/M2.5-WORKLOAD-RELEASES.md).
 - **Workloads**: Deployments, StatefulSets and DaemonSets in one list, each with its
@@ -177,7 +173,8 @@ live:
   facts-only list of what was recorded. Kubernetes' reason and message are shown
   as Kubernetes reported them; OpsTide does not say why anything happened
   ("Root cause: Not established by OpsTide"). See [docs/M2.6-EVIDENCE.md](docs/M2.6-EVIDENCE.md).
-- **Explorer**: everything recorded, on one timeline (Log entries and Kubernetes Events once each),
+- **Explorer** (it replaced the Log; old `/log` links land here): everything recorded, on one timeline (Log entries and Kubernetes Events once each),
+  filterable by text, namespace, severity, run outcome, owner, kind of record, provenance and source, with the filters in the link,
   with provenance (observed, derived, unknown), where OpsTide was and was not watching, a drilldown
   per record, what OpsTide knew of a resource at a past time, a tab-only Investigation Workspace and a
   bounded JSON export. It shows evidence and interprets none of it. See
@@ -311,7 +308,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
 | `GET /api/v1/explorer`, `/explorer/filters`, `/explorer/records/{id}`, `/explorer/context`, `/explorer/state`, `GET`+`POST /explorer/export`, `POST /explorer/lookup` | The Operational Evidence Explorer: one timeline of everything recorded with provenance, coverage and relationship classifications, a drilldown per record, state at a past time, and bounded JSON export (see docs/M2.8-EXPLORER.md) |
 | `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
-| `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
+| `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Explorer's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |
 

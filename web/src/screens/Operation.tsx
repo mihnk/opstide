@@ -1,7 +1,7 @@
 import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
-import { explorerLink } from '../explorer'
+import { explorerLink, rangeAround } from '../explorer'
 import { Legend, Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
@@ -47,7 +47,6 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
         <span className="grow" />
         <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ operation: op.id, range: '7d' })}>Records in Explorer</Link>
         {data.clustrailUrl && <a className="button" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }} href={data.clustrailUrl} rel="noopener noreferrer" title="Opens this CronJob in Clustrail, if it is installed on this computer">Open in Clustrail</a>}
-        <button type="button" className="button" disabled title="No investigator is configured. See System.">Investigate · not configured</button>
       </div>
 
       <div className="two">
@@ -192,7 +191,7 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
           ))}
         </div>
       )}
-      <span className="muted" style={{ fontSize: 12 }}>OpsTide does not keep container logs. <Link href={`/log?q=${encodeURIComponent(r.job)}&range=30d`}>All entries for this Job</Link></span>
+      <span className="muted" style={{ fontSize: 12 }}>OpsTide does not keep container logs. <Link href={explorerLink({ q: r.job, routine: '1', ...rangeAround(r.createdAt) })}>All records for this Job</Link></span>
     </>
   )
 }

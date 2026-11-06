@@ -79,7 +79,7 @@ export function Releases({ params, tz }: { params: URLSearchParams; tz: string }
             {Object.entries(rolloutWords).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
-        <label className="field"><span className="label">Health</span>
+        <label className="field"><span className="label">Rule result</span>
           <select className="control" value={health} onChange={(e) => set({ health: e.target.value || null })}>
             <option value="">Any</option>
             {Object.entries(healthWords).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -109,7 +109,7 @@ export function Releases({ params, tz }: { params: URLSearchParams; tz: string }
         <div className="table-wrap">
           <table className="data compact" style={{ minWidth: 940 }}>
             <thead>
-              <tr>{['Workload', 'Revision', 'First observed', 'Rollout', 'Health', 'Available / desired', 'Recent events'].map((h) => <th key={h} scope="col" className="label">{h}</th>)}</tr>
+              <tr>{['Workload', 'Revision', 'First observed', 'Rollout', 'Rule result', 'Available / desired', 'Recent events'].map((h) => <th key={h} scope="col" className="label">{h}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((r) => {
@@ -151,7 +151,7 @@ export function Releases({ params, tz }: { params: URLSearchParams; tz: string }
         <button type="button" className="button" style={{ alignSelf: 'flex-start' }} disabled={loadingMore} onClick={loadMore}>{loadingMore ? 'Loading…' : 'Older releases'}</button>
       )}
       <div className="legend" style={{ paddingTop: 0 }}>
-        <span>Rollout is what Kubernetes reports. Health is what OpsTide saw in the minutes after it.</span>
+        <span>Rollout is what Kubernetes reports. Rule result is what OpsTide's rules found in the minutes after it.</span>
         <span>A release OpsTide did not see start is marked adopted and is never assessed.</span>
       </div>
     </div>

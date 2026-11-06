@@ -165,7 +165,7 @@ func TestExplorerFiltersAreValidatedAndCombine(t *testing.T) {
 	srv := explorerServer(t, nil)
 	for _, bad := range []string{
 		"?range=2y", "?to=2026-11-04T00:00:00Z", "?from=nonsense", "?from=2026-11-04T10:00:00Z&to=2026-11-04T09:00:00Z", "?from=2024-01-01T00:00:00Z&to=2026-11-04T00:00:00Z",
-		"?group=nonsense", "?source=elsewhere", "?provenance=guessed", "?type=Bad Type", "?limit=0", "?cursor=junk", "?order=sideways", "?q=" + strings.Repeat("x", 201), "?release=unknown-release", "?surprise=1",
+		"?group=nonsense", "?severity=loud", "?outcome=maybe", "?owner=" + strings.Repeat("x", 121), "?source=elsewhere", "?provenance=guessed", "?type=Bad Type", "?limit=0", "?cursor=junk", "?order=sideways", "?q=" + strings.Repeat("x", 201), "?release=unknown-release", "?surprise=1",
 	} {
 		if code := get(t, srv, "/api/v1/explorer"+bad, nil); code != 400 {
 			t.Errorf("%s: %d", bad, code)
@@ -175,6 +175,8 @@ func TestExplorerFiltersAreValidatedAndCombine(t *testing.T) {
 		"?group=releases": "release.health.degraded", "?provenance=derived": "release.health.degraded", "?kind=Node&routine=1": "kubernetes.event,node.condition_changed",
 		"?source=kubernetes.events.k8s.io/v1": "kubernetes.event,kubernetes.event", "?reason=BackOff": "kubernetes.event", "?workload=d-1&group=pods&routine=1": "pod.restarted,pod.created",
 		"?type=pod.restarted": "pod.restarted", "?q=node-a": "kubernetes.event,node.condition_changed", "?namespace=elsewhere": "",
+		"?severity=warning": "kubernetes.event,kubernetes.event", "?severity=error": "", "?severity=info": "release.health.degraded,node.condition_changed,pod.restarted",
+		"?outcome=failed": "", "?owner=nobody": "",
 	}
 	for q, want := range cases {
 		var l ExplorerList
@@ -550,5 +552,31 @@ func TestExplorerDetailLeadsFromAPodToItsRevision(t *testing.T) {
 	}
 	if r := rel("p-dep"); r.Kind != "Release" || r.Path != "/releases/rx" || r.Classification != Ownership {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func TestExplorerSummaryCountsRecordsAcrossKindsAndNamesWhatWasNotWatched(t *testing.T) {
+	srv := explorerServer(t, nil)
+	var sm ExplorerSummary
+	if code := get(t, srv, "/api/v1/explorer/summary?range=24h", &sm); code != 200 {
+		t.Fatal(code)
+	}
+	counts := map[string]int{}
+	for _, it := range sm.Items {
+		counts[it.Key] = it.Count
+		if it.Query == "" || it.Label == "" {
+			t.Fatalf("%+v", it)
+		}
+	}
+	if counts["findings"] != 1 || counts["warnings"] != 2 || counts["nodes"] != 1 || counts["runs_failed"] != 0 {
+		t.Fatalf("%v", counts)
+	}
+	var events, nodes bool
+	for _, n := range sm.NotWhole {
+		events = events || (n.Label == "Kubernetes Events" && n.State == CovGap)
+		nodes = nodes || (n.Label == "Nodes" && n.State == CovDisabled)
+	}
+	if !events || !nodes {
+		t.Fatalf("%+v", sm.NotWhole)
 	}
 }

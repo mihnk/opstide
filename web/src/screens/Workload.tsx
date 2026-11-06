@@ -9,6 +9,7 @@ import { explorerLink } from '../explorer'
 import { EntryRow } from './Release'
 import { ScalingContext, relationWords } from './ReleaseEvidence'
 import { rolloutLabel } from './Workloads'
+import { Note } from '../components/Note'
 
 const tabs = [['overview', 'Overview'], ['history', 'History'], ['revisions', 'Revisions'], ['pods', 'Pods'], ['evidence', 'Evidence']] as const
 
@@ -53,7 +54,7 @@ export function Workload({ id, params, tz }: { id: string; params: URLSearchPara
             <b>Revision progress:</b> <span className="mono">{st.updated} of {st.desired}</span> replicas report the update revision; update state <b>{rolloutLabel(w.kind, st.rollout)}</b>
             {st.rolloutNote && w.kind !== 'Deployment' ? <span className="muted">. {st.rolloutNote}</span> : null}.{' '}
             <b>Observed availability:</b> <span className="mono">{st.ready}</span> ready and <span className="mono">{st.available}</span> available of <span className="mono">{st.desired}</span> desired.
-            <span className="muted"> The two are reported separately by Kubernetes; neither says the other.</span>
+
           </p>
         )}
       </div>
@@ -126,7 +127,7 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
           ]} />
           <Facts title="Update state" rows={[
             ['State', <span><b>{rolloutLabel(w.kind, st.rollout)}</b></span>],
-            ['Derived from', <span className="muted">{w.kind === 'Deployment' ? 'the Deployment’s release (see its page)' : 'Kubernetes’ status fields by a documented rule (docs/M2.7-WORKLOADS.md); it is not a health verdict'}</span>],
+            ['Derived from', <span className="muted">{w.kind === 'Deployment' ? 'the Deployment’s release (see its page)' : 'Kubernetes’ status fields by a documented rule (docs/M2.7-WORKLOADS.md); it is not a health judgement'}</span>],
             ...(st.rolloutNote && w.kind !== 'Deployment' ? [['Values used', <span style={{ overflowWrap: 'anywhere' }}>{st.rolloutNote}</span>] as [string, React.ReactNode]] : []),
             ['Last meaningful change', <>
               <span className="mono">{hhmmss(st.lastChangeAt, tz)}</span>{' '}
@@ -168,7 +169,7 @@ function History({ id, tz }: { id: string; tz: string }) {
       {entries.length === 0 && <div className="empty">Nothing has been recorded for this workload yet.</div>}
       {entries.map((e) => <EntryRow key={e.id} e={e} tz={tz} />)}
       {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? 'Loading…' : 'Older entries'}</button>}
-      <p className="muted" style={{ fontSize: 12 }}>What Kubernetes reported about this workload, in order. <Link href={`/log?workload=${encodeURIComponent(id)}&show=statefulsets,daemonsets,releases,health,scaling,kubernetes,counts`}>Open these in the Log</Link></p>
+      <p className="muted" style={{ fontSize: 12 }}>What Kubernetes reported about this workload, in order. <Link href={explorerLink({ workload: id, routine: '1', range: '7d' })}>Open these in the Explorer</Link></p>
     </div>
   )
 }
@@ -182,7 +183,7 @@ function Revisions({ id, tz }: { id: string; tz: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {data.notes.map((n, i) => <p key={i} className="muted" style={{ margin: 0, maxWidth: 780 }}>{n}</p>)}
       {data.revisions.map((r) => <Revision key={r.id} r={r} tz={tz} />)}
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>Only an allow-list of the Pod template is compared: container names and images, resources, probes, the names (never the values) of environment variables, ConfigMaps and Secrets, and the service account. A revision number means something only within its own workload.</p>
+      <Note block more="Only an allow-list of the Pod template is compared: container names and images, resources, probes, the names (never the values) of environment variables, ConfigMaps and Secrets, and the service account. A revision number means something only within its own workload.">What is compared</Note>
     </div>
   )
 }
@@ -245,7 +246,7 @@ function Pods({ id, tz, kind }: { id: string; tz: string; kind: string }) {
         </section>
       )}
       {data.notes.map((n, i) => <p key={i} className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 780 }}>{n}</p>)}
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>The Node is where each Pod reported it ran: placement context, not ownership. Pods OpsTide did not observe are not listed.</p>
+      <Note block more="The Node is where each Pod reported it ran: placement context, not ownership. Pods OpsTide did not observe are not listed.">Where each Pod reported it ran</Note>
     </div>
   )
 }

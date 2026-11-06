@@ -10,6 +10,7 @@ import { ZoneSelect } from './common'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { Evidence, RecordedEvidence } from './ReleaseEvidence'
+import { Note } from '../components/Note'
 
 const tabs = [['overview', 'Overview'], ['timeline', 'Timeline'], ['pods', 'Pods'], ['evidence', 'Evidence'], ['changes', 'Changes'], ['context', 'Investigation context']] as const
 
@@ -38,7 +39,6 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
           <span className="grow" />
           <ZoneSelect tz={tz} setTz={setTz} />
           <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ release: r.id, ...rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined) })}>Records in Explorer</Link>
-          <button type="button" className="button" disabled title="No investigator is configured. See System.">Investigate · not configured</button>
         </div>
         <p className="sentence" style={{ fontSize: 16 }}>
           <RolloutGlyph state={r.state} />{' '}
@@ -46,7 +46,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
           {' '}with <span className="mono">{r.available} of {r.desired}</span> available
           {r.origin === 'adopted'
             ? <>, <span className="muted">not assessed: its rollout was not observed.</span></>
-            : <>; post-deployment health <HealthGlyph health={a.health} /> <b style={{ color: a.health === 'degraded' ? 'var(--fail)' : undefined }}>{healthWords[a.health].toLowerCase()}</b>
+            : <>; rule result for the observation window: <HealthGlyph health={a.health} /> <b style={{ color: a.health === 'degraded' ? 'var(--fail)' : undefined }}>{healthWords[a.health].toLowerCase()}</b>
               {a.reasons[0] && a.health !== 'healthy' ? <span className="muted">: {a.reasons[0]}</span> : null}.</>}
         </p>
       </div>
@@ -114,13 +114,13 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
         ]} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-        <section aria-label="Health assessment" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <h2 className="label section-title">Health assessment</h2>
+        <section aria-label="Rule result" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <h2 className="label section-title">Rule result</h2>
           <dl className="facts" style={{ gridTemplateColumns: '150px minmax(0, 1fr)' }}>
-            <dt className="label">Verdict</dt><dd><HealthStatus health={a.health} /></dd>
-            <dt className="label">Why</dt>
+            <dt className="label">Result</dt><dd><HealthStatus health={a.health} /></dd>
+            <dt className="label">Rule output</dt>
             <dd><ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>{a.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>Evidence comes from the Kubernetes API. Container logs are not kept.{a.version ? ` Judged by rule set ${a.version}${a.version === 1 ? ' (every availability shortfall counts)' : ' (a shortfall that only follows a raised replica target is set aside, with the rule shown)'}.` : ''}</span></dd>
+              <Note block more={`Evidence comes from the Kubernetes API. Container logs are not kept.${a.version ? ` Judged by rule set ${a.version}${a.version === 1 ? ' (every availability shortfall counts)' : ' (a shortfall that only follows a raised replica target is set aside, with the rule shown)'}.` : ''}`}>{a.version ? `Rule set ${a.version}` : 'Rule set'}</Note></dd>
           </dl>
         </section>
         <section aria-label="Recorded evidence" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -149,7 +149,7 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
                 : open ? <><span>Open, closes {relativeTime(a.windowEnd!, d.now, tz)}</span><div className="progress" aria-hidden="true"><i style={{ width: `${Math.round(done * 100)}%` }} /></div></>
                 : a.windowEnd ? <span>Closed {hhmm(a.windowEnd, tz)}</span> : <span>Waiting for the rollout to complete</span>}
             </dd>
-            <dt className="label">Note</dt><dd className="muted">Evidence recorded later in the window can still change the verdict.</dd>
+            <dt className="label">Note</dt><dd className="muted">Evidence recorded later in the window can still change the result.</dd>
           </dl>
         </section>
       </div>
@@ -181,8 +181,8 @@ function useEntries(id: string) {
 
 const typeWord: Record<string, string> = {
   'release.observed': 'Release', 'release.superseded': 'Release', 'release.scaled_down': 'Release', 'release.paused': 'Release', 'release.resumed': 'Release',
-  'release.stalled': 'Stalled', 'release.failed': 'Failed', 'release.health.degraded': 'Health', 'release.health.healthy': 'Health', 'release.health.insufficient': 'Health',
-  'release.unavailable': 'Health', 'deployment.rollout': 'Rollout', 'pod.created': 'Pod', 'pod.ready': 'Pod', 'pod.notready': 'NotReady', 'pod.restarted': 'Restart',
+  'release.stalled': 'Stalled', 'release.failed': 'Failed', 'release.health.degraded': 'Findings', 'release.health.healthy': 'Findings', 'release.health.insufficient': 'Findings',
+  'release.unavailable': 'Availability', 'deployment.rollout': 'Rollout', 'pod.created': 'Pod', 'pod.ready': 'Pod', 'pod.notready': 'NotReady', 'pod.restarted': 'Restart',
   'pod.oomkilled': 'OOMKilled', 'pod.waiting': 'Waiting', 'pod.evicted': 'Evicted', 'pod.terminated': 'Pod',
   'evidence.record': 'K8s Event', 'evidence.event': 'K8s Event', 'evidence.count_changed': 'K8s Event',
   'hpa.desired_replicas_changed': 'Scaling', 'hpa.condition_changed': 'Scaling', 'workload.replica_target_changed': 'Scaling',
@@ -254,7 +254,7 @@ function Timeline({ id, tz }: { id: string; tz: string }) {
         </details>
       ))}
       {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? 'Loading…' : 'Older entries'}</button>}
-      <p className="muted" style={{ fontSize: 12 }}>Pod entries are folded under their Pod. <Link href={`/log?release=${encodeURIComponent(id)}&show=runs,starts,schedules,rollouts,releases,health,pods,collection`}>Open these in the Log</Link></p>
+      <p className="muted" style={{ fontSize: 12 }}>Pod entries are folded under their Pod. <Link href={explorerLink({ release: id, routine: '1', range: '7d' })}>Open these in the Explorer</Link></p>
     </div>
   )
 }
@@ -380,7 +380,7 @@ function Context({ d, id, tz }: { d: ReleaseDetail; id: string; tz: string }) {
   )
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <p className="muted" style={{ margin: 0, maxWidth: 760 }}>What OpsTide already holds about this release, put together by fixed rules. It is not an explanation: no model reads it, and nothing outside the record is added.</p>
+      <Note block more="What OpsTide already holds about this release, put together by fixed rules. It is not an explanation: no model reads it, and nothing outside the record is added.">Held records, put together by fixed rules</Note>
       <div className="two">
         {section('Rollout conditions', [
           <>Rollout <b>{rolloutWords[r.state].toLowerCase()}</b>{r.stateReason ? <>: <span className="mono">{r.stateReason}</span></> : null}.</>,
@@ -394,8 +394,8 @@ function Context({ d, id, tz }: { d: ReleaseDetail; id: string; tz: string }) {
         {section('Coverage limitations', [...(a.evidence ?? []), ...d.warnings], 'OpsTide watched Deployments, ReplicaSets and Pods without a gap while it observed this release.')}
       </div>
       <div className="legend" style={{ paddingTop: 0 }}>
-        <span>Verdict: <HealthStatus health={a.health} /></span>
-        <span><Link href={`/log?release=${encodeURIComponent(id)}&show=runs,starts,schedules,rollouts,releases,health,pods,collection`}>Every entry of this release in the Log</Link></span>
+        <span>Rule result: <HealthStatus health={a.health} /></span>
+        <span><Link href={explorerLink({ release: id, routine: '1', range: '7d' })}>Every record of this release in the Explorer</Link></span>
       </div>
     </div>
   )
