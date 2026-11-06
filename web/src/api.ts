@@ -223,6 +223,7 @@ export interface System {
   integrations: { name: string; state: string; note: string }[]
   workload: WorkloadSystem
   evidence: EvidenceSystem
+  dropped: { count: number; last: string | null }
   workloads: {
     counts: Record<string, number>
     nodes: { enabled: boolean; live: number; recorded: number; lastObservedAt: string | null; note: string }

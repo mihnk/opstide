@@ -74,6 +74,15 @@ type Collector struct {
 	now    func() time.Time
 	cov    *tracker
 	queue  workqueue.TypedRateLimitingInterface[item]
+	// lowQueue holds Kubernetes Events and autoscalers, which come in bursts (a node upgrade, a crash loop) and must not
+	// delay a short Job or a Pod being recorded: it has its own worker.
+	lowQueue workqueue.TypedRateLimitingInterface[item]
+	// firstFail is when each object's current run of failed tries began (read and written by its worker only, per queue).
+	firstFail map[item]time.Time
+	failMu    sync.Mutex
+	// dropped counts objects given up on; droppedAt is the last time.
+	dropped   atomic.Uint64
+	droppedAt atomic.Int64
 
 	clusterWide bool
 	scopes      map[string]*scope // by namespace; "" when cluster-wide
@@ -133,7 +142,11 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[item](),
 			workqueue.TypedRateLimitingQueueConfig[item]{Name: "opstide"}),
-		scopes: map[string]*scope{},
+		lowQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[item](),
+			workqueue.TypedRateLimitingQueueConfig[item]{Name: "opstide-events"}),
+		firstFail: map[item]time.Time{},
+		scopes:    map[string]*scope{},
 	}
 	if c.log == nil {
 		c.log = slog.New(slog.DiscardHandler)
@@ -328,6 +341,16 @@ func (c *Collector) informer(ns, kind string, example runtime.Object, idx cache.
 	return inf
 }
 
+// add queues an object on the queue its kind belongs to.
+func (c *Collector) add(it item) { c.queueOf(it.kind).Add(it) }
+
+func (c *Collector) queueOf(kind string) workqueue.TypedRateLimitingInterface[item] {
+	if kind == Events || kind == HPAs {
+		return c.lowQueue
+	}
+	return c.queue
+}
+
 // handle queues key(obj) for every change. subject says the key names the
 // object itself, so a delete carries its UID; for pods the key is their Job.
 func (c *Collector) handle(inf cache.SharedIndexInformer, subject bool, key func(metav1.Object) (item, bool)) {
@@ -350,7 +373,7 @@ func (c *Collector) handle(inf cache.SharedIndexInformer, subject bool, key func
 				it.deletedAt = at.UnixMilli()
 			}
 		}
-		c.queue.Add(it)
+		c.add(it)
 	}
 	_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj any) { enqueue(obj, false) },
@@ -389,6 +412,8 @@ type Stats struct {
 	Queued int
 	// Failing is how many scopes cannot be watched right now.
 	Failing int
+	// Dropped counts objects OpsTide gave up recording after repeated failures; each one is a recorded gap.
+	Dropped uint64
 	// Workload counts release observation, with bounded labels only.
 	Workload WorkloadStats
 	// Evidence counts Event and autoscaler observation.
@@ -399,7 +424,7 @@ type Stats struct {
 func (c *Collector) Stats() Stats {
 	return Stats{
 		Synced: c.synced.Load(), Processed: c.processed.Load(), Failed: c.failed.Load(),
-		Queued: c.queue.Len(), Failing: len(c.cov.problems()), Workload: c.wm.stats(), Evidence: c.em.stats(c.eventsSource()),
+		Queued: c.queue.Len() + c.lowQueue.Len(), Dropped: c.dropped.Load(), Failing: len(c.cov.problems()), Workload: c.wm.stats(), Evidence: c.em.stats(c.eventsSource()),
 	}
 }
 
@@ -409,6 +434,7 @@ func (c *Collector) Problems() []Problem { return c.cov.problems() }
 // Run watches until ctx ends.
 func (c *Collector) Run(ctx context.Context) error {
 	defer c.queue.ShutDown()
+	defer c.lowQueue.ShutDown()
 	for _, inf := range c.informers {
 		go inf.RunWithContext(ctx)
 	}
@@ -466,18 +492,23 @@ func (c *Collector) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		c.queue.ShutDown()
+		c.lowQueue.ShutDown()
 	}()
-	for c.next(ctx) {
+	go func() {
+		for c.next(ctx, c.lowQueue) {
+		}
+	}()
+	for c.next(ctx, c.queue) {
 	}
 	return nil
 }
 
-func (c *Collector) next(ctx context.Context) bool {
-	it, quit := c.queue.Get()
+func (c *Collector) next(ctx context.Context, q workqueue.TypedRateLimitingInterface[item]) bool {
+	it, quit := q.Get()
 	if quit {
 		return false
 	}
-	defer c.queue.Done(it)
+	defer q.Done(it)
 	var err error
 	switch it.kind {
 	case CronJobs:
@@ -504,17 +535,40 @@ func (c *Collector) next(ctx context.Context) bool {
 	switch {
 	case err == nil:
 		c.processed.Add(1)
-		c.queue.Forget(it)
+		c.clearFail(it)
+		q.Forget(it)
 	case ctx.Err() != nil:
-	case c.queue.NumRequeues(it) < 8:
+	case q.NumRequeues(it) < 8:
 		c.failed.Add(1)
-		c.queue.AddRateLimited(it)
+		c.markFail(it)
+		q.AddRateLimited(it)
 	default:
 		c.failed.Add(1)
-		c.log.Error("giving up on an object", "kind", it.kind, "namespace", it.namespace, "name", it.name, "err", err)
-		c.queue.Forget(it)
+		c.giveUp(it, c.clearFail(it), err)
+		q.Forget(it)
 	}
 	return true
+}
+
+// markFail notes when an object's run of failed tries began.
+func (c *Collector) markFail(it item) {
+	c.failMu.Lock()
+	defer c.failMu.Unlock()
+	if _, ok := c.firstFail[it]; !ok {
+		c.firstFail[it] = c.now()
+	}
+}
+
+// clearFail forgets an object's failures and returns when they began (now when none were noted).
+func (c *Collector) clearFail(it item) time.Time {
+	c.failMu.Lock()
+	defer c.failMu.Unlock()
+	t, ok := c.firstFail[it]
+	delete(c.firstFail, it)
+	if !ok {
+		return c.now()
+	}
+	return t
 }
 
 // EvidenceSource is the API Events are read through: events.k8s.io/v1, or core/v1

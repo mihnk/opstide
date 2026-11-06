@@ -342,7 +342,7 @@ func (c *Collector) reconcileAbsentHPAs(ctx context.Context) error {
 			return err
 		}
 		if cur == nil {
-			c.queue.Add(item{kind: HPAs, namespace: h.Namespace, name: h.Name, uid: types.UID(h.UID), tombstone: true})
+			c.add(item{kind: HPAs, namespace: h.Namespace, name: h.Name, uid: types.UID(h.UID), tombstone: true})
 		}
 	}
 	return nil

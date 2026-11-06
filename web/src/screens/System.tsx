@@ -35,6 +35,13 @@ export function System({ tz }: { tz: string }) {
         <span className="mono muted" style={{ fontSize: 12, paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · read-only</span>
       </div>
 
+      {data.dropped.count > 0 && (
+        <div className="banner" role="note">
+          <span className="label">Gave up</span>
+          <span>OpsTide gave up recording {data.dropped.count} object{data.dropped.count === 1 ? '' : 's'} after repeated failures{data.dropped.last ? <>, last at <span className="mono">{hhmmss(data.dropped.last, tz)}</span></> : null}. Each is a gap in coverage over the stretch its changes may have been lost; the Log names the object. Look at OpsTide's own log for the cause.</span>
+        </div>
+      )}
+
       <p className="sentence">
         {data.synced ? <>Watching {data.scopes.length ? <b>{new Set(data.scopes.map((s) => s.kind)).size} kinds</b> : 'nothing yet'} in <b>{scope}</b> since <span className="mono">{relativeTime(data.startedAt, data.now, tz)}</span>.</> : <>The watches are still syncing.</>}{' '}
         {gapCount > 0 ? <>Today Jobs were not watched {gapCount === 1 ? 'once' : `${gapCount} times`}; entries from those gaps may be missing.</> : 'No gaps today.'}{' '}

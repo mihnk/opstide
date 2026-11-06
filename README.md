@@ -19,7 +19,7 @@ record has holes.
 - **Coverage is part of the data.** When the collector was not watching, the
   gap is recorded and shown. Nothing inside a gap is reported as failed or
   missed.
-- **Read-only.** OpsTide needs `get`, `list` and `watch`. It never changes
+- **Read-only.** OpsTide needs only `list` and `watch`. It never changes
   the cluster, never reads Secrets, logs or exec.
 - **Private by default.** One pod, one SQLite database on a volume, nothing
   sent out of the cluster. No AI, Prometheus or Loki required.
@@ -65,11 +65,33 @@ package → settings), or add an image pull secret and log in to the
 registry before installing.
 
 The chart installs one pod (`Recreate`, never two writers), a 5 Gi volume
-for the SQLite record, and a ServiceAccount that can only `get`, `list`
-and `watch` CronJobs, Jobs, Pods, Deployments and ReplicaSets (OpsTide reads them
-through list and watch, so the chart grants only those two). It does not read
+for the SQLite record, and a ServiceAccount that can only `list` and `watch`
+(OpsTide reads through informers, so the chart grants nothing else) these kinds:
+
+| API group | Kinds | Why |
+|---|---|---|
+| `batch` | cronjobs, jobs | scheduled operations and their runs |
+| core | pods | Pods of Jobs, Deployments, StatefulSets and DaemonSets |
+| core | events | Kubernetes Events, only on a cluster that does not serve `events.k8s.io` |
+| `events.k8s.io` | events | Kubernetes Events (evidence) |
+| `apps` | deployments, replicasets, statefulsets, daemonsets, controllerrevisions | releases and workloads |
+| `autoscaling` | horizontalpodautoscalers | scaling context |
+| core (only with `nodes.observe`) | nodes | Node conditions, in a separate ClusterRole; cluster-scoped |
+
+Pod and ControllerRevision objects are reduced to an allow-listed subset as they
+arrive (no environment values, commands or arguments are kept). The chart does not read
 Secrets, logs or exec. The pod runs as a non-root user with a read-only
 root filesystem and the default seccomp profile.
+
+Before a new version migrates an existing database, OpsTide copies it next to itself as
+`opstide.db.pre-v<N>` (N is the schema it had), once per version. Migrations only go forward,
+so that copy is the way back to the earlier version; delete it when you no longer need it. It
+needs as much free space as the database.
+
+If OpsTide gives up recording an object after repeated failures, that is not hidden: the
+scope's coverage shows a gap over the stretch, a Log entry names the object, System says how
+many, and `opstide_collector_dropped_total` counts them. Kubernetes Events and autoscalers are
+recorded by their own worker, so a burst of them cannot delay a Job or a Pod.
 
 Useful values (see `charts/opstide/values.yaml` for all):
 

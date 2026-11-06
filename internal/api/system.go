@@ -33,6 +33,12 @@ type System struct {
 	Evidence EvidenceSystem `json:"evidence"`
 	// Workloads is the state of StatefulSet, DaemonSet and Node observation.
 	Workloads WorkloadsSystem `json:"workloads"`
+	// Dropped counts objects OpsTide gave up recording after repeated failures since it started. Each is a gap in
+	// coverage over the stretch its changes may have been lost, and a Log entry says which.
+	Dropped struct {
+		Count uint64     `json:"count"`
+		Last  *time.Time `json:"last"`
+	} `json:"dropped"`
 }
 
 // WorkloadsSystem is what OpsTide can and cannot see of workloads other than Deployments, and of Nodes.
@@ -187,6 +193,10 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		case sc.Kind == "hpas" && sc.Problem != "":
 			out.Evidence.Degraded = append(out.Evidence.Degraded, fmt.Sprintf("HorizontalPodAutoscalers cannot be read (%s): scaling context may be missing.", sc.Problem))
 		}
+	}
+	if d, ok := s.w.(interface{ DroppedObjects() (uint64, time.Time) }); ok {
+		n, at := d.DroppedObjects()
+		out.Dropped.Count, out.Dropped.Last = n, tp(at)
 	}
 	out.Workloads = WorkloadsSystem{Counts: map[string]int{}, Degraded: []string{}}
 	if cs, err := s.db.WorkloadCounts(ctx); err == nil {

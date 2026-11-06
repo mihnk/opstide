@@ -46,6 +46,7 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		w.Gauge("opstide_watches_failing", "Scopes that cannot be watched right now, usually for lack of permission.", float64(cs.Failing))
 		w.Counter("opstide_collector_items_total", "Objects written to the record.", float64(cs.Processed))
 		w.Counter("opstide_collector_failures_total", "Tries to write an object that failed.", float64(cs.Failed))
+		w.Counter("opstide_collector_dropped_total", "Objects OpsTide gave up recording after repeated failures; each is a recorded gap in coverage.", float64(cs.Dropped))
 		w.Gauge("opstide_collector_queue_length", "Objects waiting to be written.", float64(cs.Queued))
 		wl := cs.Workload
 		w.Counter("opstide_releases_observed_total", "Releases (Deployment revisions) OpsTide saw appear.", float64(wl.Releases))

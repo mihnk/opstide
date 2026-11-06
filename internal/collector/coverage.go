@@ -108,6 +108,46 @@ func (t *tracker) listDone(scope string) {
 	st.listed, st.open, st.resumable, st.alive, st.err = true, true, false, t.now(), nil
 }
 
+// dropped records that OpsTide gave up writing an object: whatever happened to it from since until now may be missing from
+// the record, so the watch is not whole over that stretch. The interval is closed at since and reopened now, and a Log
+// entry says which object and why; the record never claims continuous watching across it.
+func (t *tracker) dropped(scope string, since time.Time, what string, cause error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st := t.state(scope)
+	now := t.now()
+	if since.After(now) {
+		since = now
+	}
+	t.write(func(w *store.Writer) error {
+		ctx := context.Background()
+		kind, ns := splitScope(scope)
+		if _, err := w.AddEvent(ctx, store.Event{
+			ID:   fmt.Sprintf("collection.gap/%s/dropped/%d", scope, now.UnixMilli()),
+			Type: "collection.gap", Kind: kind, Namespace: ns,
+			ObservedAt: now, Severity: "warning", Confidence: store.Observed,
+			Summary: fmt.Sprintf("Gave up recording %s after repeated failures; entries about %s between %s and %s may be missing", what, scope, since.Format(time.RFC3339), now.Format(time.RFC3339)),
+			Facts:   map[string]string{"scope": scope, "from": since.Format(time.RFC3339), "to": now.Format(time.RFC3339), "seconds": strconv.FormatInt(int64(now.Sub(since)/time.Second), 10), "object": what, "error": cutErr(cause)},
+		}); err != nil {
+			return err
+		}
+		if !st.open {
+			return nil // not being watched right now: the gap is already recorded
+		}
+		if err := w.CloseInterval(ctx, scope, since, "gave up recording "+what); err != nil {
+			return err
+		}
+		return w.OpenInterval(ctx, scope, store.Healthy, now)
+	})
+}
+
+func cutErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return cut(err.Error(), 200)
+}
+
 // failed closes the scope's interval at the last moment it was known live.
 func (t *tracker) failed(scope string, err error) {
 	t.mu.Lock()
@@ -255,4 +295,26 @@ func (a *aliveWatch) ResultChan() <-chan watch.Event { return a.out }
 func (a *aliveWatch) Stop() {
 	a.once.Do(func() { close(a.done) })
 	a.inner.Stop()
+}
+
+// giveUp is what OpsTide does when it stops trying to write an object: it counts it, says so in the log, and records
+// a gap in the scope's coverage over the stretch the object's changes may have been lost.
+func (c *Collector) giveUp(it item, since time.Time, err error) {
+	c.dropped.Add(1)
+	c.droppedAt.Store(c.now().UnixMilli())
+	what := it.kind + " " + it.name
+	if it.namespace != "" {
+		what = it.kind + " " + it.namespace + "/" + it.name
+	}
+	c.log.Error("giving up on an object", "kind", it.kind, "namespace", it.namespace, "name", it.name, "err", err)
+	c.cov.dropped(scopeName(it.kind, c.nsOf(it.namespace)), since, what, err)
+}
+
+// DroppedObjects says how many objects OpsTide gave up recording, and when it last did (zero if never).
+func (c *Collector) DroppedObjects() (uint64, time.Time) {
+	n := c.dropped.Load()
+	if n == 0 {
+		return 0, time.Time{}
+	}
+	return n, time.UnixMilli(c.droppedAt.Load()).UTC()
 }

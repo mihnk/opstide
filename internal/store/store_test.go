@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1140,5 +1141,51 @@ func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
 	ex, err := s.Explorer(ctx, ExplorerQuery{From: t0.Add(-3 * time.Hour), To: t0.Add(3 * time.Hour), Routine: true})
 	if err != nil || len(ex.Rows) != 2 {
 		t.Fatalf("%v %d", err, len(ex.Rows))
+	}
+}
+
+// A database about to be migrated is copied first, once per schema version, so there is a way back to the earlier OpsTide.
+func TestDatabaseIsBackedUpBeforeMigrating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opstide.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".pre-v0"); err == nil {
+		t.Fatal("a new database has nothing to back up")
+	}
+	if err := s.Update(ctx, func(w *Writer) error {
+		return w.UpsertWorkload(ctx, Workload{ID: "w", Kind: KindStatefulSet, Namespace: "ns", Name: "db", FirstSeen: t0, LastSeen: t0})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// An older schema, as after an upgrade of OpsTide.
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	b, err := Open(ctx, path+".pre-v5")
+	if err != nil {
+		t.Fatalf("the backup must be a database of the earlier schema: %v", err)
+	}
+	defer b.Close()
+	if _, ok, err := b.WorkloadByID(ctx, "w"); err != nil || !ok {
+		t.Fatalf("the backup holds the record: %v %v", ok, err)
+	}
+	// Opening again does not overwrite it.
+	info, _ := os.Stat(path + ".pre-v5")
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if again, _ := os.Stat(path + ".pre-v5"); !again.ModTime().Equal(info.ModTime()) {
+		t.Fatal("the backup was rewritten")
 	}
 }

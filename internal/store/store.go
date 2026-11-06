@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"time"
@@ -41,11 +42,32 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	db.SetMaxOpenConns(4)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 	s := &Store{db: db, path: path, now: time.Now}
+	s.backupBeforeMigrating(ctx)
 	if err := s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate %s: %w", path, err)
 	}
 	return s, nil
+}
+
+// backupBeforeMigrating keeps a consistent copy of a database that is about to be migrated, as <path>.pre-v<N> (N is the
+// schema it had). Migrations only go forward, so this is the way back to the earlier OpsTide. It is written once per
+// version and never overwritten, and a failure (a full disk) is logged and does not stop OpsTide starting.
+func (s *Store) backupBeforeMigrating(ctx context.Context) {
+	v, err := s.SchemaVersion(ctx)
+	if err != nil || v == 0 || v >= len(migrations) || s.path == "" {
+		return
+	}
+	dst := fmt.Sprintf("%s.pre-v%d", s.path, v)
+	if _, err := os.Stat(dst); err == nil {
+		return
+	}
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", dst); err != nil {
+		slog.Warn("could not back up the database before migrating it", "to", dst, "err", err)
+		_ = os.Remove(dst)
+		return
+	}
+	slog.Info("backed up the database before migrating it", "to", dst, "from schema", v, "to schema", len(migrations))
 }
 
 // Close closes the database.
