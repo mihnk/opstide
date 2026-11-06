@@ -172,7 +172,9 @@ func trimStatefulSet(obj any) (any, error) {
 	if !ok {
 		return obj, nil
 	}
-	return &appsv1.StatefulSet{ObjectMeta: slim(s.ObjectMeta), Status: s.Status, Spec: appsv1.StatefulSetSpec{
+	meta := slim(s.ObjectMeta)
+	meta.ManagedFields = slimManagedFields(s.ManagedFields) // for the change ledger
+	return &appsv1.StatefulSet{ObjectMeta: meta, Status: s.Status, Spec: appsv1.StatefulSetSpec{
 		Replicas: s.Spec.Replicas, UpdateStrategy: s.Spec.UpdateStrategy, PodManagementPolicy: s.Spec.PodManagementPolicy, MinReadySeconds: s.Spec.MinReadySeconds}}, nil
 }
 
@@ -181,7 +183,9 @@ func trimDaemonSet(obj any) (any, error) {
 	if !ok {
 		return obj, nil
 	}
-	return &appsv1.DaemonSet{ObjectMeta: slim(d.ObjectMeta), Status: d.Status, Spec: appsv1.DaemonSetSpec{
+	meta := slim(d.ObjectMeta)
+	meta.ManagedFields = slimManagedFields(d.ManagedFields) // for the change ledger
+	return &appsv1.DaemonSet{ObjectMeta: meta, Status: d.Status, Spec: appsv1.DaemonSetSpec{
 		UpdateStrategy: d.Spec.UpdateStrategy, MinReadySeconds: d.Spec.MinReadySeconds}}, nil
 }
 
@@ -381,6 +385,9 @@ func (c *Collector) syncStatefulSet(ctx context.Context, it item) error {
 	if sts == nil {
 		return c.workloadGone(ctx, store.KindStatefulSet, "statefulset", it)
 	}
+	if err := c.recordSpecWrites(ctx, "statefulset", "StatefulSet", sts.Namespace, sts.Name, string(sts.UID), sts.ManagedFields); err != nil {
+		return err
+	}
 	return c.recordWorkload(ctx, c.statefulSetObs(s, sts))
 }
 
@@ -395,6 +402,9 @@ func (c *Collector) syncDaemonSet(ctx context.Context, it item) error {
 	}
 	if d == nil {
 		return c.workloadGone(ctx, store.KindDaemonSet, "daemonset", it)
+	}
+	if err := c.recordSpecWrites(ctx, "daemonset", "DaemonSet", d.Namespace, d.Name, string(d.UID), d.ManagedFields); err != nil {
+		return err
 	}
 	return c.recordWorkload(ctx, c.daemonSetObs(s, d))
 }

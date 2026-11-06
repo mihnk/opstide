@@ -271,6 +271,21 @@ func deployment(s *seeder) error {
 			return err
 		}
 	}
+	// The change ledger: which client wrote what.
+	for _, c := range []struct {
+		typ, kind, uid, name, ns, mgr, op string
+		at                                time.Duration
+		set                               func(*store.Event)
+	}{
+		{"deployment.spec_written", "Deployment", id, "api", "shop", "argocd-controller", "Apply", 6*time.Hour + 4*time.Minute, func(e *store.Event) { e.WorkloadID = id }},
+		{"statefulset.spec_written", "StatefulSet", "sts-web", "web", "shop", "kubectl-edit", "Update", 2*time.Hour + 2*time.Minute, func(e *store.Event) { e.WorkloadID = "sts-web" }},
+		{"cronjob.spec_written", "CronJob", "cj-backup", "nightly-backup", "data", "helm", "Update", 3 * 24 * time.Hour, func(e *store.Event) { e.OperationID = "cj-backup" }},
+	} {
+		if err := s.log(c.typ, c.kind, c.uid, c.name, c.ns, s.ago(c.at), store.Observed, "info", fmt.Sprintf("%s %s/%s: written by %s (%s), a manager of its spec", c.kind, c.ns, c.name, c.mgr, c.op),
+			map[string]string{"fieldManager": c.mgr, "operation": c.op, "writtenAt": s.ago(c.at).Format(time.RFC3339), "seen": "recorded after OpsTide started watching"}, c.set); err != nil {
+			return err
+		}
+	}
 	return s.log("pod.restarted", "Pod", "p-api-c3", "api-6-c3", "shop", s.ago(29*time.Hour), store.Observed, "warning", "Pod api-6-c3 restarted (OOMKilled)",
 		map[string]string{"reason": "OOMKilled", "delta": "1"}, func(e *store.Event) { e.WorkloadID, e.ReleaseID = id, "rel-api-6" })
 }

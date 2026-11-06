@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/mihnk/opstide/internal/collector"
@@ -60,6 +61,10 @@ type Server struct {
 	now func() time.Time
 
 	streams chan struct{} // bounds concurrent event streams
+
+	retMu  sync.Mutex // guards the cached retention sources
+	retAt  time.Time
+	retVal []RetentionSourceView
 }
 
 // New returns an API server.

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/mihnk/opstide/internal/store"
@@ -77,5 +78,65 @@ func TestEventsAndAutoscalersHaveTheirOwnQueue(t *testing.T) {
 	}
 	if got := c.Stats().Queued; got != 4 {
 		t.Fatalf("Queued counts both: %d", got)
+	}
+}
+
+func mf(manager string, op metav1.ManagedFieldsOperationType, sub, fields string, at time.Time) metav1.ManagedFieldsEntry {
+	t := metav1.NewTime(at)
+	return metav1.ManagedFieldsEntry{Manager: manager, Operation: op, Subresource: sub, Time: &t, FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+}
+
+// The change ledger names the client that wrote an object's spec, from managedFields: only the manager's name, the kind of
+// operation and when; writes that touch only status or metadata are not changes of the spec, and no field is kept.
+func TestSpecWritesAreRecordedWithTheirFieldManager(t *testing.T) {
+	db := openStore(t)
+	old := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	d := deployment("1", 3, 3, 3)
+	d.ManagedFields = []metav1.ManagedFieldsEntry{
+		mf("argocd-controller", metav1.ManagedFieldsOperationApply, "", `{"f:spec":{"f:replicas":{},"f:template":{"f:spec":{"f:containers":{"k:{\"name\":\"app\"}":{"f:image":{}}}}}}}`, old),
+		mf("kube-controller-manager", metav1.ManagedFieldsOperationUpdate, "status", `{"f:status":{"f:readyReplicas":{}}}`, old.Add(time.Hour)),
+		mf("kube-controller-manager", metav1.ManagedFieldsOperationUpdate, "", `{"f:metadata":{"f:annotations":{"f:deployment.kubernetes.io/revision":{}}}}`, old.Add(2*time.Hour)),
+		// Kubernetes gives some writes no time (the scale subresource's): they are left out, not given a date.
+		{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationUpdate, Subresource: "scale", FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(`{"f:spec":{"f:replicas":{}}}`)}},
+	}
+	client, ctx := start(t, db, Options{}, d)
+	ledger := func() []store.Event {
+		var out []store.Event
+		pg, _ := db.Events(ctx, store.EventQuery{Types: []string{"deployment.spec_written"}, Limit: 50})
+		out = append(out, pg.Events...)
+		return out
+	}
+	eventually(t, "the argocd write", func() bool { return len(ledger()) == 1 })
+	e := ledger()[0]
+	if e.Facts["fieldManager"] != "argocd-controller" || e.Facts["operation"] != "Apply" || !e.OccurredAt.Equal(old) || e.Facts["seen"] != "already there when OpsTide began watching" {
+		t.Fatalf("%+v", e)
+	}
+	for k, v := range e.Facts {
+		if k == "fields" || len(v) > 80 {
+			t.Fatalf("no field set or value is kept: %s=%s", k, v)
+		}
+	}
+	// An object written by another client after OpsTide began is a new entry, seen as it happened. (Added to the
+	// tracker directly: the fake clientset's field-managed tracker rewrites managedFields on Create and Update.)
+	d2 := deployment("1", 2, 2, 2)
+	d2.Name, d2.UID = "web", "dep-2"
+	d2.ManagedFields = []metav1.ManagedFieldsEntry{mf("kubectl-edit", metav1.ManagedFieldsOperationUpdate, "", `{"f:spec":{"f:replicas":{}}}`, time.Now().UTC().Add(time.Second).Truncate(time.Second))}
+	if err := client.Tracker().Add(d2); err != nil { // as stored: the typed client would rewrite managedFields
+		t.Fatal(err)
+	}
+	eventually(t, "the kubectl write", func() bool { return len(ledger()) == 2 })
+	var edit store.Event
+	for _, x := range ledger() {
+		if x.Facts["fieldManager"] == "kubectl-edit" {
+			edit = x
+		}
+	}
+	if edit.Facts["seen"] != "recorded after OpsTide started watching" || edit.ResourceName != "web" {
+		t.Fatalf("%+v", edit)
+	}
+	// Seeing the same writes again (a relist, a restart) adds nothing.
+	time.Sleep(200 * time.Millisecond)
+	if n := len(ledger()); n != 2 {
+		t.Fatalf("%d entries", n)
 	}
 }

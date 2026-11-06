@@ -5,7 +5,6 @@ import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link } from '../router'
 import { hhmmss } from '../time'
-import { Note } from '../components/Note'
 
 // Words for the four classifications. They say how two records are linked; none of them says
 // that one caused the other.
@@ -71,7 +70,7 @@ export function RecordedEvidence({ id, limit, link }: { id: string; limit?: numb
       {limit && data.summary.facts.length > limit && link && <Link href={link} style={{ fontSize: 13 }}>{data.summary.facts.length - limit} more in Evidence</Link>}
       <p style={{ margin: 0 }}><span className="label">Root cause</span> <b>{data.summary.rootCause}</b></p>
       {data.summary.note && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{data.summary.note}</p>}
-      <Note block more="Built from the records on the Evidence tab by fixed rules (shown after each line). No model reads it, and co-occurrence is not treated as cause.">Fixed rules over the records below</Note>
+      <span className="muted" style={{ fontSize: 12 }}>Built from the records on the Evidence tab by fixed rules; co-occurrence is not treated as cause.</span>
     </div>
   )
 }

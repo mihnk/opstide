@@ -1189,3 +1189,59 @@ func TestDatabaseIsBackedUpBeforeMigrating(t *testing.T) {
 		t.Fatal("the backup was rewritten")
 	}
 }
+
+// A burst of routine-volume entries cannot push the rest of the history out: they have their own budget, and the
+// history says when a budget (not age) cut a source short.
+func TestARoutineBurstDoesNotEvictTheRestOfTheLog(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		add := func(id, typ string, at time.Time) error {
+			_, err := w.AddEvent(ctx, Event{ID: id, Type: typ, Namespace: "ns", Kind: "Pod", ResourceUID: id, ResourceName: id, OccurredAt: at, ObservedAt: at, Severity: "info", Confidence: Observed, Summary: id})
+			return err
+		}
+		for i := 0; i < 5; i++ { // the history worth keeping, oldest
+			if err := add(fmt.Sprintf("job%d", i), "job.failed", t0.Add(time.Duration(i)*time.Minute)); err != nil {
+				return err
+			}
+		}
+		for i := 0; i < 40; i++ { // a storm after it
+			if err := add(fmt.Sprintf("pod%d", i), "pod.created", t0.Add(time.Hour+time.Duration(i)*time.Second)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	r, err := s.PruneBudgets(ctx, t0.AddDate(0, 0, -30), Retention{MaxEvents: 15, MaxRoutine: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Capped["routine"] != 30 || r.Capped["log"] != 0 {
+		t.Fatalf("%v", r.Capped)
+	}
+	var jobs, pods int
+	pg, _ := s.Events(ctx, EventQuery{Limit: 100})
+	for _, e := range pg.Events {
+		if e.Type == "job.failed" {
+			jobs++
+		} else {
+			pods++
+		}
+	}
+	if jobs != 5 || pods != 10 {
+		t.Fatalf("the five job entries survive, only the newest ten Pod entries do: %d %d", jobs, pods)
+	}
+	src, err := s.RetentionSources(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]RetentionSource{}
+	for _, x := range src {
+		by[x.Name] = x
+	}
+	if by["routine"].CappedTotal != 30 || by["routine"].CappedAt.IsZero() || by["log"].CappedTotal != 0 || !by["log"].RetainedSince.Equal(t0) {
+		t.Fatalf("%+v", by)
+	}
+	if !by["routine"].RetainedSince.Equal(t0.Add(time.Hour + 30*time.Second)) {
+		t.Fatalf("what the routine budget keeps starts with the newest ten: %v", by["routine"].RetainedSince)
+	}
+}

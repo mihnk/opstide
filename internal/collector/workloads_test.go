@@ -57,6 +57,9 @@ func typesOf(t *testing.T, db *store.Store, workloadID string) []string {
 	}
 	var out []string
 	for _, e := range pg.Events {
+		if strings.HasSuffix(e.Type, ".spec_written") {
+			continue // the change ledger is apart from what these tests follow
+		}
 		out = append(out, e.Type)
 	}
 	return out

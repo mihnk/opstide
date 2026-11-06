@@ -219,6 +219,7 @@ export interface System {
   storage: {
     schemaVersion: number; bytes: number; walBytes: number; entries: number; oldestEntry?: string
     lastPrune?: string; lastPruneRemoved: number; lastCheckpoint?: string; retentionDays: number; maxEntries: number
+    sources: { name: string; label: string; retainedSince: string | null; cappedAt: string | null; cappedTotal: number }[]
   }
   integrations: { name: string; state: string; note: string }[]
   workload: WorkloadSystem

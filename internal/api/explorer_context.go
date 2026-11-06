@@ -62,6 +62,38 @@ type ExplorerRetention struct {
 	Days       int        `json:"days"`
 	MaxEntries int        `json:"maxEntries"`
 	BoundaryAt *time.Time `json:"boundaryAt"` // records before this are pruned; null when no age limit is set
+	// Sources says, per source, how far back its records go and whether a size budget (not age) cut it short.
+	Sources []RetentionSourceView `json:"sources"`
+}
+
+// RetentionSourceView is one source's retained history.
+type RetentionSourceView struct {
+	Name          string     `json:"name"`
+	Label         string     `json:"label"`
+	RetainedSince *time.Time `json:"retainedSince"` // the oldest record held; null when none
+	CappedAt      *time.Time `json:"cappedAt"`      // when a budget last removed records; null if never
+	CappedTotal   int64      `json:"cappedTotal"`
+}
+
+var retentionLabels = map[string]string{"log": "Log entries", "routine": "Pod lifecycle, Event, autoscaler and count entries", "evidence": "Kubernetes Events"}
+
+// retentionSources is cached for a minute: finding each source's oldest record walks the log, and it changes slowly.
+func (s *Server) retentionSources(ctx context.Context) []RetentionSourceView {
+	s.retMu.Lock()
+	defer s.retMu.Unlock()
+	if s.retVal != nil && s.now().Sub(s.retAt) < time.Minute {
+		return s.retVal
+	}
+	out := []RetentionSourceView{}
+	rs, err := s.db.RetentionSources(ctx)
+	if err != nil {
+		return out
+	}
+	defer func() { s.retVal, s.retAt = out, s.now() }()
+	for _, r := range rs {
+		out = append(out, RetentionSourceView{Name: r.Name, Label: retentionLabels[r.Name], RetainedSince: tp(r.RetainedSince), CappedAt: tp(r.CappedAt), CappedTotal: r.CappedTotal})
+	}
+	return out
 }
 
 // ExplorerContext is the coverage of a range.
@@ -140,7 +172,7 @@ func (s *Server) buildContext(ctx context.Context, from, to time.Time, namespace
 		return nil, err
 	}
 	out := &ExplorerContext{Schema: Schema, From: from, To: to, Now: now, Bands: []Band{}, Scopes: []ExplorerScope{}, Sources: []ExplorerSource{}, NodesObserved: s.cfg.ObserveNodes,
-		Retention: ExplorerRetention{Days: s.cfg.Retention.Days, MaxEntries: s.cfg.Retention.MaxEvents}}
+		Retention: ExplorerRetention{Days: s.cfg.Retention.Days, MaxEntries: s.cfg.Retention.MaxEvents, Sources: s.retentionSources(ctx)}}
 	if lw, err := s.db.LastWrite(ctx); err == nil {
 		out.LastWriteAt = tpp(lw)
 	}

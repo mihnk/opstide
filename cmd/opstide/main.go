@@ -95,7 +95,9 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Maintenance stops, and is waited for, before the store closes.
 	maintCtx, stopMaint := context.WithCancel(ctx)
 	var maint sync.WaitGroup
-	maint.Go(func() { db.Maintain(maintCtx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log) })
+	maint.Go(func() {
+		db.Maintain(maintCtx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}, log)
+	})
 	defer maint.Wait()
 	defer stopMaint()
 
@@ -122,7 +124,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
 		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
-		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents},
+		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
 	}, log).Register(mux)
 	mux.Handle("/", webui.Handler())
 	if err := serve(ctx, cfg.Listen, secure(reg.Instrument(guard.Middleware(mux))), log); err != nil {

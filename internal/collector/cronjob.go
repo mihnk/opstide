@@ -129,6 +129,9 @@ func (c *Collector) syncCronJob(ctx context.Context, it item) error {
 		return c.cronJobGone(ctx, op, c.now(), msTime(it.deletedAt), !it.tombstone)
 	}
 
+	if err := c.recordSpecWrites(ctx, "cronjob", "CronJob", cj.Namespace, cj.Name, string(cj.UID), cj.ManagedFields); err != nil {
+		return err
+	}
 	now := c.now()
 	op := operationFrom(cj, now)
 	old, had, err := c.db.Operation(ctx, op.ID)

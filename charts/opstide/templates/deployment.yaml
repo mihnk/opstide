@@ -56,6 +56,8 @@ spec:
               value: {{ .Values.retention.days | quote }}
             - name: OPSTIDE_MAX_EVENTS
               value: {{ .Values.retention.maxEntries | int64 | quote }}
+            - name: OPSTIDE_MAX_ROUTINE_EVENTS
+              value: {{ .Values.retention.maxRoutineEntries | default 0 | int64 | quote }}
             - name: OPSTIDE_OBSERVE_NODES
               value: {{ .Values.nodes.observe | default false | quote }}
             - name: OPSTIDE_RELEASE_WINDOW

@@ -56,7 +56,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
   const filter = {
     range, from: get('from'), to: get('to'), q: get('q'), namespace: get('namespace'), kind: get('kind'), name: get('name'), uid: get('uid'), workload: get('workload'),
     release: get('release'), run: get('run'), operation: get('operation'), node: get('node'), group: get('group'), type: get('type'), reason: get('reason'),
-    source: get('source'), provenance: get('provenance'), severity: get('severity'), outcome: get('outcome'), owner: get('owner'), routine: get('routine'),
+    source: get('source'), provenance: get('provenance'), severity: get('severity'), outcome: get('outcome'), owner: get('owner'), preset: get('preset'), routine: get('routine'),
   }
   const rec = get('rec')
   const groupBy = get('by') === 'resource'
@@ -126,14 +126,14 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
     set({ [key]: next.join(',') || null })
   }
   const scopeChips = scopeKeys.filter((k) => filter[k])
-  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || filter.severity || filter.outcome || filter.owner || scopeChips.length)
+  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || filter.severity || filter.outcome || filter.owner || filter.preset || scopeChips.length)
   // The owners that exist (deleted CronJobs included), fetched once.
   const [ownerList, setOwnerList] = useState<string[]>([])
   useEffect(() => {
     getJSON<{ owners: string[] }>('/api/v1/owners').then((o) => setOwnerList(o.owners)).catch(() => {})
   }, [])
   const owners = filter.owner && !ownerList.includes(filter.owner) ? [...ownerList, filter.owner] : ownerList
-  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, severity: null, outcome: null, owner: null, routine: null, rec: null })
+  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, severity: null, outcome: null, owner: null, preset: null, routine: null, rec: null })
   const wsIds = useWorkspace()
 
   // Custom range inputs: wall-clock in the chosen zone.
@@ -264,8 +264,12 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
         </fieldset>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input type="checkbox" checked={filter.routine === '1'} onChange={(e) => set({ routine: e.target.checked ? '1' : null })} />
-          Show routine records (Pod created/ready/terminated, Normal Events)
+          Show routine records (Pod created/ready/terminated, Normal Events, Job creation, reported counts)
           {data && filter.routine !== '1' && data.suppressedRoutine > 0 && <span className="chip" title="Left out of the timeline, not deleted">{data.suppressedRoutine} hidden</span>}
+        </label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="Only records that say something was changed: a spec written (and by which client), a revision, a replica target, a schedule or suspension, a cordon">
+          <input type="checkbox" checked={filter.preset === 'changes'} onChange={(e) => set({ preset: e.target.checked ? 'changes' : null })} />
+          Changes only
         </label>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input type="checkbox" checked={groupBy} onChange={(e) => set({ by: e.target.checked ? 'resource' : null, rec })} />

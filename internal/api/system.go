@@ -111,6 +111,8 @@ type Storage struct {
 	LastCheckpoint   time.Time `json:"lastCheckpoint,omitzero"`
 	RetentionDays    int       `json:"retentionDays"`
 	MaxEntries       int       `json:"maxEntries"`
+	// Sources is what each source still holds, and whether a size budget has cut it short.
+	Sources []RetentionSourceView `json:"sources"`
 }
 
 // Integration is an optional connection and whether it is set up.
@@ -236,7 +238,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Storage = Storage{SchemaVersion: st.SchemaVersion, Bytes: st.Bytes, WALBytes: st.WALBytes, Entries: st.Events,
 		OldestEntry: st.OldestEvent, LastPrune: st.LastPrune, LastPruneRemoved: st.LastPruneRemoved,
-		LastCheckpoint: st.LastCheckpoint, RetentionDays: s.cfg.Retention.Days, MaxEntries: s.cfg.Retention.MaxEvents}
+		LastCheckpoint: st.LastCheckpoint, RetentionDays: s.cfg.Retention.Days, MaxEntries: s.cfg.Retention.MaxEvents, Sources: s.retentionSources(ctx)}
 	out.Integrations = []Integration{
 		{Name: "Clustrail link", State: "not configured", Note: "Open an object in Clustrail from any entry."},
 	}

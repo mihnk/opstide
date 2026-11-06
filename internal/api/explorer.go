@@ -121,6 +121,15 @@ func recordOfRow(row store.ExplorerRow, message bool) ExplorerRecord {
 	return recordOfEvent(*row.Event, row.Key)
 }
 
+// changeTypes are the records that say something changed, not that something was observed to be so: a spec written (and
+// by which client), a revision, a replica target, a schedule or suspension, a cordon. The change ledger is these, oldest
+// to newest, nothing more.
+var changeTypes = []string{
+	"deployment.spec_written", "statefulset.spec_written", "daemonset.spec_written", "cronjob.spec_written",
+	"release.observed", "statefulset.revision_changed", "daemonset.revision_changed", "workload.replica_target_changed", "hpa.desired_replicas_changed",
+	"cronjob.schedule_changed", "cronjob.suspended", "cronjob.resumed", "node.unschedulable_changed",
+}
+
 // ---- parameters ----
 
 const (
@@ -203,6 +212,7 @@ type explorerFilters struct {
 	Reason     string   `json:"reason,omitempty"`
 	Sources    []string `json:"sources,omitempty"`
 	Provenance []string `json:"provenance,omitempty"`
+	Preset     string   `json:"preset,omitempty"` // "changes": the change ledger
 	Severity   []string `json:"severity,omitempty"`
 	Outcome    []string `json:"outcome,omitempty"`
 	Owner      string   `json:"owner,omitempty"`
@@ -221,7 +231,7 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 	v := r.URL.Query()
 	known := map[string]bool{"range": true, "from": true, "to": true, "namespace": true, "kind": true, "name": true, "uid": true, "workload": true, "release": true, "run": true,
 		"operation": true, "node": true, "group": true, "type": true, "reason": true, "source": true, "provenance": true, "q": true, "routine": true, "cursor": true, "limit": true,
-		"order": true, "messages": true, "tz": true, "severity": true, "outcome": true, "owner": true}
+		"order": true, "messages": true, "tz": true, "preset": true, "severity": true, "outcome": true, "owner": true}
 	for k := range v {
 		if !known[k] {
 			return q, f, badRequest("unknown parameter " + fmt.Sprintf("%.40q", k))
@@ -275,6 +285,7 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 		}
 		f.Provenance = append(f.Provenance, p)
 	}
+	var outcomeSet []string
 	for _, sv := range splitList(strings.ToLower(v.Get("severity"))) {
 		if sv != "info" && sv != "warning" && sv != "error" {
 			return q, f, badRequest("severity takes info, warning or error")
@@ -289,10 +300,47 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 			return q, f, badRequest("outcome takes failed, succeeded or unknown")
 		}
 		f.Outcome = append(f.Outcome, o)
-		f.Types = append(f.Types, t)
+		outcomeSet = append(outcomeSet, t)
 	}
 	if f.Owner = strings.TrimSpace(v.Get("owner")); len([]rune(f.Owner)) > 120 {
 		return q, f, badRequest("owner is too long")
+	}
+	switch p := v.Get("preset"); p {
+	case "":
+	case "changes":
+		f.Preset = p
+	default:
+		return q, f, badRequest("preset takes changes")
+	}
+	// type, outcome and preset each narrow; a record has to satisfy every one that is set.
+	var presetSet []string
+	if f.Preset == "changes" {
+		presetSet = changeTypes
+	}
+	{
+		sets := [][]string{f.Types, outcomeSet, presetSet}
+		var cur []string
+		first := true
+		for _, set := range sets {
+			if len(set) == 0 {
+				continue
+			}
+			if first {
+				cur, first = append([]string{}, set...), false
+				continue
+			}
+			var keep []string
+			for _, t := range cur {
+				if has(set, t) {
+					keep = append(keep, t)
+				}
+			}
+			cur = keep
+		}
+		if !first && len(cur) == 0 {
+			cur = []string{"opstide.none"} // nothing satisfies all of them
+		}
+		f.Types = cur
 	}
 	f.Routine = v.Get("routine") == "1" || v.Get("routine") == "true"
 	q.Namespace, q.Kind, q.Name, q.UID, q.WorkloadID, q.RunID, q.OperationID, q.NodeID = f.Namespace, f.Kind, f.Name, f.UID, f.Workload, f.Run, f.Operation, f.Node
@@ -485,3 +533,12 @@ func (s *Server) explorerFilters(w http.ResponseWriter, r *http.Request) {
 
 // pathValue is url.PathEscape for the single segments the UI routes use.
 func pathValue(s string) string { return url.PathEscape(s) }
+
+func has(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

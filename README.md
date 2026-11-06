@@ -101,7 +101,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
 | `nodes.observe` | Record Node conditions and scheduling changes (`false` by default). Nodes are cluster-scoped, so this adds a small ClusterRole with `list` and `watch` on nodes, also for installs limited to some namespaces |
 | `releases.observationMinutes` | How long after a Deployment rollout completes a release is observed before it can be called healthy: 5, 10 (default), 15 or 30 |
-| `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
+| `retention.days`, `retention.maxEntries`, `retention.maxRoutineEntries` | How much history to keep (30 days, 2,000,000 entries). Routine-volume entries (Pod lifecycle, Event entries, autoscaler entries) have their own budget (half by default), so a burst of them cannot push out older Job and release history; when a budget rather than age removes records, System and the Explorer say so |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
 | `auth.enabled`, `auth.existingSecret` | The token that protects the API and the UI (on by default; see below) |
 | `clustrail.url` | Adds "Open in Clustrail" to each CronJob: a URL template with `{cluster}`, `{namespace}`, `{name}` (http, https or `clustrail://`) |
@@ -190,6 +190,30 @@ live:
 Dark and light themes follow the system until you pick one. Times show in
 your browser's zone or UTC. The app is built into the binary; fonts and
 everything else are served by the collector itself.
+
+## Change ledger
+
+"What changed near here, and by what?" is the Explorer with **Changes only**: records that say something was changed
+(a spec written, a revision, a replica target, a schedule or suspension, a cordon). For Deployments, StatefulSets,
+DaemonSets and CronJobs, OpsTide takes from `managedFields` the **field manager** that wrote the spec (`argocd-controller`,
+`kubectl-edit`, `helm`), the kind of operation and when, and keeps nothing else: no fields, no values. A field manager is
+the name a client gave itself, not a person; the API server's audit log holds who. A write already there when OpsTide began
+watching is marked as such.
+
+## Alerting on a CronJob
+
+`/metrics` has one series per live CronJob (the first 1,000): `opstide_operation_last_success_timestamp_seconds`,
+`opstide_operation_last_failure_timestamp_seconds`, `opstide_operation_last_run_timestamp_seconds` and
+`opstide_operation_suspended`, labelled `cronjob_namespace` and `cronjob` (not `namespace`, which the Prometheus Operator renames). A series is absent until OpsTide has seen such a run.
+OpsTide reports when it last saw a run end; the threshold is yours:
+
+```promql
+time() - opstide_operation_last_success_timestamp_seconds{cronjob_namespace="data", cronjob="nightly-backup"} > 26 * 3600
+```
+
+A series disappears once the runs it comes from age out of retention, so a CronJob that has not run for longer than the kept history, or a monthly one, has none: alert on `absent(...)` as well, and on the CronJob's schedule rather than on the age alone.  Weigh it with whether OpsTide
+was watching: `opstide_watches_failing > 0` and `increase(opstide_collector_dropped_total[1d]) > 0` mean the record may
+have missed runs, and the UI shows the gap.
 
 ## Try it
 

@@ -32,6 +32,11 @@ export function Coverage({ ctx, tz }: { ctx: ExplorerContext; tz: string }) {
         history kept {ctx.retention.days > 0 ? `${ctx.retention.days} days` : 'without an age limit'}
         {trouble.length > 0 ? <> · <b>{trouble.length} of {ctx.scopes.length}</b> watches not whole in this range</> : ctx.scopes.length > 0 ? ' · every watch whole in this range' : ''}
       </p>
+      {ctx.retention.sources.some((s) => s.cappedTotal > 0) && (
+        <p className="muted cov-line">
+          Cut short by a size budget, not by age: {ctx.retention.sources.filter((s) => s.cappedTotal > 0).map((s) => `${s.label} (${s.cappedTotal.toLocaleString('en')} removed${s.retainedSince ? `, now from ${isoDate(s.retainedSince, tz).slice(5)} ${hhmm(s.retainedSince, tz)}` : ''})`).join('; ')}.
+        </p>
+      )}
       {ctx.scopes.length > 0 && (
         <details>
           <summary className="label" style={{ cursor: 'pointer' }}>Coverage by watch</summary>

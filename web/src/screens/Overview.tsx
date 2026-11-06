@@ -127,20 +127,21 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
 // The last 24 hours across everything OpsTide records: counts of records by kind, each a link to the records, and the
 // watches that were not whole. A zero means nothing of that kind was recorded, which is only as good as the watches.
 function LastDay() {
-  const { data } = useApi<ExplorerSummary>('/api/v1/explorer/summary?range=24h', { refreshMs: 60_000 })
+  const { data, error } = useApi<ExplorerSummary>('/api/v1/explorer/summary?range=24h', { refreshMs: 60_000 })
+  if (error && !data) return <section aria-label="Last 24 hours"><h1 className="title" style={{ fontSize: 28 }}>Last 24 hours</h1><div className="error" role="alert">Could not load the summary: {error.message}</div></section>
   if (!data) return null
   const shown = data.items.filter((i) => i.count > 0)
   return (
     <section aria-label="Last 24 hours" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <h1 className="title" style={{ fontSize: 28 }}>Last 24 hours</h1>
       <p className="sentence" style={{ margin: 0, fontSize: 16 }}>
-        {shown.length === 0 ? 'Nothing of the kinds below was recorded.' : shown.map((i, k) => (
-          <span key={i.key}>{k > 0 ? ' · ' : ''}<Link href={`/explorer?range=24h&routine=1&${i.query}`}><b className="mono">{i.count}</b> {i.count === 1 ? i.label : i.plural}</Link></span>
+        {shown.length === 0 ? 'Nothing of the kinds counted here was recorded.' : shown.map((i, k) => (
+          <span key={i.key}>{k > 0 ? ' · ' : ''}<Link href={`/explorer?range=24h&${i.query}`}><b className="mono">{i.count}</b> {i.count === 1 ? i.label : i.plural}</Link></span>
         ))}
       </p>
       {(data.notWhole.length > 0 || data.dropped > 0) && (
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Not whole: {[...new Set(data.notWhole.map((n) => `${n.label} (${n.state})`))].join(', ')}{data.dropped > 0 ? `${data.notWhole.length ? '; ' : ''}${data.dropped} object${data.dropped === 1 ? '' : 's'} given up on` : ''}. <Link href="/explorer?range=24h&group=observation">Where</Link> · <Link href="/system">System</Link>
+          Not whole: {[...new Set(data.notWhole.map((n) => `${n.label} (${n.state})`))].join(', ')}{data.dropped > 0 ? `${data.notWhole.length ? '; ' : ''}${data.dropped} object${data.dropped === 1 ? '' : 's'} given up on since OpsTide started` : ''}. <Link href="/explorer?range=24h&group=observation">Where</Link> · <Link href="/system">System</Link>
         </p>
       )}
       <Link href={explorerLink({ range: '24h' })} style={{ fontSize: 13 }}>Everything recorded in the last 24 hours</Link>

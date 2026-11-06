@@ -30,7 +30,7 @@ type ExplorerSummary struct {
 	To       time.Time         `json:"to"`
 	Items    []SummaryItem     `json:"items"`
 	NotWhole []SummaryNotWhole `json:"notWhole"`
-	// Dropped counts objects OpsTide gave up recording since it started (each is a gap).
+	// Dropped counts objects OpsTide gave up recording since it started (not only in this range); each is a gap.
 	Dropped uint64 `json:"dropped"`
 }
 
@@ -45,6 +45,7 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 		key, label, plural, query string
 		q                         store.ExplorerQuery
 	}{
+		{"changes", "recorded change (a spec written, a revision, a replica target, a schedule)", "recorded changes (a spec written, a revision, a replica target, a schedule)", "preset=changes", store.ExplorerQuery{Types: changeTypes}},
 		{"runs_failed", "failed run", "failed runs", "type=job.failed", store.ExplorerQuery{Types: []string{"job.failed"}}},
 		{"runs_unknown", "run with an unknown outcome", "runs with an unknown outcome", "type=job.lost", store.ExplorerQuery{Types: []string{"job.lost"}}},
 		{"releases", "release appeared", "releases appeared", "type=release.observed", store.ExplorerQuery{Types: []string{"release.observed"}}},

@@ -76,6 +76,8 @@ export interface CoverageScope {
   problem?: string
   note?: string
 }
+export interface RetentionSource { name: string; label: string; retainedSince: string | null; cappedAt: string | null; cappedTotal: number }
+
 export interface ExplorerContext {
   schema: number
   from: string
@@ -84,7 +86,7 @@ export interface ExplorerContext {
   firstObservedAt: string | null
   oldestRecordAt: string | null
   lastWriteAt: string | null
-  retention: { days: number; maxEntries: number; boundaryAt: string | null }
+  retention: { days: number; maxEntries: number; boundaryAt: string | null; sources: RetentionSource[] }
   bands: { from: string; to: string; kind: 'outside_retention' | 'before_first_observation' | 'observable' }[]
   scopes: CoverageScope[]
   sources: { name: string; state: string; note?: string }[]
@@ -178,7 +180,7 @@ export const groupWords: Record<string, string> = {
 }
 
 /** The filters the page keeps in its link. Nothing sensitive: no token, no Event message. */
-export const filterKeys = ['range', 'from', 'to', 'q', 'namespace', 'kind', 'name', 'uid', 'workload', 'release', 'run', 'operation', 'node', 'group', 'type', 'reason', 'source', 'provenance', 'severity', 'outcome', 'owner', 'routine'] as const
+export const filterKeys = ['range', 'from', 'to', 'q', 'namespace', 'kind', 'name', 'uid', 'workload', 'release', 'run', 'operation', 'node', 'group', 'type', 'reason', 'source', 'provenance', 'severity', 'outcome', 'owner', 'preset', 'routine'] as const
 
 export const quickRanges = ['15m', '1h', '6h', '24h', '7d'] as const
 
@@ -206,7 +208,7 @@ export function recordIdOf(e: { recordId: string; type: string; facts?: Record<s
 
 // The Log is the Explorer with its old filters: a link to /log still works, and lands here.
 const logGroups: Record<string, string[]> = {
-  runs: ['operations'], starts: ['operations'], schedules: ['operations'], rollouts: ['releases'], releases: ['releases'], health: ['releases'], pods: ['pods'],
+  runs: ['operations'], starts: ['operations'], schedules: ['operations'], rollouts: ['releases'], releases: ['releases'], health: ['releases', 'pods'], pods: ['pods'],
   kubernetes: ['events'], scaling: ['scaling'], statefulsets: ['workloads'], daemonsets: ['workloads'], nodes: ['nodes'], collection: ['observation'],
 }
 
@@ -228,8 +230,11 @@ export function logToExplorer(p: URLSearchParams, now = Date.now()): string {
   if (show) {
     const parts = show.split(',')
     const groups = [...new Set(parts.flatMap((s) => logGroups[s] ?? []))]
+    if (parts.includes('counts') && !groups.includes('workloads')) groups.push('workloads')
     if (groups.length > 0 && groups.length < 7) out.group = groups.join(',')
     if (parts.includes('counts') || parts.includes('starts') || parts.includes('pods')) out.routine = '1'
+    // The old Log applied an outcome to run entries only, and only while they were shown.
+    if (!parts.includes('runs')) delete out.outcome
   }
   return explorerLink(out)
 }

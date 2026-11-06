@@ -79,7 +79,10 @@ type Collector struct {
 	lowQueue workqueue.TypedRateLimitingInterface[item]
 	// firstFail is when each object's current run of failed tries began (read and written by its worker only, per queue).
 	firstFail map[item]time.Time
-	failMu    sync.Mutex
+	// written remembers the spec writes already put in the change ledger; started is when this process began.
+	written writtenSeen
+	started time.Time
+	failMu  sync.Mutex
 	// dropped counts objects given up on; droppedAt is the last time.
 	dropped   atomic.Uint64
 	droppedAt atomic.Int64
@@ -154,6 +157,7 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 	if c.now == nil {
 		c.now = time.Now
 	}
+	c.started = c.now()
 	c.eventsSourceOpt = opt.EventsSource
 	c.observeNodes = opt.ObserveNodes
 	c.window = opt.ReleaseWindow

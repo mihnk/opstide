@@ -330,3 +330,45 @@ func (s *Store) Owners(ctx context.Context) ([]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// OperationLast is, for one live CronJob, when OpsTide last saw a run end well, end badly, and begin: what an alert on
+// "the backup has not succeeded for 26 hours" is built from. A time is zero when OpsTide has seen no such run.
+type OperationLast struct {
+	ID, Namespace, Name          string
+	Suspended                    bool
+	LastSuccessAt, LastFailureAt time.Time
+	LastRunAt                    time.Time
+}
+
+// OperationsLast lists the live CronJobs (at most limit, by namespace and name) with when their runs last ended.
+func (s *Store) OperationsLast(ctx context.Context, limit int) ([]OperationLast, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.namespace, o.name, o.suspend,
+	(SELECT max(finished_at) FROM runs r WHERE r.operation_id = o.id AND r.status = 'succeeded'),
+	(SELECT max(finished_at) FROM runs r WHERE r.operation_id = o.id AND r.status = 'failed'),
+	(SELECT max(created_at) FROM runs r WHERE r.operation_id = o.id)
+FROM operations o WHERE o.deleted_at IS NULL ORDER BY o.namespace, o.name LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OperationLast
+	for rows.Next() {
+		var o OperationLast
+		var susp int
+		var ok, fail, last sql.NullInt64
+		if err := rows.Scan(&o.ID, &o.Namespace, &o.Name, &susp, &ok, &fail, &last); err != nil {
+			return nil, err
+		}
+		o.Suspended = susp != 0
+		o.LastSuccessAt, o.LastFailureAt, o.LastRunAt = fromMS(ok), fromMS(fail), fromMS(last)
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// LiveOperationCount counts the CronJobs not known to be deleted.
+func (s *Store) LiveOperationCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE deleted_at IS NULL`).Scan(&n)
+	return n, err
+}

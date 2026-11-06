@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/mihnk/opstide/internal/metrics"
 	"github.com/mihnk/opstide/internal/store"
 )
+
+// maxOperationSeries bounds the per-CronJob series so a cluster with thousands of CronJobs cannot flood a scrape.
+const maxOperationSeries = 1000
 
 // ownMetrics describes OpsTide itself: is it ready, how fresh is its
 // record, which watches fail, how big is the database. Reading the event
@@ -28,6 +32,29 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 			stats, failed, read = st, err != nil, time.Now()
 		}
 		return stats, !failed
+	}
+	var (
+		opMu    sync.Mutex
+		opRead  time.Time
+		opLast  []store.OperationLast
+		opTotal int
+	)
+	// The per-CronJob times are reused for 30 s: finding them reads each CronJob's runs.
+	operations := func(ctx context.Context) ([]store.OperationLast, int, error) {
+		opMu.Lock()
+		defer opMu.Unlock()
+		if opRead.IsZero() || time.Since(opRead) > 30*time.Second {
+			ops, err := db.OperationsLast(ctx, maxOperationSeries)
+			if err != nil {
+				return nil, 0, err
+			}
+			n, err := db.LiveOperationCount(ctx)
+			if err != nil {
+				return nil, 0, err
+			}
+			opLast, opTotal, opRead = ops, n, time.Now()
+		}
+		return opLast, opTotal, nil
 	}
 	return func(ctx context.Context, w *metrics.Writer) {
 		b2f := func(b bool) float64 {
@@ -61,6 +88,27 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		}
 		if n, err := db.ActiveWindows(ctx, time.Now()); err == nil {
 			w.Gauge("opstide_release_windows_active", "Releases being observed after their rollout.", float64(n))
+		}
+		// One series per live CronJob (bounded), so an alert can say "the backup has not succeeded for 26 hours". OpsTide only
+		// reports when it last saw a run end; the threshold, and whether OpsTide was watching (opstide_watches_failing, the
+		// coverage in the UI), are the alert's to weigh.
+		if ops, total, err := operations(ctx); err == nil {
+			w.Gauge("opstide_operations", "Live CronJobs recorded (series below are limited to the first "+strconv.Itoa(maxOperationSeries)+").", float64(total))
+			for _, o := range ops {
+				// cronjob_namespace and cronjob, not namespace: a scrape through the Prometheus Operator renames a
+				// "namespace" label to exported_namespace, which would break an alert written from these names.
+				l := []string{"cronjob_namespace", o.Namespace, "cronjob", o.Name}
+				w.Gauge("opstide_operation_suspended", "1 when the CronJob is suspended.", b2f(o.Suspended), l...)
+				if !o.LastSuccessAt.IsZero() {
+					w.Gauge("opstide_operation_last_success_timestamp_seconds", "When OpsTide last saw a run of the CronJob succeed, Unix time. Absent if it has seen none.", float64(o.LastSuccessAt.Unix()), l...)
+				}
+				if !o.LastFailureAt.IsZero() {
+					w.Gauge("opstide_operation_last_failure_timestamp_seconds", "When OpsTide last saw a run of the CronJob fail, Unix time. Absent if it has seen none.", float64(o.LastFailureAt.Unix()), l...)
+				}
+				if !o.LastRunAt.IsZero() {
+					w.Gauge("opstide_operation_last_run_timestamp_seconds", "When OpsTide last saw a Job of the CronJob start, Unix time. Absent if it has seen none.", float64(o.LastRunAt.Unix()), l...)
+				}
+			}
 		}
 		ev := cs.Evidence
 		w.Counter("opstide_evidence_events_total", "Kubernetes Events first recorded, by origin (observed while watching, or adopted when already there).", float64(ev.Observed), "origin", "observed")

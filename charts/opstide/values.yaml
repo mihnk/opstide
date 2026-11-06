@@ -38,6 +38,10 @@ nodes:
 retention:
   days: 30
   maxEntries: 2000000
+  # A separate budget for routine-volume entries (Pod lifecycle, Event entries, autoscaler entries, reported counts,
+  # Job creation), so a burst of them (a node upgrade, a crash loop) cannot push out older Job and release history.
+  # 0 means half of maxEntries. When a budget, not age, removes records, System and the Explorer say so.
+  maxRoutineEntries: 0
 
 logLevel: info
 

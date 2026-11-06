@@ -660,9 +660,12 @@ func (c *Collector) reassess(ctx context.Context, w *store.Writer, r store.Relea
 		case store.HealthInsufficient:
 			word, sev, idx = "insufficient", "info", 2
 		}
-		summary := fmt.Sprintf("%s revision %s: post-deployment health %s", r.Workload, r.Revision, strings.ReplaceAll(v.Health, "_", " "))
-		if v.Health == store.HealthDegraded {
+		summary := fmt.Sprintf("%s revision %s: rule result for the observation window: %s", r.Workload, r.Revision, strings.ReplaceAll(v.Health, "_", " "))
+		switch v.Health {
+		case store.HealthDegraded:
 			summary = fmt.Sprintf("%s revision %s had rule findings during observation", r.Workload, r.Revision)
+		case store.HealthHealthy:
+			summary = fmt.Sprintf("%s revision %s: no rule findings in the observation window", r.Workload, r.Revision)
 		}
 		if len(v.Reasons) > 0 {
 			summary += ": " + v.Reasons[0]

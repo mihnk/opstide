@@ -107,6 +107,13 @@ export function RecordPanel({ id, tz, close }: { id: string; tz: string; close: 
         </dl>
       </Section>
 
+      {f.fieldManager && (
+        <Section title="Written by">
+          <p style={{ margin: 0 }}><span className="mono">{f.fieldManager}</span> <span className="muted">· {f.operation}{f.subresource ? `, ${f.subresource}` : ''}{f.writtenAt && !Number.isNaN(Date.parse(f.writtenAt)) ? ` · ${hhmmss(f.writtenAt, tz)}` : ''}</span></p>
+          <Note more="A field manager is the name a client gave itself (argocd-controller, kubectl-edit, helm): it says which software wrote, not which person; the API server's audit log holds who. Kubernetes moves a manager's time whenever it writes any field it owns, so this says a manager of the spec wrote, not that the spec changed. Only the name, the kind of operation and the time are kept, never the fields or their values.">A client name, not a person</Note>
+        </Section>
+      )}
+
       <Section title="Provenance">
         <p style={{ margin: 0 }}><span className={`chip prov-${d.provenance.class.toLowerCase()}`}>{d.provenance.class.toLowerCase()}</span> <span className="mono">{d.provenance.source}</span></p>
         <p className="muted" style={{ margin: 0, fontSize: 13 }}>{d.provenance.explanation}</p>

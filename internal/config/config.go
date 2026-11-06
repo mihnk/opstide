@@ -27,6 +27,10 @@ type Config struct {
 	// first prunes the oldest entries.
 	RetentionDays int
 	MaxEvents     int
+	// MaxRoutineEvents is the budget for routine-volume Log entries (Pod lifecycle, Event entries, autoscaler entries,
+	// reported counts, Job creation), apart from MaxEvents, so a burst of them cannot push out the rest. 0 means half
+	// of MaxEvents.
+	MaxRoutineEvents int
 	// Kubeconfig and Context are for running outside the cluster during
 	// development. Kubeconfig may list several files separated like
 	// KUBECONFIG; they are merged as kubectl merges them. Both empty means
@@ -80,6 +84,10 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 
+	routineEvents, err := envInt("MAX_ROUTINE_EVENTS", 0)
+	if err != nil {
+		return Config{}, err
+	}
 	releaseWindow, err := envInt("RELEASE_WINDOW", 10)
 	if err != nil {
 		return Config{}, err
@@ -94,6 +102,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&c.Cluster, "cluster", env("CLUSTER", "cluster"), "cluster name shown in the UI (OPSTIDE_CLUSTER)")
 	fs.IntVar(&c.RetentionDays, "retention-days", retention, "days of history to keep (OPSTIDE_RETENTION_DAYS)")
 	fs.IntVar(&c.MaxEvents, "max-events", maxEvents, "most log entries to keep (OPSTIDE_MAX_EVENTS)")
+	fs.IntVar(&c.MaxRoutineEvents, "max-routine-events", routineEvents, "most routine-volume log entries (Pod lifecycle, Event entries, autoscaler entries) to keep; 0 means half of max-events (OPSTIDE_MAX_ROUTINE_EVENTS)")
 	fs.StringVar(&c.Kubeconfig, "kubeconfig", env("KUBECONFIG", ""), "kubeconfig file(s), separated like KUBECONFIG, for running outside the cluster (OPSTIDE_KUBECONFIG)")
 	fs.StringVar(&c.Context, "context", env("CONTEXT", ""), "kubeconfig context to use; empty uses its current context (OPSTIDE_CONTEXT)")
 	fs.StringVar(&c.TokenFile, "token-file", env("TOKEN_FILE", ""), "file holding the token that protects the API; empty means no login (OPSTIDE_TOKEN_FILE)")
@@ -127,6 +136,11 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("retention must be at least 1 day")
 	case c.MaxEvents < 1000:
 		return Config{}, errors.New("max events must be at least 1000")
+	case c.MaxRoutineEvents < 0 || c.MaxRoutineEvents > c.MaxEvents:
+		return Config{}, errors.New("max routine events must be between 0 and max events")
+	}
+	if c.MaxRoutineEvents == 0 {
+		c.MaxRoutineEvents = c.MaxEvents / 2
 	}
 	return c, nil
 }

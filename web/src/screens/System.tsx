@@ -80,6 +80,11 @@ export function System({ tz }: { tz: string }) {
             <dt className="label">Size</dt><dd className="mono">{bytes(data.storage.bytes)} <span className="muted">+ WAL {bytes(data.storage.walBytes)}</span></dd>
             <dt className="label">Entries</dt><dd><span className="mono">{data.storage.entries.toLocaleString('en')}</span> <span className="muted">of at most {data.storage.maxEntries.toLocaleString('en')}{data.storage.oldestEntry ? ` · oldest ${new Date(data.storage.oldestEntry).toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'short' })}` : ''}</span></dd>
             <dt className="label">Keeps</dt><dd>{data.storage.retentionDays} days or {data.storage.maxEntries.toLocaleString('en')} entries, whichever comes first</dd>
+            <dt className="label">Held since</dt>
+            <dd>{data.storage.sources.map((x) => (
+              <span key={x.name} style={{ display: 'block' }}>{x.label}: {x.retainedSince ? <span className="mono">{new Date(x.retainedSince).toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'short' })} {hhmm(x.retainedSince, tz)}</span> : <span className="muted">none held</span>}
+                {x.cappedTotal > 0 && <span className="fail"> · {x.cappedTotal.toLocaleString('en')} removed by the size budget, not age</span>}</span>
+            ))}</dd>
             <dt className="label">Last prune</dt><dd className="mono">{data.storage.lastPrune ? <>{hhmm(data.storage.lastPrune, tz)} <span className="muted">· {data.storage.lastPruneRemoved.toLocaleString('en')} removed</span></> : '—'}</dd>
             <dt className="label">Checkpoint</dt><dd className="mono">{data.storage.lastCheckpoint ? hhmm(data.storage.lastCheckpoint, tz) : <span className="muted">every 5 min</span>}</dd>
             <dt className="label">Backup</dt><dd className="muted">Not configured</dd>

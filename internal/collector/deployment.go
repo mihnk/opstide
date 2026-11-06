@@ -43,6 +43,9 @@ func (c *Collector) syncDeployment(ctx context.Context, it item) error {
 			return c.retireDeleted(ctx, w, string(it.uid), at, c.now())
 		})
 	}
+	if err := c.recordSpecWrites(ctx, "deployment", "Deployment", d.Namespace, d.Name, string(d.UID), d.ManagedFields); err != nil {
+		return err
+	}
 	rev := d.Annotations[annRevision]
 	if rev == "" {
 		return nil

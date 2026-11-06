@@ -580,3 +580,35 @@ func TestExplorerSummaryCountsRecordsAcrossKindsAndNamesWhatWasNotWatched(t *tes
 		t.Fatalf("%+v", sm.NotWhole)
 	}
 }
+
+// The change ledger is the records that say something was changed, with the client that wrote it where Kubernetes says.
+func TestExplorerChangesPreset(t *testing.T) {
+	at := base.Add(-2 * time.Hour)
+	srv := setupWith(t, base, nil, func(ctx context.Context, w *store.Writer) error {
+		for _, e := range []store.Event{
+			{ID: "c1", Type: "deployment.spec_written", Namespace: "shop", Kind: "Deployment", ResourceUID: "d-1", ResourceName: "api", WorkloadID: "d-1", OccurredAt: at, ObservedAt: at, Severity: "info", Confidence: store.Observed,
+				Summary: "Deployment shop/api: spec written by argocd-controller (Apply)", Facts: map[string]string{"fieldManager": "argocd-controller", "operation": "Apply"}},
+			{ID: "c2", Type: "cronjob.suspended", Namespace: "shop", Kind: "CronJob", ResourceUID: "cj", ResourceName: "backup", OperationID: "cj", OccurredAt: at, ObservedAt: at, Severity: "info", Confidence: store.Observed, Summary: "backup suspended"},
+			{ID: "x1", Type: "pod.restarted", Namespace: "shop", Kind: "Pod", ResourceUID: "p", ResourceName: "p", OccurredAt: at, ObservedAt: at, Severity: "warning", Confidence: store.Observed, Summary: "p restarted"},
+		} {
+			if _, err := w.AddEvent(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, func(*Config) {})
+	var l ExplorerList
+	if code := get(t, srv, "/api/v1/explorer?range=24h&preset=changes", &l); code != 200 || len(l.Records) != 2 {
+		t.Fatalf("%d %+v", code, l.Records)
+	}
+	for _, r := range l.Records {
+		if r.Type == "pod.restarted" {
+			t.Fatal("a restart is not a change of anything")
+		}
+	}
+	var d ExplorerDetail
+	get(t, srv, "/api/v1/explorer/records/"+l.Records[len(l.Records)-1].ID, &d)
+	if code := get(t, srv, "/api/v1/explorer?preset=nonsense", nil); code != 400 {
+		t.Fatal(code)
+	}
+}

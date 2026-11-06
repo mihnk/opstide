@@ -37,7 +37,9 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Keeps the "last write" heartbeat fresh so the header reads as alive; the history itself is a snapshot.
 	maintCtx, stopMaint := context.WithCancel(ctx)
 	var maint sync.WaitGroup
-	maint.Go(func() { db.Maintain(maintCtx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}, log) })
+	maint.Go(func() {
+		db.Maintain(maintCtx, store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}, log)
+	})
 	defer maint.Wait()
 	defer stopMaint()
 
@@ -51,7 +53,7 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	probes.Register(mux)
 	auth.New("").Register(mux) // no login: the session endpoint still answers
 	api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: time.Now(), Demo: true, ReleaseWindow: 10 * time.Minute,
-		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents}}, log).Register(mux)
+		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}}, log).Register(mux)
 	mux.Handle("/", webui.Handler())
 	log.Info("demo: made-up data, no cluster; open the address below", "url", "http://"+listen)
 	return serve(ctx, listen, secure(mux), log)

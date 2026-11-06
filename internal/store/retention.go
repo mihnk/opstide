@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"strconv"
 	"time"
@@ -10,13 +12,28 @@ import (
 // PruneResult counts what a prune removed.
 type PruneResult struct {
 	Events, Runs, Operations, Intervals, Releases int64
+	// Capped counts what the size budgets (not age) removed, by source: "routine" Log entries, "log" entries and
+	// "evidence" (Kubernetes Events). They are also in the totals above.
+	Capped map[string]int64
 }
+
+// A Log entry is routine-volume when a burst of them (a crash loop, a node upgrade) should not be able to push out the
+// rest: Pod created/ready/terminated (restarts, OOM kills and evictions are findings' evidence and stay with the rest), Kubernetes Event entries (the Events themselves are kept apart), autoscaler entries, reported
+// counts and Job creation. They have their own budget; everything else shares the rest.
+const routineEntries = `(substr(type, 1, 4) IN ('evid', 'hpa.') OR type IN ('pod.created', 'pod.ready', 'pod.terminated', 'job.created', 'statefulset.counts_changed', 'daemonset.counts_changed'))`
 
 // Prune removes what is older than before, then the oldest entries beyond
 // maxEvents. Operations go only once their CronJob has been deleted before
 // before; a live CronJob keeps its description however old it is.
 func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (PruneResult, error) {
-	var r PruneResult
+	return s.PruneBudgets(ctx, before, Retention{MaxEvents: maxEvents, MaxRoutine: maxEvents})
+}
+
+// PruneBudgets is Prune with a separate budget for routine-volume Log entries. When a budget (not age) removes
+// something, the source and the count are kept, so the history OpsTide still holds can say it was cut short.
+func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retention) (PruneResult, error) {
+	r := PruneResult{Capped: map[string]int64{}}
+	maxEvents := keep.MaxEvents
 	cut := before.UnixMilli()
 	err := s.Update(ctx, func(w *Writer) error {
 		exec := func(n *int64, q string, args ...any) error {
@@ -31,10 +48,22 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 		if err := exec(&r.Events, `DELETE FROM events WHERE at < ?`, cut); err != nil {
 			return err
 		}
-		if err := exec(&r.Events, `DELETE FROM events WHERE seq IN (
+		if keep.MaxRoutine > 0 && keep.MaxRoutine < maxEvents {
+			var n int64
+			if err := exec(&n, `DELETE FROM events WHERE seq IN (
+	SELECT seq FROM events WHERE `+routineEntries+` ORDER BY at DESC, seq DESC LIMIT -1 OFFSET ?)`, keep.MaxRoutine); err != nil { //nolint:gosec // constant clause
+				return err
+			}
+			r.Events += n
+			r.Capped["routine"] += n
+		}
+		var capLog int64
+		if err := exec(&capLog, `DELETE FROM events WHERE seq IN (
 	SELECT seq FROM events ORDER BY at DESC, seq DESC LIMIT -1 OFFSET ?)`, maxEvents); err != nil {
 			return err
 		}
+		r.Events += capLog
+		r.Capped["log"] += capLog
 		if err := exec(&r.Runs, `DELETE FROM runs WHERE coalesce(finished_at, created_at) < ? AND status IN ('succeeded', 'failed', 'unknown')`, cut); err != nil {
 			return err
 		}
@@ -78,10 +107,13 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 		if err := exec(&r.Events, `DELETE FROM evidence WHERE at < ?`, cut); err != nil {
 			return err
 		}
-		if err := exec(&r.Events, `DELETE FROM evidence WHERE id IN (
+		var capEv int64
+		if err := exec(&capEv, `DELETE FROM evidence WHERE id IN (
 	SELECT id FROM evidence ORDER BY at DESC, id DESC LIMIT -1 OFFSET ?)`, maxEvents); err != nil {
 			return err
 		}
+		r.Events += capEv
+		r.Capped["evidence"] += capEv
 		if err := exec(&r.Releases, `DELETE FROM hpas WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cut); err != nil {
 			return err
 		}
@@ -91,6 +123,23 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 		}
 		if err := exec(&r.Releases, `DELETE FROM workload_state WHERE workload_id NOT IN (SELECT id FROM workloads)`); err != nil {
 			return err
+		}
+		for src, n := range r.Capped {
+			if n == 0 {
+				continue
+			}
+			if err := w.setMeta(ctx, "cap_pruned_at_"+src, strconv.FormatInt(s.now().UnixMilli(), 10)); err != nil {
+				return err
+			}
+			var total int64
+			var v string
+			if err := w.tx.QueryRowContext(ctx, `SELECT coalesce((SELECT value FROM meta WHERE key = ?), '0')`, "cap_pruned_total_"+src).Scan(&v); err != nil {
+				return err
+			}
+			total, _ = strconv.ParseInt(v, 10, 64)
+			if err := w.setMeta(ctx, "cap_pruned_total_"+src, strconv.FormatInt(total+n, 10)); err != nil {
+				return err
+			}
 		}
 		removed := r.Events + r.Runs + r.Operations + r.Intervals + r.Releases
 		if err := w.setMeta(ctx, "last_prune", strconv.FormatInt(s.now().UnixMilli(), 10)); err != nil {
@@ -175,6 +224,56 @@ func (s *Store) Analyze(ctx context.Context) error {
 type Retention struct {
 	Days      int
 	MaxEvents int
+	// MaxRoutine is the budget of routine-volume Log entries (Pod lifecycle, Event entries, autoscaler entries, reported
+	// counts, Job creation); 0 or MaxEvents means they share the one budget.
+	MaxRoutine int
+}
+
+// RetentionSource is how much history one source still holds and whether a size budget has cut it short.
+type RetentionSource struct {
+	Name          string // routine | log | evidence
+	RetainedSince time.Time
+	CappedAt      time.Time // when a budget (not age) last removed something; zero if never
+	CappedTotal   int64     // how many records budgets have removed since the database was made
+}
+
+// RetentionSources reports, per source, the oldest record held and what budgets have removed.
+func (s *Store) RetentionSources(ctx context.Context) ([]RetentionSource, error) {
+	oldest := func(q string) (time.Time, error) {
+		var at *int64
+		if err := s.db.QueryRowContext(ctx, q).Scan(&at); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return time.Time{}, nil // nothing of this source is held
+			}
+			return time.Time{}, err
+		}
+		if at == nil {
+			return time.Time{}, nil
+		}
+		return time.UnixMilli(*at).UTC(), nil
+	}
+	var out []RetentionSource
+	for _, src := range []struct{ name, q string }{
+		{"log", `SELECT at FROM events WHERE NOT ` + routineEntries + ` ORDER BY at LIMIT 1`},
+		{"routine", `SELECT at FROM events WHERE ` + routineEntries + ` ORDER BY at LIMIT 1`},
+		{"evidence", `SELECT ` + evidenceKey + ` FROM evidence ORDER BY ` + evidenceKey + ` LIMIT 1`},
+	} {
+		rs := RetentionSource{Name: src.name}
+		var err error
+		if rs.RetainedSince, err = oldest(src.q); err != nil { //nolint:gosec // constant clauses
+			return nil, err
+		}
+		if rs.CappedAt, err = metaTime(ctx, s.db, "cap_pruned_at_"+src.name); err != nil {
+			return nil, err
+		}
+		var v string
+		if err := s.db.QueryRowContext(ctx, `SELECT coalesce((SELECT value FROM meta WHERE key = ?), '0')`, "cap_pruned_total_"+src.name).Scan(&v); err != nil {
+			return nil, err
+		}
+		rs.CappedTotal, _ = strconv.ParseInt(v, 10, 64)
+		out = append(out, rs)
+	}
+	return out, nil
 }
 
 // Maintain writes the heartbeat at once and every 15 s, checkpoints every
@@ -189,12 +288,17 @@ func (s *Store) Maintain(ctx context.Context, keep Retention, log *slog.Logger) 
 	defer prune.Stop()
 
 	doPrune := func() {
-		r, err := s.Prune(ctx, s.now().AddDate(0, 0, -keep.Days), keep.MaxEvents)
+		r, err := s.PruneBudgets(ctx, s.now().AddDate(0, 0, -keep.Days), keep)
 		switch {
 		case err != nil && ctx.Err() == nil:
 			log.Warn("prune failed", "err", err)
 		case err == nil:
 			log.Info("pruned", "events", r.Events, "runs", r.Runs, "operations", r.Operations, "intervals", r.Intervals)
+			for src, n := range r.Capped {
+				if n > 0 {
+					log.Warn("a size budget, not age, removed records; the history for this source starts later than the retention days say", "source", src, "removed", n)
+				}
+			}
 		}
 		// Whether or not the prune worked: the planner needs fresh statistics.
 		if err := s.Analyze(ctx); err != nil && ctx.Err() == nil {
