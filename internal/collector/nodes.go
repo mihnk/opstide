@@ -160,7 +160,11 @@ func (c *Collector) syncNode(ctx context.Context, it item) error {
 		if err := w.SaveNode(ctx, next); err != nil {
 			return err
 		}
-		if err := w.RelinkEvidenceOfNode(ctx, next.UID, next.Name, next.FirstSeenAt); err != nil {
+		since := next.CreatedAt
+		if since.IsZero() {
+			since = next.FirstSeenAt
+		}
+		if err := w.RelinkEvidenceOfNode(ctx, next.UID, next.Name, since); err != nil {
 			return err
 		}
 		stamp := strconv.FormatInt(now.UnixMilli(), 10)

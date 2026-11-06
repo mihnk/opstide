@@ -376,6 +376,31 @@ CREATE INDEX evidence_node ON evidence(node_id, at) WHERE node_id <> '';
 -- Deployment entries now name their workload, like the others.
 UPDATE events SET workload_id = resource_uid WHERE workload_id = '' AND kind = 'Deployment' AND resource_uid <> '' AND (type LIKE 'release.%' OR type LIKE 'deployment.%');
 `,
+	// 6: the Explorer reads events and evidence together. A Kubernetes Event is ordered by its
+	// first occurrence (else when it was first seen), which never changes once written, so a
+	// cursor never skips or repeats a record; the expression index serves that order.
+	`
+CREATE INDEX IF NOT EXISTS evidence_explorer ON evidence(coalesce(first_at, observed_at), id);
+-- The Explorer's drilldown reads everything recorded about one resource or one run.
+CREATE INDEX IF NOT EXISTS events_resource ON events(resource_uid, at) WHERE resource_uid <> '';
+CREATE INDEX IF NOT EXISTS events_run ON events(run_id, at) WHERE run_id <> '';
+
+-- A Deployment's "last change" was set when its state was first recorded (migration 5), which made every
+-- Deployment look as if it had just changed. It is the time of its newest recorded release instead.
+UPDATE workload_state SET last_change_at = coalesce(
+	(SELECT max(CASE WHEN r.origin = 'adopted' THEN coalesce(r.started_at, r.observed_at) ELSE r.observed_at END) FROM releases r WHERE r.workload_id = workload_state.workload_id),
+	(SELECT first_seen_at FROM workloads w WHERE w.id = workload_state.workload_id),
+	last_change_at)
+WHERE kind = 'Deployment';
+-- A Node link made by exact name under the earlier, time-blind rule is kept only where that Node existed when the Event began.
+UPDATE evidence SET node_id = '', link_via = '' WHERE node_id <> '' AND link_via LIKE 'regarding names the Node%'
+	AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.uid = evidence.node_id
+		AND coalesce(n.created_at, n.first_seen_at) <= coalesce(evidence.first_at, evidence.observed_at) + 1000
+		AND (n.deleted_at IS NULL OR n.deleted_at >= coalesce(evidence.first_at, evidence.observed_at)));
+-- Whether a workload's last change was seen, or is the best baseline there is for something already there.
+ALTER TABLE workload_state ADD COLUMN change_basis TEXT NOT NULL DEFAULT 'observed';
+UPDATE workload_state SET change_basis = 'baseline' WHERE kind = 'Deployment';
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

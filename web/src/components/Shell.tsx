@@ -4,9 +4,11 @@ import { useLive } from '../live'
 import { savedTheme, saveTheme, systemTheme, type Theme } from '../prefs'
 import { Link } from '../router'
 import { ago } from '../time'
+import { useWorkspace } from '../workspace'
 
 const sections = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
+  { href: '/explorer', label: 'Explorer', match: (p: string) => p.startsWith('/explorer') || p.startsWith('/workspace') },
   { href: '/log', label: 'Log', match: (p: string) => p.startsWith('/log') },
   { href: '/workloads', label: 'Workloads', match: (p: string) => p.startsWith('/workloads') || p.startsWith('/nodes') },
   { href: '/releases', label: 'Releases', match: (p: string) => p.startsWith('/releases') },
@@ -17,6 +19,7 @@ const sections = [
 export function Shell({ path, cluster, children }: { path: string; cluster?: string; children: ReactNode }) {
   const live = useLive()
   const auth = useAuth()
+  const ws = useWorkspace()
   const [theme, setTheme] = useState<Theme>(() => savedTheme() ?? systemTheme())
   const other: Theme = theme === 'dark' ? 'light' : 'dark'
 
@@ -46,6 +49,7 @@ export function Shell({ path, cluster, children }: { path: string; cluster?: str
           ))}
         </nav>
         <span className="spacer" />
+        {ws.length > 0 && <Link href="/workspace" className="status mono" title="Records you picked, kept in this tab only">workspace · {ws.length}</Link>}
         <Link href="/system" className={`status mono${stale ? ' stale' : ''}`} title="Collector status and coverage">{status}</Link>
         <button type="button" className="theme-toggle" aria-label={`Switch to the ${other} theme`}
           onClick={() => {

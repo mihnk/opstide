@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getJSON, query, type Entries, type Entry } from '../api'
 import { Failed, Loading } from '../components/Shell'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
+import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { useApi } from '../live'
 import { entryWord } from '../entryWords'
 import { Link, navigate, withParams } from '../router'
@@ -299,6 +301,10 @@ function EntryPanel({ e, tz }: { e: Entry; tz: string }) {
         {e.type === 'workload.replica_target_changed' && (<><dt className="label">Change</dt><dd className="mono">replica target {f.from} to {f.to}</dd></>)}
         {e.resourceUid && (<><dt className="label">Identity</dt><dd className="mono">{e.kind?.toLowerCase()} {e.resourceUid}</dd></>)}
       </dl>
+      <span style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <WorkspaceToggle id={recordIdOf(e)} />
+        <Link className="button" href={explorerLink({ rec: recordIdOf(e), ...rangeAround(e.at) })}>Open in Explorer</Link>
+      </span>
       <span className="muted" style={{ fontSize: 13 }}>
         OpsTide does not keep container logs.{' '}
         {e.releaseId && <Link href={`/releases/${encodeURIComponent(e.releaseId)}`}>Open the release</Link>}

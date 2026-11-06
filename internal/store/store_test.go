@@ -906,7 +906,7 @@ func TestMigrationFiveKeepsDeploymentsAndNamesTheirEntries(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners;
 DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin;
 DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
-DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; PRAGMA user_version = 4`); err != nil {
+DROP INDEX evidence_explorer; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; PRAGMA user_version = 4`); err != nil {
 		t.Fatalf("rewinding to version 4: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at) VALUES ('d1','ns','api',1,1)`); err != nil {
@@ -961,7 +961,7 @@ func TestNodeEvidenceRelinkIsBoundedByUIDAndTime(t *testing.T) {
 		return Evidence{ID: id, Source: SourceEventsV1, SourceUID: "s" + id, Namespace: "default", Name: id, Regarding: Ref{Kind: "Node", Name: "node-a", UID: uid}, FirstAt: at, LastAt: at, ObservedAt: at, Origin: OriginObservedEvidence}
 	}
 	update(t, s, func(w *Writer) error {
-		for _, e := range []Evidence{ev("kubelet", "node-a", t0), ev("old", "old-real-uid", t0), ev("early", "node-a", t0.Add(-time.Hour)), ev("direct", "n-new", t0)} {
+		for _, e := range []Evidence{ev("kubelet", "node-a", t0), ev("old", "old-real-uid", t0), ev("early", "node-a", t0.Add(-time.Hour)), ev("direct", "n-new", t0), ev("justbefore", "node-a", t0.Add(-30*time.Second))} {
 			if err := w.SaveEvidence(ctx, e); err != nil {
 				return err
 			}
@@ -973,7 +973,167 @@ func TestNodeEvidenceRelinkIsBoundedByUIDAndTime(t *testing.T) {
 	for _, e := range pg.Records {
 		got[e.ID] = e.NodeID
 	}
-	if got["kubelet"] != "n-new" || got["direct"] != "n-new" || got["old"] != "" || got["early"] != "" {
+	if got["kubelet"] != "n-new" || got["direct"] != "n-new" || got["old"] != "" || got["early"] != "" || got["justbefore"] != "" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// A Node recreated under the same name is a different Node: an Event at a given time is attributed only to the Node of
+// that name that existed then, and to none when that is not exactly one.
+func TestNodeIDByNameAtRespectsTheNodeLifetime(t *testing.T) {
+	s, ctx := open(t)
+	old := t0.Add(-10 * time.Hour)
+	update(t, s, func(w *Writer) error {
+		if err := w.SaveNode(ctx, Node{UID: "n-old", Name: "node-a", FirstSeenAt: old, LastSeenAt: old, CreatedAt: old, Origin: OriginObserved}); err != nil {
+			return err
+		}
+		if err := w.MarkNodeDeleted(ctx, "n-old", t0.Add(-5*time.Hour)); err != nil {
+			return err
+		}
+		return w.SaveNode(ctx, Node{UID: "n-new", Name: "node-a", FirstSeenAt: t0, LastSeenAt: t0, CreatedAt: t0, Origin: OriginObserved})
+	})
+	update(t, s, func(w *Writer) error {
+		for at, want := range map[time.Time]string{
+			t0.Add(-8 * time.Hour):  "n-old",
+			t0.Add(-5 * time.Hour):  "n-old",
+			t0.Add(-3 * time.Hour):  "", // between the two: no Node of that name existed
+			t0.Add(time.Minute):     "n-new",
+			t0.Add(-11 * time.Hour): "", // before either
+		} {
+			got, err := w.NodeIDByNameAt(ctx, "node-a", at)
+			if err != nil || got != want {
+				t.Errorf("at %v: got %q, want %q (%v)", at, got, want, err)
+			}
+		}
+		return nil
+	})
+}
+
+func TestScopeLastWatched(t *testing.T) {
+	s, ctx := open(t)
+	if _, ok, err := s.ScopeLastWatched(ctx, "Node", t0); err != nil || ok {
+		t.Fatalf("never watched: %v %v", ok, err)
+	}
+	update(t, s, func(w *Writer) error { return w.OpenInterval(ctx, "Node", "healthy", t0.Add(-3*time.Hour)) })
+	update(t, s, func(w *Writer) error { return w.CloseInterval(ctx, "Node", t0.Add(-2*time.Hour), "disabled") })
+	at, ok, err := s.ScopeLastWatched(ctx, "Node", t0)
+	if err != nil || !ok || !at.Equal(t0.Add(-2*time.Hour)) {
+		t.Fatalf("closed interval: %v %v %v", at, ok, err)
+	}
+	update(t, s, func(w *Writer) error { return w.OpenInterval(ctx, "Node", "healthy", t0.Add(-time.Hour)) })
+	if at, ok, _ := s.ScopeLastWatched(ctx, "Node", t0); !ok || !at.Equal(t0) {
+		t.Fatalf("open interval reads as now: %v %v", at, ok)
+	}
+}
+
+func TestWorkloadStateKeepsItsChangeBasis(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		if err := w.UpsertWorkload(ctx, Workload{ID: "w", Kind: KindStatefulSet, Namespace: "ns", Name: "db", FirstSeen: t0, LastSeen: t0}); err != nil {
+			return err
+		}
+		return w.SaveWorkloadState(ctx, WorkloadState{WorkloadID: "w", Kind: KindStatefulSet, LastChangeAt: t0.Add(-48 * time.Hour), ChangeBasis: "baseline"})
+	})
+	update(t, s, func(w *Writer) error {
+		st, ok, err := w.WorkloadState(ctx, "w")
+		if err != nil || !ok || st.ChangeBasis != "baseline" || !st.LastChangeAt.Equal(t0.Add(-48*time.Hour)) {
+			t.Fatalf("%+v %v %v", st, ok, err)
+		}
+		st.ChangeBasis = "garbage"
+		return w.SaveWorkloadState(ctx, st)
+	})
+	update(t, s, func(w *Writer) error {
+		if st, _, _ := w.WorkloadState(ctx, "w"); st.ChangeBasis != "observed" {
+			t.Fatalf("an unknown basis is stored as observed: %q", st.ChangeBasis)
+		}
+		return nil
+	})
+}
+
+// Migration 6 must not make Deployments look recently changed: a Deployment's last change becomes the time of its
+// newest recorded release, marked as a baseline, not the time the state row was written.
+func TestMigrationSixKeepsDeploymentsFromLookingRecentlyChanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v5.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recent := time.Now().UTC().Truncate(time.Second)
+	old := recent.Add(-72 * time.Hour)
+	if err := s.Update(ctx, func(w *Writer) error {
+		if err := w.UpsertWorkload(ctx, Workload{ID: "d", Kind: KindDeployment, Namespace: "ns", Name: "api", FirstSeen: old.Add(-time.Hour), LastSeen: recent}); err != nil {
+			return err
+		}
+		r := Release{ID: "r1", WorkloadID: "d", Namespace: "ns", Workload: "api", Revision: "1", RevisionNum: 1, ReplicaSetUID: "rs", ReplicaSetName: "rs",
+			Fingerprint: "f", Origin: OriginObserved, ObservedAt: old, State: ReleaseCompleted, StateAt: old, Health: HealthObserving,
+			HealthReasons: "[]", WindowSeconds: 600, Episodes: "[]", Trouble: "[]", Snapshot: "{}", ImageIDs: "{}"}
+		if err := w.UpsertRelease(ctx, r); err != nil {
+			return err
+		}
+		// The state row as migration 5 wrote it: stamped with the time it was recorded.
+		return w.SaveWorkloadState(ctx, WorkloadState{WorkloadID: "d", Kind: KindDeployment, LastChangeAt: recent})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_explorer; ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
+		t.Fatalf("rewinding to version 5: %v", err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	wl, ok, err := s.WorkloadByID(ctx, "d")
+	if err != nil || !ok || !wl.HasState {
+		t.Fatalf("%+v %v %v", wl, ok, err)
+	}
+	if !wl.State.LastChangeAt.Equal(old) || wl.State.ChangeBasis != "baseline" {
+		t.Fatalf("the last change must be the newest release's time, as a baseline: %v %q", wl.State.LastChangeAt, wl.State.ChangeBasis)
+	}
+}
+
+// Migration 6 drops a Node link made by exact name under the earlier, time-blind rule where the Node did not exist
+// when the Event began, and keeps one where it did.
+func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v5.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const via = "regarding names the Node (exact name; kubelet reports the name as the UID)"
+	if err := s.Update(ctx, func(w *Writer) error {
+		if err := w.SaveNode(ctx, Node{UID: "n-new", Name: "node-a", FirstSeenAt: t0, LastSeenAt: t0, CreatedAt: t0, Origin: OriginObserved}); err != nil {
+			return err
+		}
+		for id, at := range map[string]time.Time{"before": t0.Add(-time.Hour), "after": t0.Add(time.Hour)} {
+			e := Evidence{ID: id, Source: SourceEventsV1, SourceUID: "s" + id, Namespace: "default", Name: id, Regarding: Ref{Kind: "Node", Name: "node-a", UID: "node-a"},
+				FirstAt: at, LastAt: at, ObservedAt: at, Origin: OriginObservedEvidence, NodeID: "n-new", LinkVia: via}
+			if err := w.SaveEvidence(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE workload_state DROP COLUMN change_basis; PRAGMA user_version = 5`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	pg, _ := s.Evidence(ctx, EvidenceQuery{Limit: 10})
+	got := map[string]string{}
+	for _, e := range pg.Records {
+		got[e.ID] = e.NodeID
+	}
+	if got["before"] != "" || got["after"] != "n-new" {
 		t.Fatalf("%v", got)
 	}
 }

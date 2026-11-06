@@ -155,6 +155,11 @@ live:
   facts-only list of what was recorded. Kubernetes' reason and message are shown
   as Kubernetes reported them; OpsTide does not say why anything happened
   ("Root cause: Not established by OpsTide"). See [docs/M2.6-EVIDENCE.md](docs/M2.6-EVIDENCE.md).
+- **Explorer**: everything recorded, on one timeline (Log entries and Kubernetes Events once each),
+  with provenance (observed, derived, unknown), where OpsTide was and was not watching, a drilldown
+  per record, what OpsTide knew of a resource at a past time, a tab-only Investigation Workspace and a
+  bounded JSON export. It shows evidence and interprets none of it. See
+  [docs/M2.8-EXPLORER.md](docs/M2.8-EXPLORER.md).
 - **Schedules**: every CronJob with its last 7 days, last run, next
   expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
@@ -273,6 +278,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` (`/events` takes `include=evidence,scaling`) | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
 | `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`), and where it came from (see docs/M2.6-EVIDENCE.md) |
 | `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
+| `GET /api/v1/explorer`, `/explorer/filters`, `/explorer/records/{id}`, `/explorer/context`, `/explorer/state`, `GET`+`POST /explorer/export`, `POST /explorer/lookup` | The Operational Evidence Explorer: one timeline of everything recorded with provenance, coverage and relationship classifications, a drilldown per record, state at a past time, and bounded JSON export (see docs/M2.8-EXPLORER.md) |
 | `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |

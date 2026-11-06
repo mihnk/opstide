@@ -286,6 +286,15 @@ func TestAdoptedReleaseIsNotAssessedAndItsPodsStayQuiet(t *testing.T) {
 	if got := relOf(t, db, "42"); got.Health != store.HealthInsufficient {
 		t.Fatalf("an adopted release is assessed: %+v", got)
 	}
+	// A Deployment that was already there does not look as if it changed when OpsTide first saw it: its last change is a
+	// baseline from the source (its ReplicaSet's creation), not "now".
+	wl, ok, err := db.WorkloadByID(ctx, "dep-1")
+	if err != nil || !ok || !wl.HasState {
+		t.Fatalf("%+v %v %v", wl, ok, err)
+	}
+	if wl.State.ChangeBasis != "baseline" || !wl.State.LastChangeAt.Equal(old) {
+		t.Fatalf("an adopted Deployment's last change is a baseline: %v %q", wl.State.LastChangeAt, wl.State.ChangeBasis)
+	}
 }
 
 // Pods leaving: replaced by a newer revision is information, not failure; a Pod that vanished

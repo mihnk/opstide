@@ -36,6 +36,9 @@ type WorkloadState struct {
 	RolloutNote        string          `json:"rolloutNote"`
 	Conditions         json.RawMessage `json:"conditions"`
 	LastChangeAt       time.Time       `json:"lastChangeAt"`
+	// ChangeBasis: "observed" when OpsTide saw the change; "baseline" when LastChangeAt is the newest time the records
+	// or the source give for something that was already there (not a change OpsTide saw).
+	ChangeBasis string `json:"changeBasis"`
 }
 
 // WorkloadEvidenceStatus is the recent Kubernetes Warning Events about a workload. It is a count
@@ -74,7 +77,7 @@ func workloadView(r store.WorkloadRow) WorkloadView {
 		v.State = &WorkloadState{Generation: st.Generation, ObservedGeneration: st.ObservedGeneration, Desired: st.Desired, Ready: st.Ready, Available: st.Available, Updated: st.Updated,
 			Current: st.Current, Misscheduled: st.Misscheduled, Revision: st.Revision, UpdateRevision: st.UpdateRevision, Strategy: st.Strategy, Partition: st.Partition,
 			MaxUnavailable: st.MaxUnavailable, MaxSurge: st.MaxSurge, PodManagement: st.PodManagement, MinReadySeconds: st.MinReadySeconds, Rollout: st.Rollout, RolloutNote: st.RolloutNote,
-			Conditions: rawJSON(st.Conditions), LastChangeAt: st.LastChangeAt}
+			Conditions: rawJSON(st.Conditions), LastChangeAt: st.LastChangeAt, ChangeBasis: st.ChangeBasis}
 	}
 	return v
 }
@@ -414,10 +417,14 @@ func (s *Server) workloadPods(w http.ResponseWriter, r *http.Request) {
 	if len(pods) > maxPodsShown {
 		pods, out.Truncated = pods[:maxPodsShown], true
 	}
-	nodes, nodeErr := s.db.LiveNodes(ctx)
+	var nodes []store.Node
+	var nodeErr error
 	byName := map[string]string{}
-	for _, n := range nodes {
-		byName[n.Name] = n.UID
+	if s.cfg.ObserveNodes { // with observation off nothing says which Node of a name exists
+		nodes, nodeErr = s.db.LiveNodes(ctx)
+		for _, n := range nodes {
+			byName[n.Name] = n.UID
+		}
 	}
 	cur, upd := "", ""
 	if row.HasState {

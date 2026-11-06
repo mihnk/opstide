@@ -136,7 +136,7 @@ function Row({ w, tz, now }: { w: WorkloadView; tz: string; now: number }) {
       <td className="mono" style={{ overflowWrap: 'anywhere' }}>{rev}</td>
       <td>{st ? <span title={st.rolloutNote}>{rolloutLabel(w.kind, st.rollout)}</span> : <span className="muted">not recorded yet</span>}</td>
       <td className="mono">{st ? `${st.desired} / ${st.ready} / ${st.available}` : '—'}</td>
-      <td>{st?.lastChangeAt ? <span title={`${st.lastChangeAt} UTC`}>{relativeTime(st.lastChangeAt, new Date(now).toISOString(), tz)}</span> : <span className="muted">—</span>}</td>
+      <td>{st?.lastChangeAt ? <><span title={`${st.lastChangeAt} UTC`}>{relativeTime(st.lastChangeAt, new Date(now).toISOString(), tz)}</span>{st.changeBasis === 'baseline' && <span className="chip" title="Not a change OpsTide saw: the newest time the records or the source give for something already there">baseline</span>}</> : <span className="muted">—</span>}</td>
       <td>{w.evidence.warnings24h > 0
         ? <><span className="mono">{w.evidence.warnings24h}</span> <span className="muted">· latest {w.evidence.latestWarningReason}</span></>
         : <span className="muted">none recorded</span>}</td>

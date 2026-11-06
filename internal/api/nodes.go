@@ -22,19 +22,22 @@ type NodeCondition struct {
 
 // NodeView is a Node. Only its identity, spec.unschedulable and five conditions are recorded.
 type NodeView struct {
-	ID            string          `json:"id"` // the Node's UID
-	Name          string          `json:"name"`
-	Status        string          `json:"status"` // live | removed
-	Origin        string          `json:"origin"` // observed | adopted
-	CreatedAt     *time.Time      `json:"createdAt"`
-	FirstSeenAt   time.Time       `json:"firstSeenAt"`
-	DeletedAt     *time.Time      `json:"deletedAt"`
-	Unschedulable bool            `json:"unschedulable"`
-	Conditions    []NodeCondition `json:"conditions"`
+	ID   string `json:"id"` // the Node's UID
+	Name string `json:"name"`
+	// Status is live | removed while Nodes are observed. While they are not, a record that was never seen removed is
+	// "not_observed": OpsTide does not know whether the Node still exists.
+	Status         string          `json:"status"`
+	LastObservedAt time.Time       `json:"lastObservedAt"` // the last time OpsTide saw this Node reported
+	Origin         string          `json:"origin"`         // observed | adopted
+	CreatedAt      *time.Time      `json:"createdAt"`
+	FirstSeenAt    time.Time       `json:"firstSeenAt"`
+	DeletedAt      *time.Time      `json:"deletedAt"`
+	Unschedulable  bool            `json:"unschedulable"`
+	Conditions     []NodeCondition `json:"conditions"`
 }
 
 func nodeView(n store.Node) NodeView {
-	v := NodeView{ID: n.UID, Name: n.Name, Status: "live", Origin: n.Origin, CreatedAt: tp(n.CreatedAt), FirstSeenAt: n.FirstSeenAt, DeletedAt: tp(n.DeletedAt),
+	v := NodeView{ID: n.UID, Name: n.Name, Status: "live", Origin: n.Origin, CreatedAt: tp(n.CreatedAt), FirstSeenAt: n.FirstSeenAt, LastObservedAt: n.LastSeenAt, DeletedAt: tp(n.DeletedAt),
 		Unschedulable: n.Unschedulable, Conditions: []NodeCondition{}}
 	if !n.DeletedAt.IsZero() {
 		v.Status = "removed"
@@ -53,6 +56,16 @@ type NodesList struct {
 	Enabled bool       `json:"enabled"`
 	Nodes   []NodeView `json:"nodes"`
 	Notes   []string   `json:"notes"`
+}
+
+// nodeViewNow is nodeView as seen now: with Node observation off, a record not seen removed is not "live", since
+// nothing says the Node is still there.
+func (s *Server) nodeViewNow(n store.Node) NodeView {
+	v := nodeView(n)
+	if !s.cfg.ObserveNodes && v.Status == "live" {
+		v.Status = "not_observed"
+	}
+	return v
 }
 
 func (s *Server) nodeNotes() []string {
@@ -95,7 +108,7 @@ func (s *Server) nodeList(w http.ResponseWriter, r *http.Request) {
 	nodes, err := s.db.Nodes(r.Context(), nq)
 	out := NodesList{Schema: Schema, Enabled: s.cfg.ObserveNodes, Nodes: []NodeView{}, Notes: s.nodeNotes()}
 	for _, n := range nodes {
-		out.Nodes = append(out.Nodes, nodeView(n))
+		out.Nodes = append(out.Nodes, s.nodeViewNow(n))
 	}
 	reply(w, r, s.log, out, err)
 }
@@ -141,7 +154,7 @@ func (s *Server) nodeOne(w http.ResponseWriter, r *http.Request) {
 		reply(w, r, s.log, nil, err)
 		return
 	}
-	out := NodeDetail{Schema: Schema, Node: nodeView(n), Pods: []NodePod{}, Notes: s.nodeNotes()}
+	out := NodeDetail{Schema: Schema, Node: s.nodeViewNow(n), Pods: []NodePod{}, Notes: s.nodeNotes()}
 	// Only Pods that were observed on a Node of this name while this Node existed: a Node recreated
 	// under the same name is another Node.
 	from := n.CreatedAt

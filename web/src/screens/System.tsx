@@ -99,7 +99,7 @@ export function System({ tz }: { tz: string }) {
           <dt className="label">Workloads recorded</dt>
           <dd className="mono">{['Deployment', 'StatefulSet', 'DaemonSet'].map((k) => `${data.workloads.counts[k] ?? 0} ${k}${(data.workloads.counts[k] ?? 0) === 1 ? '' : 's'}`).join(' · ')}</dd>
           <dt className="label">Node observation</dt>
-          <dd>{data.workloads.nodes.enabled ? <><span className="mono">on</span> <span className="muted">· {data.workloads.nodes.live} live Node{data.workloads.nodes.live === 1 ? '' : 's'} recorded</span></> : <span className="mono">off</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.workloads.nodes.note}</span></dd>
+          <dd>{data.workloads.nodes.enabled ? <><span className="mono">on</span> <span className="muted">· {data.workloads.nodes.live} live Node{data.workloads.nodes.live === 1 ? '' : 's'} recorded</span></> : <><span className="mono">off</span> <span className="muted">· {data.workloads.nodes.recorded} Node{data.workloads.nodes.recorded === 1 ? '' : 's'} recorded earlier, none shown as live{data.workloads.nodes.lastObservedAt ? <> · last observed <span className="mono">{hhmmss(data.workloads.nodes.lastObservedAt, tz)}</span></> : ' · never observed'}</span></>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.workloads.nodes.note}</span></dd>
           <dt className="label">Completeness</dt>
           <dd>{data.workloads.degraded.length === 0
             ? <>Complete as far as OpsTide can tell for the kinds it is set to watch.</>

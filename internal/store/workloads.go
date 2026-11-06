@@ -27,11 +27,14 @@ type WorkloadState struct {
 	Conditions                         string // JSON: allow-listed conditions as reported
 	StateHash                          string
 	LastChangeAt, UpdatedAt            time.Time
+	// ChangeBasis says what LastChangeAt is: "observed" (OpsTide saw the change) or "baseline" (the newest time the
+	// records or the source give for something already there; not a change OpsTide saw).
+	ChangeBasis string
 }
 
 const stateCols = `workload_id, kind, generation, observed_generation, desired, ready, available, updated, current, misscheduled,
 	revision, update_revision, strategy, partition_, max_unavailable, max_surge, pod_management, min_ready_seconds, rollout, rollout_note,
-	conditions, state_hash, last_change_at, updated_at`
+	conditions, state_hash, last_change_at, updated_at, change_basis`
 
 func scanState(sc interface{ Scan(...any) error }) (WorkloadState, error) {
 	var s WorkloadState
@@ -39,7 +42,7 @@ func scanState(sc interface{ Scan(...any) error }) (WorkloadState, error) {
 	var change, upd int64
 	err := sc.Scan(&s.WorkloadID, &s.Kind, &s.Generation, &s.ObservedGeneration, &s.Desired, &s.Ready, &s.Available, &s.Updated, &s.Current, &s.Misscheduled,
 		&s.Revision, &s.UpdateRevision, &s.Strategy, &part, &s.MaxUnavailable, &s.MaxSurge, &s.PodManagement, &s.MinReadySeconds, &s.Rollout, &s.RolloutNote,
-		&s.Conditions, &s.StateHash, &change, &upd)
+		&s.Conditions, &s.StateHash, &change, &upd, &s.ChangeBasis)
 	if err != nil {
 		return s, err
 	}
@@ -66,10 +69,10 @@ func (w *Writer) SaveWorkloadState(ctx context.Context, s WorkloadState) error {
 	if s.Partition != nil {
 		part = sql.NullInt64{Int64: int64(*s.Partition), Valid: true}
 	}
-	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO workload_state (`+stateCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO workload_state (`+stateCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.WorkloadID, s.Kind, s.Generation, s.ObservedGeneration, s.Desired, s.Ready, s.Available, s.Updated, s.Current, s.Misscheduled,
 		s.Revision, s.UpdateRevision, s.Strategy, part, s.MaxUnavailable, s.MaxSurge, s.PodManagement, s.MinReadySeconds, s.Rollout, s.RolloutNote,
-		s.Conditions, s.StateHash, ms(s.LastChangeAt).Int64, ms(w.now()).Int64)
+		s.Conditions, s.StateHash, ms(s.LastChangeAt).Int64, ms(w.now()).Int64, basisOf(s.ChangeBasis))
 	return err
 }
 
@@ -356,6 +359,54 @@ func (w *Writer) MarkNodeDeleted(ctx context.Context, uid string, at time.Time) 
 	return err
 }
 
+// nodeClockSkew is how much earlier than a Node's recorded creation an Event about it may be dated and still belong to it.
+const nodeClockSkew = time.Second
+
+func basisOf(b string) string {
+	if b == "baseline" {
+		return b
+	}
+	return "observed"
+}
+
+// ScopeLastWatched is the last time OpsTide was known to be watching a coverage scope: now when an interval is
+// still open, else the end of the latest one. ok is false when it never watched it.
+func (s *Store) ScopeLastWatched(ctx context.Context, scope string, now time.Time) (time.Time, bool, error) {
+	var end sql.NullInt64
+	var open sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT max(ended_at), sum(ended_at IS NULL) FROM coverage WHERE scope = ?`, scope).Scan(&end, &open); err != nil {
+		return time.Time{}, false, err
+	}
+	if open.Valid && open.Int64 > 0 {
+		return now, true, nil
+	}
+	return fromMS(end), end.Valid, nil
+}
+
+// NodeIDByNameAt finds the Node of this exact name that existed at the given time: created (or first seen) by
+// then and not removed before it. "" when none or several qualify, so a Node recreated under the same name is
+// never taken for the earlier one, nor the earlier one for it.
+func (w *Writer) NodeIDByNameAt(ctx context.Context, name string, at time.Time) (string, error) {
+	rows, err := w.tx.QueryContext(ctx, `SELECT uid FROM nodes WHERE name = ? AND coalesce(created_at, first_seen_at) <= ?
+	AND (deleted_at IS NULL OR deleted_at >= ?)`, name, at.Add(nodeClockSkew).UnixMilli(), at.UnixMilli())
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return "", err
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) != 1 {
+		return "", rows.Err()
+	}
+	return ids[0], rows.Err()
+}
+
 // NodeIDByName finds the UID of the live Node with this exact name, "" when
 // there is none or when more than one record claims it live.
 func (w *Writer) NodeIDByName(ctx context.Context, name string) (string, error) {
@@ -496,8 +547,8 @@ func (w *Writer) RelinkEvidenceOfRun(ctx context.Context, runID, operationID str
 // the Node's record are touched: an Event about an earlier Node of the same name is not this one's.
 func (w *Writer) RelinkEvidenceOfNode(ctx context.Context, nodeID, name string, since time.Time) error {
 	_, err := w.tx.ExecContext(ctx, `UPDATE evidence SET node_id = ?, link_via = 'regarding names the Node (exact name; kubelet reports the name as the UID)', updated_at = ?
-WHERE regarding_kind = 'Node' AND regarding_name = ? AND regarding_uid IN (?, ?) AND node_id = '' AND at >= ?`,
-		nodeID, ms(w.now()).Int64, name, name, nodeID, since.Add(-time.Minute).UnixMilli())
+WHERE regarding_kind = 'Node' AND regarding_name = ? AND regarding_uid IN (?, ?) AND node_id = '' AND coalesce(first_at, observed_at) >= ?`,
+		nodeID, ms(w.now()).Int64, name, name, nodeID, since.Add(-nodeClockSkew).UnixMilli())
 	return err
 }
 

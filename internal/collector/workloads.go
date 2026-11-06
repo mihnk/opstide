@@ -258,6 +258,18 @@ type obs struct {
 	rollout       workload.Rollout
 }
 
+// baseline is the newest time the source gives for something already there: its newest ControllerRevision's
+// creation, else its own. Zero when the source gives none.
+func (o obs) baseline() time.Time {
+	base := o.created
+	for _, cr := range o.revisions {
+		if t := mt(&cr.CreationTimestamp); t.After(base) {
+			base = t
+		}
+	}
+	return base
+}
+
 func (c *Collector) revisionsOf(s *scope, owner types.UID) []*appsv1.ControllerRevision {
 	objs, err := s.revisions.GetIndexer().ByIndex(crOwnerIndex, string(owner))
 	if err != nil {
@@ -451,12 +463,19 @@ func (c *Collector) recordWorkload(ctx context.Context, o obs) error {
 		}
 		o.state.StateHash = stateHash(o)
 		o.state.Conditions = encodeJSON(o.conditions)
-		o.state.LastChangeAt = now
+		o.state.LastChangeAt, o.state.ChangeBasis = now, "observed"
+		if !had && (origin == store.OriginAdopted || known) {
+			// Something already there: recording it now is not a change now. Its last change is the newest time the
+			// source gives (a ControllerRevision's or its own creation time), marked as a baseline.
+			if base := o.baseline(); !base.IsZero() && base.Before(now) {
+				o.state.LastChangeAt, o.state.ChangeBasis = base, "baseline"
+			}
+		}
 		if had {
 			if prev.StateHash == o.state.StateHash {
 				return nil
 			}
-			o.state.LastChangeAt = now
+			o.state.LastChangeAt, o.state.ChangeBasis = now, "observed"
 		}
 		if err := w.SaveWorkloadState(ctx, o.state); err != nil {
 			return err
@@ -912,6 +931,21 @@ func (c *Collector) saveDeploymentState(ctx context.Context, w *store.Writer, d 
 	if had && prev.StateHash == ws.StateHash {
 		return nil
 	}
-	ws.LastChangeAt = now
+	ws.LastChangeAt, ws.ChangeBasis = now, "observed"
+	if !had && cur != nil {
+		// A Deployment already there (adopted, or known from before this state was recorded): nothing changed now. Its
+		// last change is the newest time the source gives, marked as a baseline: the ReplicaSet's creation for an
+		// adopted release, else the release's own observation time.
+		base := cur.ObservedAt
+		if cur.Origin == store.OriginAdopted && !cur.StartedAt.IsZero() {
+			base = cur.StartedAt
+		}
+		if cur.Origin == store.OriginAdopted || (!base.IsZero() && base.Before(now)) {
+			if base.IsZero() || !base.Before(now) {
+				base = now
+			}
+			ws.LastChangeAt, ws.ChangeBasis = base, "baseline"
+		}
+	}
 	return w.SaveWorkloadState(ctx, ws)
 }

@@ -533,10 +533,18 @@ func (c *Collector) linkEvidence(ctx context.Context, w *store.Writer, s *scope,
 			return err
 		} else if ok {
 			ev.NodeID, ev.LinkVia = uid, "regarding.uid"
-		} else if id, err := w.NodeIDByName(ctx, name); err != nil {
-			return err
-		} else if id != "" {
-			ev.NodeID, ev.LinkVia = id, "regarding names the Node (exact name; kubelet reports the name as the UID)"
+		} else if c.nodes != nil {
+			// Only while Nodes are observed (records of Nodes no longer watched say nothing about the Node of that
+			// name now), and only to the Node of that name that existed when the Event happened.
+			at := firstTime(ev.FirstAt, ev.LastAt)
+			if at.IsZero() {
+				at = c.now()
+			}
+			if id, err := w.NodeIDByNameAt(ctx, name, at); err != nil {
+				return err
+			} else if id != "" {
+				ev.NodeID, ev.LinkVia = id, "regarding names the Node (exact name; kubelet reports the name as the UID)"
+			}
 		}
 	case "Job":
 		ev.RunID, ev.LinkVia = uid, "regarding.uid"

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import type { EvidenceRecord, HPAView, ReleaseDetail, ReleaseEvidence, ReleaseRecord, Relationship, WorkloadScaling } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
@@ -111,7 +112,7 @@ export function Evidence({ d, id, tz }: { d: ReleaseDetail; id: string; tz: stri
         {rows.length === 0 ? <div className="empty">{data.records.length === 0 ? 'No Kubernetes Event was recorded for this release.' : 'No recorded Event matches this filter.'}</div> : (
           <div className="table-wrap">
             <table className="data compact" style={{ minWidth: 980 }}>
-              <thead><tr><th>Kubernetes reported</th><th>Related resource</th><th>Message</th><th style={{ whiteSpace: 'nowrap' }}>Count</th><th>Relationship to this release</th><th>Source</th></tr></thead>
+              <thead><tr><th>Kubernetes reported</th><th>Related resource</th><th>Message</th><th style={{ whiteSpace: 'nowrap' }}>Count</th><th>Relationship to this release</th><th>Source</th><th><span className="sr">Workspace</span></th></tr></thead>
               <tbody>
                 {rows.map((e) => <EventRow key={e.id} e={e} tz={tz} />)}
               </tbody>
@@ -148,6 +149,7 @@ function EventRow({ e, tz }: { e: ReleaseRecord; tz: string }) {
       <td className="mono">{e.count ? <span title={`from ${e.count.basis}`}>{e.count.value}</span> : <span className="muted" style={{ fontFamily: 'inherit' }}>not reported</span>}</td>
       <td><Relation r={e.releaseRelationship} via={e.releaseVia} /></td>
       <td><SourceCell e={e} tz={tz} /></td>
+      <td><WorkspaceToggle id={e.recordId} compact /></td>
     </tr>
   )
 }

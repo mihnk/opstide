@@ -7,6 +7,8 @@ import { entryWord } from '../entryWords'
 import { Link, navigate, withParams } from '../router'
 import { duration, hhmm, hhmmss, relativeTime } from '../time'
 import { ZoneSelect } from './common'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
+import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { Evidence, RecordedEvidence } from './ReleaseEvidence'
 
 const tabs = [['overview', 'Overview'], ['timeline', 'Timeline'], ['pods', 'Pods'], ['evidence', 'Evidence'], ['changes', 'Changes'], ['context', 'Investigation context']] as const
@@ -35,6 +37,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
           </div>
           <span className="grow" />
           <ZoneSelect tz={tz} setTz={setTz} />
+          <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ release: r.id, ...rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined) })}>Records in Explorer</Link>
           <button type="button" className="button" disabled title="No investigator is configured. See System.">Investigate · not configured</button>
         </div>
         <p className="sentence" style={{ fontSize: 16 }}>
@@ -205,6 +208,7 @@ export function EntryRow({ e, tz }: { e: Entry; tz: string }) {
         {e.type.startsWith('evidence.') && e.facts?.message ? <span className="ref" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }} title={e.facts.message}>{e.facts.message.length > 200 ? `${e.facts.message.slice(0, 200)}…` : e.facts.message}</span> : null}
         <span className="ref mono">{e.type.startsWith('evidence.') ? `Kubernetes reported · ${e.facts?.eventType ?? ''}${e.facts?.count ? ` · count ${e.facts.count}` : ''}${e.facts?.origin === 'adopted' ? ' · already present when OpsTide began watching' : ''}` : e.confidence}{e.occurredAt ? '' : ' · the source gives no time'}</span>
       </span>
+      <WorkspaceToggle id={recordIdOf(e)} compact />
     </div>
   )
 }

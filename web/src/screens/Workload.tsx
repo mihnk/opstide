@@ -4,6 +4,8 @@ import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link, withParams } from '../router'
 import { hhmmss, relativeTime } from '../time'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
+import { explorerLink } from '../explorer'
 import { EntryRow } from './Release'
 import { ScalingContext, relationWords } from './ReleaseEvidence'
 import { rolloutLabel } from './Workloads'
@@ -43,12 +45,15 @@ export function Workload({ id, params, tz }: { id: string; params: URLSearchPara
             <span className="mono muted" style={{ fontSize: 13 }}>{w.namespace}/{w.name}{w.deletedAt ? ` · deleted ${hhmmss(w.deletedAt, tz)}` : ''}</span>
           </div>
           <span className="grow" />
+          <Link href={explorerLink({ workload: w.id, range: '7d' })} className="button">Records in Explorer</Link>
           {d.release && <Link href={`/releases/${encodeURIComponent(d.release.id)}`} className="button">Release of revision {d.release.revision}</Link>}
         </div>
         {st && (
           <p className="sentence" style={{ fontSize: 16 }}>
-            Kubernetes reports <span className="mono">{st.desired}</span> desired, <span className="mono">{st.ready}</span> ready, <span className="mono">{st.available}</span> available. Update state: <b>{rolloutLabel(w.kind, st.rollout)}</b>
-            {st.rolloutNote && w.kind !== 'Deployment' ? <span className="muted">. {st.rolloutNote}</span> : null}
+            <b>Revision progress:</b> <span className="mono">{st.updated} of {st.desired}</span> replicas report the update revision; update state <b>{rolloutLabel(w.kind, st.rollout)}</b>
+            {st.rolloutNote && w.kind !== 'Deployment' ? <span className="muted">. {st.rolloutNote}</span> : null}.{' '}
+            <b>Observed availability:</b> <span className="mono">{st.ready}</span> ready and <span className="mono">{st.available}</span> available of <span className="mono">{st.desired}</span> desired.
+            <span className="muted"> The two are reported separately by Kubernetes; neither says the other.</span>
           </p>
         )}
       </div>
@@ -88,19 +93,25 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
         <Facts title="Identity" rows={[
           ['Kind', w.kind],
           ['UID', <span className="mono" title={w.id}>{short(w.id)} <span className="muted">(short)</span></span>],
-          ['First observed', <><span className="mono">{hhmmss(w.firstSeenAt, tz)}</span> <span className="muted">{w.origin === 'adopted' ? 'found already present by OpsTide' : w.origin === 'observed' ? 'created while OpsTide was watching' : ''}</span></>],
+          ['First recorded', <><span className="mono">{hhmmss(w.firstSeenAt, tz)}</span> <span className="muted">{w.origin === 'adopted' ? 'found already present by OpsTide; it may be much older' : w.origin === 'observed' ? 'created while OpsTide was watching' : ''}</span></>],
+          ['Last observed', <><span className="mono">{hhmmss(w.lastSeenAt, tz)}</span> <span className="muted">the last time OpsTide saw it reported</span></>],
           ...(w.deletedAt ? [['Deleted', <span className="mono">{hhmmss(w.deletedAt, tz)}</span>] as [string, React.ReactNode]] : []),
         ]} />
         {st ? (
-          <Facts title="Observed state (as Kubernetes reported)" rows={[
+          <Facts title="Revision progress (as Kubernetes reported)" rows={[
             ['Desired', <span className="mono">{st.desired}</span>],
-            ['Ready · available', <span className="mono">{st.ready} · {st.available}</span>],
-            ['Updated', <span className="mono">{st.updated}</span>],
+            ['Updated', <span className="mono">{st.updated} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired} on the update revision</span></span>],
             ...(w.kind !== 'Deployment' ? [['Current', <span className="mono">{st.current}{w.kind === 'DaemonSet' ? ' scheduled' : ''}</span>] as [string, React.ReactNode]] : []),
+          ]} />
+        ) : <p className="muted">Kubernetes' status for this workload has not been recorded yet.</p>}
+        {st && (
+          <Facts title="Observed availability (as Kubernetes reported)" rows={[
+            ['Ready', <span className="mono">{st.ready} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired}</span></span>],
+            ['Available', <span className="mono">{st.available} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired}</span></span>],
             ...(w.kind === 'DaemonSet' ? [['Misscheduled', <span className="mono">{st.misscheduled ?? 0}</span>] as [string, React.ReactNode]] : []),
             ['Generation', <span className="mono">{st.generation} <span className="muted">(observed {st.observedGeneration})</span></span>],
           ]} />
-        ) : <p className="muted">Kubernetes' status for this workload has not been recorded yet.</p>}
+        )}
       </div>
       {st && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -117,7 +128,10 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
             ['State', <span><b>{rolloutLabel(w.kind, st.rollout)}</b></span>],
             ['Derived from', <span className="muted">{w.kind === 'Deployment' ? 'the Deployment’s release (see its page)' : 'Kubernetes’ status fields by a documented rule (docs/M2.7-WORKLOADS.md); it is not a health verdict'}</span>],
             ...(st.rolloutNote && w.kind !== 'Deployment' ? [['Values used', <span style={{ overflowWrap: 'anywhere' }}>{st.rolloutNote}</span>] as [string, React.ReactNode]] : []),
-            ['Last change', <span className="mono">{hhmmss(st.lastChangeAt, tz)}</span>],
+            ['Last meaningful change', <>
+              <span className="mono">{hhmmss(st.lastChangeAt, tz)}</span>{' '}
+              <span className="muted">{st.changeBasis === 'baseline' ? 'a baseline: the newest time the records or the source give for something already there, not a change OpsTide saw' : 'the last time OpsTide saw this state change'}</span>
+            </>],
           ]} />
           <Facts title="Conditions Kubernetes reports" rows={[['Conditions', <Conditions list={st.conditions} />]]} />
         </div>
@@ -252,7 +266,7 @@ function EvidenceTab({ id, tz }: { id: string; tz: string }) {
         {data.records.length === 0 ? <div className="empty">No Kubernetes Event is recorded for this workload.</div> : (
           <div className="table-wrap">
             <table className="data compact" style={{ minWidth: 860 }}>
-              <thead><tr><th>Kubernetes reported</th><th>Related resource</th><th>Message</th><th>Count</th><th>Link</th><th>Source</th></tr></thead>
+              <thead><tr><th>Kubernetes reported</th><th>Related resource</th><th>Message</th><th>Count</th><th>Link</th><th>Source</th><th><span className="sr">Workspace</span></th></tr></thead>
               <tbody>
                 {data.records.map((e) => {
                   const when = e.occurredAt.last ?? e.occurredAt.first
@@ -265,6 +279,7 @@ function EvidenceTab({ id, tz }: { id: string; tz: string }) {
                       <td className="mono">{e.count ? e.count.value : <span className="muted" style={{ fontFamily: 'inherit' }}>not reported</span>}</td>
                       <td>{link ? <span title={`${relationWords[link.relationship][1]}${link.via ? ` (${link.via})` : ''}`}><span className="label">{relationWords[link.relationship][0]}</span></span> : null}</td>
                       <td style={{ fontSize: 12 }}><span className="mono">{e.source}</span>{e.origin === 'adopted' && <span className="chip" style={{ marginLeft: 6 }}>adopted</span>}<span className="muted" style={{ display: 'block' }}>first seen {relativeTime(e.observedAt, new Date().toISOString(), tz)}</span></td>
+                      <td><WorkspaceToggle id={e.recordId} compact /></td>
                     </tr>
                   )
                 })}

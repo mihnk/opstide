@@ -102,6 +102,14 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("GET /api/v1/system", s.system)
+	mux.HandleFunc("GET /api/v1/explorer", s.explorer)
+	mux.HandleFunc("GET /api/v1/explorer/filters", heavy(s.explorerFilters)) // counts over the whole range
+	mux.HandleFunc("GET /api/v1/explorer/context", s.explorerContext)
+	mux.HandleFunc("GET /api/v1/explorer/state", s.explorerState)
+	mux.HandleFunc("GET /api/v1/explorer/records/{id}", s.explorerRecordOne)
+	mux.HandleFunc("GET /api/v1/explorer/export", s.explorerExport)
+	mux.HandleFunc("POST /api/v1/explorer/export", s.explorerExportSelected)
+	mux.HandleFunc("POST /api/v1/explorer/lookup", s.explorerLookup)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "no such API endpoint")

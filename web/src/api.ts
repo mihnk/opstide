@@ -179,6 +179,7 @@ export interface OperationDetail {
 
 export interface Entry {
   id: string
+  recordId: string
   type: string
   namespace?: string
   kind?: string
@@ -224,7 +225,7 @@ export interface System {
   evidence: EvidenceSystem
   workloads: {
     counts: Record<string, number>
-    nodes: { enabled: boolean; live: number; note: string }
+    nodes: { enabled: boolean; live: number; recorded: number; lastObservedAt: string | null; note: string }
     degraded: string[]
   }
 }
@@ -261,6 +262,43 @@ export async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T>
     throw new ApiError(res.status, msg)
   }
   return (await res.json()) as T
+}
+
+/** POSTs a small JSON body. The endpoints that take one only read; nothing is written. */
+export async function postJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await postRaw(path, body, signal)
+  return (await res.json()) as T
+}
+
+async function postRaw(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+  const res = await fetch(path, { method: 'POST', signal, headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`
+    try {
+      const b = (await res.json()) as { error?: string }
+      if (b.error) msg = b.error
+    } catch {
+      // not JSON; keep the status line
+    }
+    if (res.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED))
+    throw new ApiError(res.status, msg)
+  }
+  return res
+}
+
+/** POSTs a body and hands the response to the person as a file download. Used for the export of selected records. */
+export async function downloadPost(path: string, body: unknown, fallbackName: string): Promise<void> {
+  const res = await postRaw(path, body)
+  const blob = await res.blob()
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 /** Fired on the window when the API answers 401. */
@@ -414,6 +452,7 @@ export interface EvidenceLink { kind: string; uid?: string; relationship: Relati
 
 export interface EvidenceRecord {
   id: string
+  recordId: string
   source: string
   kind: 'KubernetesEvent'
   sourceUid: string
@@ -510,6 +549,7 @@ export interface WorkloadState {
   rolloutNote: string
   conditions: { type: string; status: string; reason?: string; message?: string; transition?: string }[]
   lastChangeAt: string
+  changeBasis: 'observed' | 'baseline'
 }
 
 export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet'
@@ -569,7 +609,8 @@ export interface NodeCondition { type: string; status: string; reason?: string; 
 export interface NodeView {
   id: string
   name: string
-  status: 'live' | 'removed'
+  status: 'live' | 'removed' | 'not_observed'
+  lastObservedAt: string
   origin: string
   createdAt: string | null
   firstSeenAt: string

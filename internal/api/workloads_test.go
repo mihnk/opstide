@@ -437,3 +437,34 @@ func TestNodesWithoutPodUsesEveryLivePod(t *testing.T) {
 		t.Fatal("the list is cut and says so")
 	}
 }
+
+// With Node observation off, a Node recorded earlier is not shown as live: nothing says it still exists. The
+// last time it was observed is shown instead, and the System count of live Nodes is 0.
+func TestNodesAreNotShownLiveWhenObservationIsOff(t *testing.T) {
+	srv := workloadServer(t, false)
+	var l NodesList
+	if code := get(t, srv, "/api/v1/nodes", &l); code != 200 || l.Enabled || len(l.Nodes) == 0 {
+		t.Fatalf("%d %+v", code, l)
+	}
+	for _, n := range l.Nodes {
+		if n.Status == "removed" { // seen removed while observed: that is a fact, and stays
+			continue
+		}
+		if n.Status != "not_observed" || n.LastObservedAt.IsZero() {
+			t.Fatalf("a Node of a disabled observation is not live, and says when it was last observed: %+v", n)
+		}
+	}
+	var sys System
+	get(t, srv, "/api/v1/system", &sys)
+	if sys.Workloads.Nodes.Enabled || sys.Workloads.Nodes.Live != 0 || sys.Workloads.Nodes.Recorded == 0 {
+		t.Fatalf("%+v", sys.Workloads.Nodes)
+	}
+	on := workloadServer(t, true)
+	var l2 NodesList
+	get(t, on, "/api/v1/nodes", &l2)
+	for _, n := range l2.Nodes {
+		if n.Status != "live" && n.Status != "removed" {
+			t.Fatalf("observed Nodes are live or removed: %+v", n)
+		}
+	}
+}

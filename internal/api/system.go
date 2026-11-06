@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mihnk/opstide/internal/collector"
 )
 
 // System is the System screen: what OpsTide can and cannot see.
@@ -39,9 +41,14 @@ type WorkloadsSystem struct {
 	Counts map[string]int `json:"counts"`
 	// Nodes says whether Node observation is on (it is off unless asked for) and how many live Nodes are recorded.
 	Nodes struct {
-		Enabled bool   `json:"enabled"`
-		Live    int    `json:"live"`
-		Note    string `json:"note"`
+		Enabled bool `json:"enabled"`
+		// Live counts Nodes recorded as existing, and is 0 while observation is off: nothing then says any still does.
+		Live int `json:"live"`
+		// Recorded counts Nodes never seen removed, observed or not.
+		Recorded int `json:"recorded"`
+		// LastObservedAt is when Node observation last ran; null if it never did.
+		LastObservedAt *time.Time `json:"lastObservedAt"`
+		Note           string     `json:"note"`
 	} `json:"nodes"`
 	// Degraded says what makes StatefulSet, DaemonSet or Node observation incomplete right now.
 	Degraded []string `json:"degraded"`
@@ -187,7 +194,13 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Workloads.Nodes.Enabled = s.cfg.ObserveNodes
 	if live, err := s.db.LiveNodes(ctx); err == nil {
-		out.Workloads.Nodes.Live = len(live)
+		out.Workloads.Nodes.Recorded = len(live)
+		if s.cfg.ObserveNodes {
+			out.Workloads.Nodes.Live = len(live)
+		}
+	}
+	if at, ok, err := s.db.ScopeLastWatched(ctx, collector.Nodes, s.now().UTC()); err == nil && ok {
+		out.Workloads.Nodes.LastObservedAt = &at
 	}
 	if !s.cfg.ObserveNodes {
 		out.Workloads.Nodes.Note = "Off. Nodes are cluster-scoped: observing them needs list and watch on nodes cluster-wide (nodes.observe)."

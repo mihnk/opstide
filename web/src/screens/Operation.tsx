@@ -1,5 +1,7 @@
 import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
+import { explorerLink } from '../explorer'
 import { Legend, Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
@@ -43,6 +45,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           </span>
         </span>
         <span className="grow" />
+        <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ operation: op.id, range: '7d' })}>Records in Explorer</Link>
         {data.clustrailUrl && <a className="button" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: 'inherit' }} href={data.clustrailUrl} rel="noopener noreferrer" title="Opens this CronJob in Clustrail, if it is installed on this computer">Open in Clustrail</a>}
         <button type="button" className="button" disabled title="No investigator is configured. See System.">Investigate · not configured</button>
       </div>
@@ -202,14 +205,14 @@ function RunEvents({ id, tz }: { id: string; tz: string }) {
   const words: Record<string, string> = { DIRECT: 'names the Job by UID', OWNERSHIP: 'names a Pod owned by the Job', SAME_RESOURCE_CONTEXT: 'same resource context', UNRESOLVED: 'unresolved' }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-      <span className="label">Kubernetes Events <span className="muted">· as reported, linked by UID and ownerReference</span></span>
+      <span className="label">Kubernetes Events <span className="muted">· as reported, linked by UID and ownerReference</span> <Link href={explorerLink({ run: id, range: '7d' })}>Records of this run in Explorer</Link></span>
       {data.records.length === 0 && <span className="muted">No Kubernetes Event is recorded for this run.</span>}
       {data.records.map((e) => {
         const link = e.links.find((l) => l.kind === 'Run')
         const first = e.occurredAt.first, last = e.occurredAt.last
         return (
           <div key={e.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--rule)', paddingTop: 6 }}>
-            <span><b>{e.reason || 'no reason reported'}</b> <span className="muted">· {e.eventType} · {e.resource.kind} <span className="mono">{e.resource.name}</span></span></span>
+            <span><WorkspaceToggle id={e.recordId} compact />{' '}<b>{e.reason || 'no reason reported'}</b> <span className="muted">· {e.eventType} · {e.resource.kind} <span className="mono">{e.resource.name}</span></span></span>
             {e.message && <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.message.length > 240 ? `${e.message.slice(0, 240)}…` : e.message}</span>}
             <span className="muted mono" style={{ fontSize: 12 }}>
               {e.count ? `count ${e.count.value} · ` : 'count not reported · '}{first ? `first ${hhmmss(first, tz)}` : 'first time not reported'}{last ? ` · last ${hhmmss(last, tz)}` : ''} · {e.source}{link ? ` · ${words[link.relationship] ?? link.relationship}` : ''}

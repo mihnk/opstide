@@ -3,6 +3,8 @@ import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link } from '../router'
 import { hhmmss } from '../time'
+import { WorkspaceToggle } from '../components/WorkspaceToggle'
+import { explorerLink } from '../explorer'
 import { EntryRow } from './Release'
 import { relationWords } from './ReleaseEvidence'
 
@@ -22,11 +24,19 @@ export function Node({ id, tz }: { id: string; tz: string }) {
         <h1 className="title" style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
           {n.name}
           {n.status === 'removed' && <span className="chip" style={{ fontSize: 12 }}>removed</span>}
+          {n.status === 'not_observed' && <span className="chip" style={{ fontSize: 12, borderStyle: 'dashed' }} title="Node observation is off, so OpsTide cannot say this Node still exists.">not observed now</span>}
           {n.origin === 'adopted' && <span className="chip" style={{ fontSize: 12 }} title="It existed before OpsTide began watching Nodes.">adopted</span>}
         </h1>
         <span className="mono muted" style={{ fontSize: 13 }}>
           first seen {hhmmss(n.firstSeenAt, tz)}{n.createdAt ? ` · created ${hhmmss(n.createdAt, tz)}` : ''}{n.deletedAt ? ` · removed ${hhmmss(n.deletedAt, tz)}` : ''}
         </span>
+        {n.status === 'not_observed' && (
+          <p className="banner" role="note" style={{ margin: 0 }}>
+            <span className="label">Node observation disabled</span>
+            <span>Last observed: <span className="mono">{hhmmss(n.lastObservedAt, tz)}</span>. What follows is what OpsTide recorded then; nothing says the Node still exists or is in this state now.</span>
+          </p>
+        )}
+        <span><Link href={explorerLink({ node: n.id, range: '7d' })}>Records about this Node in Explorer</Link></span>
       </div>
       {d.notes.length > 0 && <div className="banner" role="note"><span className="label">Unknown</span><span>{d.notes.map((m, i) => <span key={i} style={{ display: 'block' }}>{m}</span>)}</span></div>}
 
@@ -75,7 +85,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
               const link = r.links.find((l) => l.kind === 'Node')
               return (
                 <li key={r.id}>
-                  Kubernetes reported <b>{r.reason}</b> ({r.eventType}){(r.occurredAt.last ?? r.occurredAt.first) ? ` at ${hhmmss((r.occurredAt.last ?? r.occurredAt.first)!, tz)}` : ''}
+                  <WorkspaceToggle id={r.recordId} compact />{' '}Kubernetes reported <b>{r.reason}</b> ({r.eventType}){(r.occurredAt.last ?? r.occurredAt.first) ? ` at ${hhmmss((r.occurredAt.last ?? r.occurredAt.first)!, tz)}` : ''}
                   {r.message ? <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>: {r.message.length > 200 ? `${r.message.slice(0, 200)}…` : r.message}</span> : null}
                   {link ? <span className="muted"> · {relationWords[link.relationship][0]}{link.via ? ` (${link.via})` : ''}</span> : null}
                 </li>

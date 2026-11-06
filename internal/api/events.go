@@ -12,6 +12,7 @@ import (
 // Entry is one log entry.
 type Entry struct {
 	ID           string            `json:"id"`
+	RecordID     string            `json:"recordId"` // the id the Explorer and the Investigation Workspace use
 	Type         string            `json:"type"`
 	Namespace    string            `json:"namespace,omitempty"`
 	Kind         string            `json:"kind,omitempty"`
@@ -33,7 +34,7 @@ type Entry struct {
 }
 
 func entry(e store.Event) Entry {
-	return Entry{ID: e.ID, Type: e.Type, Namespace: e.Namespace, Kind: e.Kind, ResourceName: e.ResourceName,
+	return Entry{ID: e.ID, RecordID: store.EventRecordID(e.Seq), Type: e.Type, Namespace: e.Namespace, Kind: e.Kind, ResourceName: e.ResourceName,
 		ResourceUID: e.ResourceUID, Reason: e.Reason, WorkloadID: e.WorkloadID, OperationID: e.OperationID, RunID: e.RunID, ReleaseID: e.ReleaseID, At: e.At(), OccurredAt: e.OccurredAt,
 		ObservedAt: e.ObservedAt, RecordedAt: e.RecordedAt, Severity: e.Severity, Confidence: string(e.Confidence),
 		Summary: e.Summary, Facts: e.Facts}

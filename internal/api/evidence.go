@@ -56,8 +56,9 @@ type Times struct {
 // Kubernetes' words about what it observed, not OpsTide's conclusion.
 type EvidenceRecord struct {
 	ID               string         `json:"id"`
-	Source           string         `json:"source"` // events.k8s.io/v1 | core/v1
-	Kind             string         `json:"kind"`   // KubernetesEvent
+	RecordID         string         `json:"recordId"` // the id the Explorer and the Investigation Workspace use
+	Source           string         `json:"source"`   // events.k8s.io/v1 | core/v1
+	Kind             string         `json:"kind"`     // KubernetesEvent
 	SourceUID        string         `json:"sourceUid"`
 	Namespace        string         `json:"namespace"`
 	Name             string         `json:"name"`
@@ -91,7 +92,7 @@ func tp(t time.Time) *time.Time {
 // from UIDs and ownerReferences; nothing is added here.
 func evidenceRecord(e store.Evidence) EvidenceRecord {
 	rec := EvidenceRecord{
-		ID: e.ID, Source: e.Source, Kind: "KubernetesEvent", SourceUID: e.SourceUID, Namespace: e.Namespace, Name: e.Name, Reason: e.Reason,
+		ID: e.ID, RecordID: store.EvidenceRecordID(e.ID), Source: e.Source, Kind: "KubernetesEvent", SourceUID: e.SourceUID, Namespace: e.Namespace, Name: e.Name, Reason: e.Reason,
 		EventType: e.EventType, Message: e.Message, MessageTruncated: e.MessageTruncated, Action: e.Action, Reporter: e.Reporter,
 		OccurredAt: Times{First: tp(e.FirstAt), Last: tp(e.LastAt)}, ObservedAt: e.ObservedAt, UpdatedAt: e.UpdatedAt,
 		Resource: ResourceRef{Kind: e.Regarding.Kind, Namespace: e.Namespace, Name: e.Regarding.Name, UID: e.Regarding.UID},
