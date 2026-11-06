@@ -216,7 +216,8 @@ func TestNamespacedCollectionIgnoresOtherNamespaces(t *testing.T) {
 	for _, iv := range ivs {
 		scopes[iv.Scope] = true
 	}
-	if !scopes["jobs/payments"] || !scopes["cronjobs/payments"] || len(scopes) != 4 {
+	// Four before releases; ReplicaSets and Deployment Pods add two, still only in payments.
+	if !scopes["jobs/payments"] || !scopes["cronjobs/payments"] || !scopes["replicasets/payments"] || !scopes["deploypods/payments"] || len(scopes) != 6 {
 		t.Fatalf("coverage scopes %v", scopes)
 	}
 }

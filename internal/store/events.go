@@ -38,6 +38,8 @@ type Event struct {
 	ResourceName string
 	OperationID  string
 	RunID        string
+	// ReleaseID ties the entry to a workload release, "" for most.
+	ReleaseID string
 	// OccurredAt is the source's own time for the occurrence, zero when it
 	// has none. ObservedAt is when OpsTide saw it; RecordedAt when it was
 	// written.
@@ -71,11 +73,11 @@ func (w *Writer) AddEvent(ctx context.Context, e Event) (bool, error) {
 	}
 	res, err := w.tx.ExecContext(ctx, `
 INSERT INTO events (id, type, namespace, kind, resource_uid, resource_name, operation_id, run_id,
-	occurred_at, observed_at, recorded_at, at, severity, confidence, summary, facts)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+	occurred_at, observed_at, recorded_at, at, severity, confidence, summary, facts, release_id)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
 		e.ID, e.Type, e.Namespace, e.Kind, e.ResourceUID, e.ResourceName, e.OperationID, e.RunID,
 		ms(e.OccurredAt), ms(e.ObservedAt).Int64, ms(w.now()).Int64, ms(e.At()).Int64,
-		e.Severity, string(e.Confidence), e.Summary, string(facts))
+		e.Severity, string(e.Confidence), e.Summary, string(facts), e.ReleaseID)
 	if err != nil {
 		return false, err
 	}
@@ -90,6 +92,7 @@ type EventQuery struct {
 	Types       []string // exact types, or prefixes ending in "." ("job.")
 	OperationID string
 	RunID       string
+	ReleaseID   string
 	Text        string   // substring of the summary or resource name
 	Severities  []string // info, warning or error
 	// Owner keeps entries of operations whose owner annotation is exactly this.
@@ -128,6 +131,11 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	if q.OperationID != "" {
 		where, args = append(where, "operation_id = ?"), append(args, q.OperationID)
 	}
+	if q.ReleaseID != "" {
+		// The second term is there so SQLite may use the partial index events_release,
+		// which it does only when the query states what the index's WHERE says.
+		where, args = append(where, "release_id = ? AND release_id <> ''"), append(args, q.ReleaseID)
+	}
 	if q.RunID != "" {
 		where, args = append(where, "run_id = ?"), append(args, q.RunID)
 	}
@@ -164,7 +172,7 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 		where, args = append(where, "(at < ? OR (at = ? AND seq < ?))"), append(args, at, at, seq)
 	}
 	sqlq := `SELECT seq, id, type, namespace, kind, resource_uid, resource_name, operation_id, run_id,
-	occurred_at, observed_at, recorded_at, severity, confidence, summary, facts FROM events`
+	occurred_at, observed_at, recorded_at, severity, confidence, summary, facts, release_id FROM events`
 	if len(where) > 0 {
 		// Only the fixed clauses above are joined; every value is a placeholder.
 		sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // see above
@@ -184,7 +192,7 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 		var observed, recorded int64
 		var conf, facts string
 		if err := rows.Scan(&e.Seq, &e.ID, &e.Type, &e.Namespace, &e.Kind, &e.ResourceUID, &e.ResourceName,
-			&e.OperationID, &e.RunID, &occurred, &observed, &recorded, &e.Severity, &conf, &e.Summary, &facts); err != nil {
+			&e.OperationID, &e.RunID, &occurred, &observed, &recorded, &e.Severity, &conf, &e.Summary, &facts, &e.ReleaseID); err != nil {
 			return EventPage{}, err
 		}
 		e.OccurredAt = fromMS(occurred)

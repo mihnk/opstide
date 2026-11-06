@@ -50,10 +50,23 @@ func (s *Store) LastWrite(ctx context.Context) (time.Time, error) {
 // Version changes whenever the record does: a new log entry, a run or an
 // operation written. Live views compare it to know when to refetch.
 func (s *Store) Version(ctx context.Context) (string, error) {
-	var seq, runs, ops int64
+	var seq, runs, ops, rel, pods int64
 	err := s.db.QueryRowContext(ctx, `SELECT
 	(SELECT coalesce(max(seq), 0) FROM events),
 	(SELECT coalesce(max(updated_at), 0) FROM runs),
-	(SELECT coalesce(max(last_seen_at), 0) + coalesce(max(deleted_at), 0) FROM operations)`).Scan(&seq, &runs, &ops)
-	return strconv.FormatInt(seq, 10) + "." + strconv.FormatInt(runs, 10) + "." + strconv.FormatInt(ops, 10), err
+	(SELECT coalesce(max(last_seen_at), 0) + coalesce(max(deleted_at), 0) FROM operations),
+	(SELECT coalesce(max(updated_at), 0) FROM releases),
+	(SELECT coalesce(max(updated_at), 0) FROM release_pods)`).Scan(&seq, &runs, &ops, &rel, &pods)
+	f := func(n int64) string { return strconv.FormatInt(n, 10) }
+	return f(seq) + "." + f(runs) + "." + f(ops) + "." + f(rel) + "." + f(pods), err
+}
+
+// SetMeta stores a small value under key.
+func (w *Writer) SetMeta(ctx context.Context, key, value string) error {
+	return w.setMeta(ctx, key, value)
+}
+
+// LastWorkloadEvent is when the collector last wrote a release or Pod entry.
+func (s *Store) LastWorkloadEvent(ctx context.Context) (time.Time, error) {
+	return metaTime(ctx, s.db, "last_workload_event")
 }

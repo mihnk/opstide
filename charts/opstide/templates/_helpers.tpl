@@ -47,7 +47,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
   resources: [pods]
   verbs: [list, watch]
 - apiGroups: [apps]
-  resources: [deployments]
+  resources: [deployments, replicasets]
   verbs: [list, watch]
 {{- end -}}
 

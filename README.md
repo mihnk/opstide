@@ -66,7 +66,7 @@ registry before installing.
 
 The chart installs one pod (`Recreate`, never two writers), a 5 Gi volume
 for the SQLite record, and a ServiceAccount that can only `get`, `list`
-and `watch` CronJobs, Jobs, Pods and Deployments (OpsTide reads them
+and `watch` CronJobs, Jobs, Pods, Deployments and ReplicaSets (OpsTide reads them
 through list and watch, so the chart grants only those two). It does not read
 Secrets, logs or exec. The pod runs as a non-root user with a read-only
 root filesystem and the default seccomp profile.
@@ -77,6 +77,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 |---|---|
 | `clusterName` | Name shown in the UI |
 | `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
+| `releases.observationMinutes` | How long after a Deployment rollout completes a release is observed before it can be called healthy: 5, 10 (default), 15 or 30 |
 | `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
 | `auth.enabled`, `auth.existingSecret` | The token that protects the API and the UI (on by default; see below) |
@@ -120,7 +121,7 @@ To run OpsTide inside the demo cluster instead of on your laptop:
 ## The web UI
 
 Open the collector's address in a browser (in development,
-http://127.0.0.1:8080). Five pages, all reading the API below and updating
+http://127.0.0.1:8080). Six pages, all reading the API below and updating
 live:
 
 - **Overview**: a window of time as a timetable, one lane per CronJob. Pick
@@ -137,6 +138,11 @@ live:
   and was recorded, and whether it is observed, derived or unknown.
   Filter by text, namespace, severity, run outcome (failed, succeeded,
   unknown) and owner; filters live in the link.
+- **Releases**: every Deployment revision OpsTide saw appear: whether the
+  rollout completed, stalled or failed, whether its Pods stayed healthy in the
+  minutes after, what changed from the previous revision, and its Pods' restarts,
+  OOMKills and readiness. A revision that already existed when OpsTide started is
+  marked adopted and never assessed. See [docs/M2.5-WORKLOAD-RELEASES.md](docs/M2.5-WORKLOAD-RELEASES.md).
 - **Schedules**: every CronJob with its last 7 days, last run, next
   expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
@@ -252,6 +258,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
 | `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
 | `GET /api/v1/runs/{id}` | One run with its pods and entries |
+| `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |

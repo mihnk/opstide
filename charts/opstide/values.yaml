@@ -23,6 +23,12 @@ clusterName: ""
 # a list creates a Role and RoleBinding in each namespace instead.
 namespaces: []
 
+# How long after a Deployment rollout completes OpsTide watches the release
+# before it can be called healthy: 5, 10, 15 or 30 minutes. A reader can also
+# ask the release page to judge it by another length.
+releases:
+  observationMinutes: 10
+
 retention:
   days: 30
   maxEntries: 2000000

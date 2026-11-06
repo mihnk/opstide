@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/mihnk/opstide/internal/release"
 	"github.com/mihnk/opstide/internal/store"
 )
 
@@ -36,6 +38,12 @@ const (
 	Jobs        = "jobs"
 	Pods        = "pods"
 	Deployments = "deployments"
+	// ReplicaSets and DeployPods are the watches behind releases. DeployPods
+	// are the Pods a Deployment's ReplicaSets own, found by the
+	// pod-template-hash label the Deployment controller puts on them, so the
+	// API server filters out every other Pod before OpsTide sees it.
+	ReplicaSets = "replicasets"
+	DeployPods  = "deploypods"
 )
 
 // Options configures a Collector.
@@ -45,6 +53,9 @@ type Options struct {
 	Log        *slog.Logger
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// ReleaseWindow is how long after a rollout completes a release is
+	// observed before it can be called healthy; 10 minutes when zero.
+	ReleaseWindow time.Duration
 }
 
 // Collector watches the cluster and writes to the store.
@@ -62,11 +73,18 @@ type Collector struct {
 	synced      atomic.Bool
 
 	processed, failed atomic.Uint64
+
+	window time.Duration
+	// gone holds the last state of a Deployment Pod whose delete was seen, by
+	// UID, until the worker has recorded it: the informer's cache no longer has it.
+	gone sync.Map
+	wm   workloadMetrics
 }
 
 type scope struct {
 	ns                                string
 	cronJobs, jobs, pods, deployments cache.SharedIndexInformer
+	replicaSets, deployPods           cache.SharedIndexInformer
 }
 
 type item struct {
@@ -96,6 +114,10 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 	}
 	if c.now == nil {
 		c.now = time.Now
+	}
+	c.window = opt.ReleaseWindow
+	if c.window <= 0 {
+		c.window = release.DefaultWindow
 	}
 	c.cov = newTracker(db, c.log, c.now)
 	namespaces := opt.Namespaces
@@ -146,6 +168,29 @@ func (c *Collector) newScope(ns string) *scope {
 			return apps.Deployments(ns).Watch(ctx, o)
 		})
 
+	s.replicaSets = c.informer(ns, ReplicaSets, &appsv1.ReplicaSet{}, cache.Indexers{rsOwnerIndex: rsOwnerUID},
+		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return apps.ReplicaSets(ns).List(ctx, o)
+		},
+		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+			return apps.ReplicaSets(ns).Watch(ctx, o)
+		})
+	// Deployment-owned Pods: the Deployment controller labels them pod-template-hash.
+	deployPodSel := func(o *metav1.ListOptions) { o.LabelSelector = "pod-template-hash" }
+	s.deployPods = c.informer(ns, DeployPods, &corev1.Pod{}, cache.Indexers{rsPodIndex: podRSUID},
+		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			deployPodSel(&o)
+			return core.Pods(ns).List(ctx, o)
+		},
+		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+			deployPodSel(&o)
+			return core.Pods(ns).Watch(ctx, o)
+		})
+	// Keep in memory only what is read: the cache holds every such Pod of the
+	// cluster, and a Pod's spec is most of its size.
+	_ = s.deployPods.SetTransform(trimPod)
+	_ = s.replicaSets.SetTransform(trimReplicaSet)
+
 	self := func(kind string) func(metav1.Object) (item, bool) {
 		return func(o metav1.Object) (item, bool) {
 			return item{kind: kind, namespace: o.GetNamespace(), name: o.GetName()}, true
@@ -154,6 +199,15 @@ func (c *Collector) newScope(ns string) *scope {
 	c.handle(s.cronJobs, true, self(CronJobs))
 	c.handle(s.jobs, true, self(Jobs))
 	c.handle(s.deployments, true, self(Deployments))
+	// A ReplicaSet change is a change to its Deployment's releases.
+	c.handle(s.replicaSets, false, func(o metav1.Object) (item, bool) {
+		ref := metav1.GetControllerOf(o)
+		if ref == nil || ref.Kind != "Deployment" {
+			return item{}, false
+		}
+		return item{kind: Deployments, namespace: o.GetNamespace(), name: ref.Name}, true
+	})
+	c.handleDeployPods(s.deployPods)
 	// A pod change is a change to its Job's run.
 	c.handle(s.pods, false, func(o metav1.Object) (item, bool) {
 		ref := metav1.GetControllerOf(o)
@@ -247,13 +301,15 @@ type Stats struct {
 	Queued int
 	// Failing is how many scopes cannot be watched right now.
 	Failing int
+	// Workload counts release observation, with bounded labels only.
+	Workload WorkloadStats
 }
 
 // Stats returns the collector's counters.
 func (c *Collector) Stats() Stats {
 	return Stats{
 		Synced: c.synced.Load(), Processed: c.processed.Load(), Failed: c.failed.Load(),
-		Queued: c.queue.Len(), Failing: len(c.cov.problems()),
+		Queued: c.queue.Len(), Failing: len(c.cov.problems()), Workload: c.wm.stats(),
 	}
 }
 
@@ -276,6 +332,13 @@ func (c *Collector) Run(ctx context.Context) error {
 	if err := c.reconcileAbsent(ctx); err != nil {
 		c.log.Warn("reconciling objects removed while not watching", "err", err)
 	}
+	if err := c.reconcileAbsentPods(ctx); err != nil {
+		c.log.Warn("reconciling Pods removed while not watching", "err", err)
+	}
+	if err := c.reconcileAbsentDeployments(ctx); err != nil {
+		c.log.Warn("reconciling Deployments removed while not watching", "err", err)
+	}
+	go c.sweepReleases(ctx)
 	c.synced.Store(true)
 	c.log.Info("watches synced", "informers", len(c.informers))
 
@@ -302,6 +365,8 @@ func (c *Collector) next(ctx context.Context) bool {
 		err = c.syncJob(ctx, it)
 	case Deployments:
 		err = c.syncDeployment(ctx, it)
+	case DeployPods:
+		err = c.syncDeployPod(ctx, it)
 	}
 	switch {
 	case err == nil:

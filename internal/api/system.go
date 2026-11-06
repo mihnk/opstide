@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -24,6 +25,20 @@ type System struct {
 	// Integrations are optional connections. v0.1 has none configured;
 	// each says so rather than implying a connection.
 	Integrations []Integration `json:"integrations"`
+	// Workload is the state of release observation.
+	Workload WorkloadSystem `json:"workload"`
+}
+
+// WorkloadSystem is the state of release observation.
+type WorkloadSystem struct {
+	// WindowMinutes is the configured post-deployment observation length.
+	WindowMinutes int `json:"windowMinutes"`
+	// ActiveWindows counts releases being observed now.
+	ActiveWindows int `json:"activeWindows"`
+	// LastEvent is when a release or Pod entry was last written.
+	LastEvent time.Time `json:"lastEvent,omitzero"`
+	// Degraded says what makes release observation incomplete right now.
+	Degraded []string `json:"degraded"`
 }
 
 // Scope is one watch (a kind, cluster-wide or in one namespace) and when
@@ -92,7 +107,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			out.Scopes = append(out.Scopes, scopeView(scope, []Span{}, p))
 		}
 	}
-	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3}
+	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5}
 	sort.Slice(out.Scopes, func(i, j int) bool {
 		a, b := out.Scopes[i], out.Scopes[j]
 		if a.Kind != b.Kind {
@@ -101,6 +116,23 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		return a.Namespace < b.Namespace
 	})
 
+	out.Workload = WorkloadSystem{WindowMinutes: s.windowMinutes(), Degraded: []string{}}
+	if out.Workload.ActiveWindows, err = s.db.ActiveWindows(ctx, now); err != nil {
+		reply(w, r, s.log, nil, err)
+		return
+	}
+	if out.Workload.LastEvent, err = s.db.LastWorkloadEvent(ctx); err != nil {
+		reply(w, r, s.log, nil, err)
+		return
+	}
+	// Release observation needs Deployments, ReplicaSets and their Pods; say
+	// which of them it cannot read right now.
+	names := map[string]string{"deployments": "Deployments", "replicasets": "ReplicaSets", "deploypods": "Deployment Pods"}
+	for _, sc := range out.Scopes {
+		if n, ok := names[sc.Kind]; ok && sc.Problem != "" {
+			out.Workload.Degraded = append(out.Workload.Degraded, fmt.Sprintf("%s cannot be watched (%s): releases from now on may be missing or unassessable.", n, sc.Problem))
+		}
+	}
 	st, err := s.db.Stats(ctx)
 	if err != nil {
 		reply(w, r, s.log, nil, err)

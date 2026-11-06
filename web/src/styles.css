@@ -298,3 +298,31 @@ table.data tr.clickable:hover td { background: var(--sel); }
 }
 table.data.compact td, table.data.compact th { padding-left: 8px; padding-right: 8px; overflow-wrap: anywhere; }
 table.data.compact td:first-child, table.data.compact th:first-child { padding-left: 0; }
+
+/* ── releases ───────────────────────────────────────── */
+.status-word { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; white-space: nowrap; }
+.seg.small { width: fit-content; }
+.glyph { flex: none; }
+.chip {
+  display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 2px;
+  font: 600 10px/1.5 var(--font-body, inherit); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); vertical-align: middle;
+}
+.banner {
+  display: flex; gap: 14px; align-items: baseline; padding: 10px 14px; background: var(--sel);
+  border-left: 3px solid var(--hatch); font-size: 14px;
+}
+.banner .label { color: var(--muted); white-space: nowrap; }
+.dashed { padding: 16px 18px; border: 1px dashed var(--line); max-width: 760px; }
+.entry.static { cursor: default; }
+.entry.static:hover { background: transparent; }
+.pod-group { margin: 2px 0 2px 18px; padding-left: 14px; border-left: 2px solid var(--rule); }
+.pod-group > summary { cursor: pointer; padding: 8px 0; font-size: 13px; }
+.pod-group[open] > summary { border-bottom: 1px solid var(--rule); }
+.progress { margin-top: 8px; height: 6px; background: var(--rule); }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.ready-strip { display: inline-flex; width: 150px; height: 10px; border: 1px solid var(--line); vertical-align: middle; overflow: hidden; }
+.ready-strip i { display: block; height: 100%; min-width: 1px; }
+.ready-strip i.ready { background: var(--run); }
+.ready-strip i.notready { background: repeating-linear-gradient(45deg, var(--fail) 0 3px, transparent 3px 6px); }
+.ready-strip i.pending { background: transparent; }
+@media (prefers-reduced-motion: no-preference) { .progress i { transition: width 0.4s linear; } }

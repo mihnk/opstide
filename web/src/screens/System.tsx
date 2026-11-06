@@ -4,7 +4,7 @@ import { Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { ago, duration, hhmm, hhmmss, relativeTime } from '../time'
 
-const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments' }
+const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments', replicasets: 'ReplicaSets', deploypods: 'Deployment Pods' }
 
 function bytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
@@ -79,6 +79,19 @@ export function System({ tz }: { tz: string }) {
           </dl>
         </section>
       </div>
+
+      <section aria-label="Release observation" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">Release observation <span className="note">· Deployments, their ReplicaSets and Pods</span></h2>
+        <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
+          <dt className="label">Observation window</dt><dd>{data.workload.windowMinutes} min after a rollout completes</dd>
+          <dt className="label">Under observation</dt><dd className="mono">{data.workload.activeWindows} release{data.workload.activeWindows === 1 ? '' : 's'}</dd>
+          <dt className="label">Last release entry</dt><dd className="mono">{data.workload.lastEvent ? <>{hhmmss(data.workload.lastEvent, tz)} <span className="muted">{ago(data.workload.lastEvent, nowMs)}</span></> : <span className="muted" style={{ fontFamily: 'inherit' }}>none yet</span>}</dd>
+          <dt className="label">Completeness</dt>
+          <dd>{data.workload.degraded.length === 0
+            ? <>Complete: Deployments, ReplicaSets and their Pods are being watched.</>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workload.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+        </dl>
+      </section>
 
       <div className="two">
         <section aria-label="Watches" className="rows">

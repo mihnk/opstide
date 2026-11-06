@@ -41,6 +41,9 @@ type Config struct {
 	// ClustrailURL is a link template for opening a CronJob in Clustrail:
 	// {cluster}, {namespace} and {name} are replaced. Empty shows no link.
 	ClustrailURL string
+	// ReleaseWindowMinutes is how long after a rollout completes a release is
+	// observed before it can be called healthy: 5, 10, 15 or 30.
+	ReleaseWindowMinutes int
 }
 
 // Load parses args, using getenv for defaults (os.Getenv in main).
@@ -72,6 +75,11 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 
+	releaseWindow, err := envInt("RELEASE_WINDOW", 10)
+	if err != nil {
+		return Config{}, err
+	}
+
 	var c Config
 	var namespaces, level string
 	fs := flag.NewFlagSet("opstide", flag.ContinueOnError)
@@ -84,6 +92,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&c.Kubeconfig, "kubeconfig", env("KUBECONFIG", ""), "kubeconfig file(s), separated like KUBECONFIG, for running outside the cluster (OPSTIDE_KUBECONFIG)")
 	fs.StringVar(&c.Context, "context", env("CONTEXT", ""), "kubeconfig context to use; empty uses its current context (OPSTIDE_CONTEXT)")
 	fs.StringVar(&c.TokenFile, "token-file", env("TOKEN_FILE", ""), "file holding the token that protects the API; empty means no login (OPSTIDE_TOKEN_FILE)")
+	fs.IntVar(&c.ReleaseWindowMinutes, "release-window", releaseWindow, "minutes a release is observed after its rollout completes: 5, 10, 15 or 30 (OPSTIDE_RELEASE_WINDOW)")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {
@@ -103,6 +112,8 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("log level %q: use debug, info, warn or error", level)
 	}
 	switch {
+	case c.ReleaseWindowMinutes != 5 && c.ReleaseWindowMinutes != 10 && c.ReleaseWindowMinutes != 15 && c.ReleaseWindowMinutes != 30:
+		return Config{}, errors.New("release window must be 5, 10, 15 or 30 minutes")
 	case c.DataDir == "":
 		return Config{}, errors.New("data dir is empty")
 	case c.RetentionDays < 1:

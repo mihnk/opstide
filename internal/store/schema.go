@@ -105,6 +105,85 @@ CREATE INDEX runs_lost ON runs(updated_at) WHERE status = 'unknown';
 -- The live views ask for max(updated_at) every couple of seconds.
 CREATE INDEX runs_updated ON runs(updated_at);
 `,
+	// 3: workload releases. A release is one revision of a Deployment as
+	// OpsTide saw it; its Pods are kept as compact lifecycle records, not as
+	// Kubernetes objects. Nothing here holds a Secret, an environment value
+	// or a whole spec: the snapshot is an allow-list built by internal/release.
+	`
+ALTER TABLE events ADD COLUMN release_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX events_release ON events(release_id, at) WHERE release_id <> '';
+
+CREATE TABLE workloads (
+	id            TEXT PRIMARY KEY,         -- the Deployment's UID
+	namespace     TEXT NOT NULL,
+	name          TEXT NOT NULL,
+	first_seen_at INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	deleted_at    INTEGER
+);
+CREATE INDEX workloads_ns_name ON workloads(namespace, name);
+
+CREATE TABLE releases (
+	id              TEXT PRIMARY KEY,       -- hash of Deployment UID, ReplicaSet UID and revision
+	workload_id     TEXT NOT NULL,
+	namespace       TEXT NOT NULL,
+	workload        TEXT NOT NULL,
+	revision        TEXT NOT NULL,
+	revision_num    INTEGER NOT NULL,
+	replicaset_uid  TEXT NOT NULL,
+	replicaset_name TEXT NOT NULL,
+	template_hash   TEXT NOT NULL DEFAULT '',
+	fingerprint     TEXT NOT NULL,
+	prev_id         TEXT NOT NULL DEFAULT '',
+	origin          TEXT NOT NULL,          -- observed | adopted
+	observed_at     INTEGER NOT NULL,
+	started_at      INTEGER,                -- the ReplicaSet's creation time
+	completed_at    INTEGER,
+	superseded_at   INTEGER,
+	scaled_down_at  INTEGER,
+	state           TEXT NOT NULL,
+	state_reason    TEXT NOT NULL DEFAULT '',
+	state_at        INTEGER NOT NULL,
+	desired         INTEGER NOT NULL DEFAULT 0,
+	updated         INTEGER NOT NULL DEFAULT 0,
+	ready           INTEGER NOT NULL DEFAULT 0,
+	available       INTEGER NOT NULL DEFAULT 0,
+	paused          INTEGER NOT NULL DEFAULT 0,
+	health          TEXT NOT NULL,
+	health_reasons  TEXT NOT NULL DEFAULT '[]',
+	health_at       INTEGER,
+	window_seconds  INTEGER NOT NULL,
+	observe_until   INTEGER,
+	episodes        TEXT NOT NULL DEFAULT '[]',
+	trouble         TEXT NOT NULL DEFAULT '[]',     -- times the rollout was stalled or failed
+	snapshot        TEXT NOT NULL,
+	image_ids       TEXT NOT NULL DEFAULT '{}',
+	updated_at      INTEGER NOT NULL
+);
+CREATE INDEX releases_workload ON releases(workload_id, revision_num);
+CREATE INDEX releases_observed ON releases(observed_at, id);
+CREATE INDEX releases_rs ON releases(replicaset_uid, observed_at);
+CREATE INDEX releases_open ON releases(observe_until) WHERE health IN ('still_observing', 'degraded');
+CREATE INDEX releases_updated ON releases(updated_at);
+
+CREATE TABLE release_pods (
+	uid            TEXT PRIMARY KEY,
+	release_id     TEXT NOT NULL DEFAULT '',
+	namespace      TEXT NOT NULL,
+	name           TEXT NOT NULL,
+	replicaset_uid TEXT NOT NULL,
+	workload_id    TEXT NOT NULL,
+	created_at     INTEGER NOT NULL,
+	terminated_at  INTEGER,
+	state          TEXT NOT NULL,           -- internal/release.PodState, compact JSON
+	updated_at     INTEGER NOT NULL
+);
+CREATE INDEX release_pods_release ON release_pods(release_id, created_at);
+-- A release's Pods are the Pods of its ReplicaSet that lived during it.
+CREATE INDEX release_pods_rs ON release_pods(replicaset_uid, created_at);
+CREATE INDEX release_pods_live ON release_pods(created_at) WHERE terminated_at IS NULL;
+CREATE INDEX release_pods_updated ON release_pods(updated_at);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

@@ -173,7 +173,7 @@ func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Take it back to version 1, as a database written before the indexes would be.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; PRAGMA user_version = 1`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; PRAGMA user_version = 1`); err != nil {
 		t.Fatalf("rewinding to version 1: %v", err)
 	}
 	s.Close()
@@ -580,5 +580,216 @@ func TestRunsBetweenAgreesWithTheOneQueryItReplaced(t *testing.T) {
 					from.Sub(base)/time.Minute, to.Sub(base)/time.Minute, analyze, len(gotIDs), len(want), gotIDs, want)
 			}
 		}
+	}
+}
+
+// A rollback reuses a ReplicaSet whose Pods never stopped: both the old and the new release
+// of that ReplicaSet own those Pods, each for its own time.
+func TestReleasePodsAreThoseOfTheReplicaSetThatLivedDuringTheRelease(t *testing.T) {
+	s, ctx := open(t)
+	mk := func(id, rs string, rev int64, observed time.Time, superseded time.Time) Release {
+		return Release{ID: id, WorkloadID: "d", Namespace: "ns", Workload: "api", Revision: fmt.Sprint(rev), RevisionNum: rev, ReplicaSetUID: rs, ReplicaSetName: rs,
+			Fingerprint: "f", Origin: OriginObserved, ObservedAt: observed, SupersededAt: superseded, State: ReleaseCompleted, StateAt: observed, Health: HealthObserving,
+			HealthReasons: "[]", WindowSeconds: 600, Episodes: "[]", Trouble: "[]", Snapshot: "{}", ImageIDs: "{}"}
+	}
+	r42 := mk("r42", "rsA", 42, t0, t0.Add(2*time.Hour))
+	r43 := mk("r43", "rsB", 43, t0.Add(2*time.Hour), t0.Add(3*time.Hour))
+	r44 := mk("r44", "rsA", 44, t0.Add(3*time.Hour), time.Time{})
+	update(t, s, func(w *Writer) error {
+		for _, r := range []Release{r42, r43, r44} {
+			if err := w.UpsertRelease(ctx, r); err != nil {
+				return err
+			}
+		}
+		pod := func(uid, rs string, created, ended time.Time) PodRecord {
+			return PodRecord{UID: uid, ReleaseID: "x", Namespace: "ns", Name: uid, ReplicaSetUID: rs, WorkloadID: "d", CreatedAt: created, TerminatedAt: ended, State: "{}"}
+		}
+		for _, p := range []PodRecord{
+			pod("a1", "rsA", t0.Add(time.Minute), time.Time{}),            // kept running through the rollback
+			pod("a0", "rsA", t0.Add(time.Minute), t0.Add(30*time.Minute)), // ended during 42
+			pod("b1", "rsB", t0.Add(2*time.Hour+time.Minute), time.Time{}),
+		} {
+			if err := w.UpsertPod(ctx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	names := func(r Release) string {
+		ps, err := s.ReleasePods(ctx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range ps {
+			out = append(out, p.UID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := names(r42); got != "a0,a1" {
+		t.Errorf("42: %q", got)
+	}
+	if got := names(r43); got != "b1" {
+		t.Errorf("43: %q", got)
+	}
+	if got := names(r44); got != "a1" {
+		t.Errorf("44: %q (a0 ended long before it)", got)
+	}
+}
+
+// The release timeline is read many times a minute: its query must be served by the partial index.
+func TestReleaseEntriesQueryUsesItsIndex(t *testing.T) {
+	s, ctx := open(t)
+	rows, err := s.db.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT seq FROM events WHERE release_id = ? AND release_id <> '' ORDER BY at DESC, seq DESC LIMIT 101`, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var d string
+		if err := rows.Scan(&id, &parent, &unused, &d); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, d)
+	}
+	if !strings.Contains(strings.Join(plan, "\n"), "events_release") {
+		t.Fatalf("the release timeline scans the events table:\n%s", strings.Join(plan, "\n"))
+	}
+	// And the real query (through Events) states the term the partial index needs.
+	if _, err := s.Events(ctx, EventQuery{ReleaseID: "r1", Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func releaseFixture(id, rs string, rev int64, observed time.Time) Release {
+	return Release{ID: id, WorkloadID: "d", Namespace: "ns", Workload: "api", Revision: fmt.Sprint(rev), RevisionNum: rev, ReplicaSetUID: rs, ReplicaSetName: rs,
+		Fingerprint: "f", Origin: OriginObserved, ObservedAt: observed, State: ReleaseCompleted, StateAt: observed, Health: HealthObserving,
+		HealthReasons: "[]", WindowSeconds: 600, Episodes: "[]", Trouble: "[]", Snapshot: "{}", ImageIDs: "{}"}
+}
+
+// Pods that ended before a rollback began belong to the release before it. A release first seen
+// as its ReplicaSet came up still gets a minute of slack for the Pods created just before.
+func TestRollbackReleaseHasNoSlackForPodsThatAlreadyEnded(t *testing.T) {
+	s, ctx := open(t)
+	first := releaseFixture("r1", "rsA", 1, t0)
+	other := releaseFixture("r2", "rsB", 2, t0.Add(time.Hour))
+	back := releaseFixture("r3", "rsA", 3, t0.Add(2*time.Hour))
+	fresh := releaseFixture("r4", "rsC", 4, t0.Add(3*time.Hour))
+	update(t, s, func(w *Writer) error {
+		for _, r := range []Release{first, other, back, fresh} {
+			if err := w.UpsertRelease(ctx, r); err != nil {
+				return err
+			}
+		}
+		pod := func(uid, rs string, created, ended time.Time) PodRecord {
+			return PodRecord{UID: uid, ReleaseID: "x", Namespace: "ns", Name: uid, ReplicaSetUID: rs, WorkloadID: "d", CreatedAt: created, TerminatedAt: ended, State: "{}"}
+		}
+		for _, p := range []PodRecord{
+			pod("ended30s", "rsA", t0.Add(time.Minute), back.ObservedAt.Add(-30*time.Second)), // ended just before the rollback
+			pod("running", "rsA", t0.Add(time.Minute), time.Time{}),
+			pod("early", "rsC", fresh.ObservedAt.Add(-time.Hour), fresh.ObservedAt.Add(-30*time.Second)), // created and ended just before a fresh release was noticed
+		} {
+			if err := w.UpsertPod(ctx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	uids := func(r Release) string {
+		ps, err := s.ReleasePods(ctx, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range ps {
+			out = append(out, p.UID)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := uids(back); got != "running" {
+		t.Errorf("rollback: %q, a Pod that ended before it began is not its own", got)
+	}
+	if got := uids(fresh); got != "early" {
+		t.Errorf("fresh release: %q, a Pod gone 30s before it was noticed keeps the minute of slack", got)
+	}
+	if rb, _ := s.IsRollback(ctx, back); !rb {
+		t.Error("r3 reuses r1's ReplicaSet")
+	}
+	if rb, _ := s.IsRollback(ctx, first); rb {
+		t.Error("r1 is the first use of its ReplicaSet")
+	}
+}
+
+// A degraded release stays under sweep while its window lasts; once the window is over, or it
+// was replaced, it is settled and not swept.
+func TestOpenReleasesIncludesADegradedReleaseWhileItsWindowIsOpen(t *testing.T) {
+	s, ctx := open(t)
+	mk := func(id, health string, until time.Time, superseded time.Time) Release {
+		r := releaseFixture(id, "rs-"+id, 1, t0)
+		r.WorkloadID, r.Health, r.ObserveUntil, r.SupersededAt = "d-"+id, health, until, superseded
+		return r
+	}
+	update(t, s, func(w *Writer) error {
+		for _, r := range []Release{
+			mk("observing", HealthObserving, t0.Add(time.Minute), time.Time{}),
+			mk("degradedOpen", HealthDegraded, t0.Add(time.Minute), time.Time{}),
+			mk("degradedNoWindowYet", HealthDegraded, time.Time{}, time.Time{}),
+			mk("degradedClosed", HealthDegraded, t0.Add(-time.Minute), time.Time{}),
+			mk("degradedReplaced", HealthDegraded, t0.Add(time.Minute), t0.Add(-time.Second)),
+			mk("healthy", HealthHealthy, t0.Add(-time.Minute), time.Time{}),
+		} {
+			if err := w.UpsertRelease(ctx, r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	open, err := s.OpenReleases(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, r := range open {
+		ids = append(ids, r.ID)
+	}
+	sort.Strings(ids)
+	if got := strings.Join(ids, ","); got != "degradedNoWindowYet,degradedOpen,observing" {
+		t.Fatalf("%s", got)
+	}
+}
+
+// Retention removes the Pods of releases that are gone, but a Pod that is still running belongs
+// to the ReplicaSet of a release that is kept, whichever release it was first recorded under.
+func TestRetentionKeepsLivePodsOfAReusedReplicaSet(t *testing.T) {
+	s, ctx := open(t)
+	old := releaseFixture("old", "rsA", 1, t0.AddDate(0, 0, -60))
+	other := releaseFixture("other", "rsB", 2, t0.AddDate(0, 0, -50))
+	back := releaseFixture("back", "rsA", 3, t0.Add(-time.Hour)) // the newest: always kept
+	update(t, s, func(w *Writer) error {
+		for _, r := range []Release{old, other, back} {
+			if err := w.UpsertRelease(ctx, r); err != nil {
+				return err
+			}
+		}
+		for _, p := range []PodRecord{
+			{UID: "live", ReleaseID: "old", Namespace: "ns", Name: "live", ReplicaSetUID: "rsA", WorkloadID: "d", CreatedAt: t0.AddDate(0, 0, -59), State: "{}"},
+			{UID: "orphan", ReleaseID: "other", Namespace: "ns", Name: "orphan", ReplicaSetUID: "rsB", WorkloadID: "d", CreatedAt: t0.AddDate(0, 0, -49), State: "{}"},
+		} {
+			if err := w.UpsertPod(ctx, p); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if _, err := s.Prune(ctx, t0.AddDate(0, 0, -30), 1000); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.PodByUID(ctx, "live"); !ok {
+		t.Error("a running Pod of a kept release was deleted because it was recorded under an older release")
+	}
+	if _, ok, _ := s.PodByUID(ctx, "orphan"); ok {
+		t.Error("a Pod of a release that is gone was kept")
 	}
 }

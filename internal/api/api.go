@@ -39,6 +39,9 @@ type Config struct {
 	// ControllerZone is the zone the CronJob controller evaluates
 	// schedules in when a CronJob sets no spec.timeZone (normally UTC).
 	ControllerZone *time.Location
+	// ReleaseWindow is the observation length after a rollout completes
+	// (default 10 minutes).
+	ReleaseWindow time.Duration
 	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
 	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
 	ClustrailURL string
@@ -75,6 +78,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("GET /api/v1/operations", heavy(s.operations))
 	mux.HandleFunc("GET /api/v1/owners", s.owners)
+	mux.HandleFunc("GET /api/v1/releases", s.releases)
+	mux.HandleFunc("GET /api/v1/releases/{id}", s.release)
+	mux.HandleFunc("GET /api/v1/releases/{id}/events", s.releaseEvents)
+	mux.HandleFunc("GET /api/v1/releases/{id}/pods", s.releasePods)
+	mux.HandleFunc("GET /api/v1/releases/{id}/changes", s.releaseChanges)
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("GET /api/v1/system", s.system)

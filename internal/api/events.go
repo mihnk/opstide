@@ -19,6 +19,7 @@ type Entry struct {
 	ResourceUID  string            `json:"resourceUid,omitempty"`
 	OperationID  string            `json:"operationId,omitempty"`
 	RunID        string            `json:"runId,omitempty"`
+	ReleaseID    string            `json:"releaseId,omitempty"`
 	At           time.Time         `json:"at"`
 	OccurredAt   time.Time         `json:"occurredAt,omitzero"`
 	ObservedAt   time.Time         `json:"observedAt"`
@@ -31,7 +32,7 @@ type Entry struct {
 
 func entry(e store.Event) Entry {
 	return Entry{ID: e.ID, Type: e.Type, Namespace: e.Namespace, Kind: e.Kind, ResourceName: e.ResourceName,
-		ResourceUID: e.ResourceUID, OperationID: e.OperationID, RunID: e.RunID, At: e.At(), OccurredAt: e.OccurredAt,
+		ResourceUID: e.ResourceUID, OperationID: e.OperationID, RunID: e.RunID, ReleaseID: e.ReleaseID, At: e.At(), OccurredAt: e.OccurredAt,
 		ObservedAt: e.ObservedAt, RecordedAt: e.RecordedAt, Severity: e.Severity, Confidence: string(e.Confidence),
 		Summary: e.Summary, Facts: e.Facts}
 }
@@ -50,6 +51,12 @@ var typeGroups = map[string][]string{
 	"schedules":  {"cronjob."},
 	"rollouts":   {"deployment."},
 	"collection": {"collection."},
+	// Releases: a revision appearing and what became of its rollout.
+	"releases": {"release.observed", "release.superseded", "release.scaled_down", "release.paused", "release.resumed", "release.stalled", "release.failed"},
+	// Workload health: what went wrong after (or during) a rollout.
+	"health": {"release.health.", "release.unavailable", "pod.notready", "pod.oomkilled", "pod.restarted", "pod.waiting", "pod.evicted"},
+	// Pod lifecycle: the routine of Pods coming and going.
+	"pods": {"pod.created", "pod.ready", "pod.terminated"},
 }
 
 // outcomeTypes maps the outcome filter to the entry types of finished runs.
@@ -80,6 +87,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eq.Namespace, eq.OperationID, eq.RunID, eq.Cursor = q.Get("namespace"), q.Get("operation"), q.Get("run"), q.Get("cursor")
+	eq.ReleaseID = q.Get("release")
 	if t := q.Get("q"); len(t) > 200 {
 		reply(w, r, s.log, nil, badRequest("q is too long"))
 		return
@@ -109,7 +117,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		for _, g := range strings.Split(show, ",") {
 			types, ok := typeGroups[g]
 			if !ok {
-				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts or collection"))
+				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts, releases, health, pods or collection"))
 				return
 			}
 			if g == "runs" {

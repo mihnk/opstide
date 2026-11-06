@@ -11,15 +11,23 @@ const groups = [
   ['starts', 'run starts'],
   ['schedules', 'schedule changes'],
   ['rollouts', 'rollouts'],
+  ['releases', 'releases'],
+  ['health', 'workload health'],
+  ['pods', 'pod lifecycle'],
   ['collection', 'collection'],
 ] as const
 
-const defaultShow = 'runs,schedules,rollouts,collection'
+const defaultShow = 'runs,schedules,rollouts,releases,health,collection'
 
 const kindWord: Record<string, string> = {
   'job.created': 'Created', 'job.succeeded': 'Succeeded', 'job.failed': 'Failed', 'job.lost': 'Unknown',
   'cronjob.created': 'New CronJob', 'cronjob.deleted': 'Deleted', 'cronjob.suspended': 'Suspended', 'cronjob.resumed': 'Resumed',
   'cronjob.schedule_changed': 'Schedule', 'deployment.rollout': 'Rollout', 'collection.gap': 'Collection',
+  'release.observed': 'Release', 'release.superseded': 'Release', 'release.scaled_down': 'Release', 'release.paused': 'Release', 'release.resumed': 'Release',
+  'release.stalled': 'Stalled', 'release.failed': 'Failed', 'release.health.degraded': 'Health', 'release.health.healthy': 'Health',
+  'release.health.insufficient': 'Health', 'release.unavailable': 'Health',
+  'pod.created': 'Pod', 'pod.ready': 'Pod', 'pod.notready': 'NotReady', 'pod.restarted': 'Restart', 'pod.oomkilled': 'OOMKilled',
+  'pod.waiting': 'Waiting', 'pod.evicted': 'Evicted', 'pod.terminated': 'Pod',
 }
 
 export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
@@ -32,7 +40,8 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
   const severity = params.get('severity') ?? ''
   const outcome = params.get('outcome') ?? ''
   const owner = params.get('owner') ?? ''
-  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, severity, outcome: show.split(',').includes('runs') ? outcome : '', owner, limit: 100 })}`
+  const releaseId = params.get('release') ?? ''
+  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, severity, outcome: show.split(',').includes('runs') ? outcome : '', owner, release: releaseId, limit: 100 })}`
   // The owners that exist (deleted CronJobs included), fetched once.
   const [ownerList, setOwnerList] = useState<string[]>([])
   useEffect(() => {
@@ -41,7 +50,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
   const owners = owner && !ownerList.includes(owner) ? [...ownerList, owner] : ownerList
   const runsShown = show.split(',').includes('runs')
   // Run starts are off by default, so a changed Show list narrows the log as well.
-  const filtered = !!(q || ns || severity || owner || (outcome && runsShown) || show !== defaultShow)
+  const filtered = !!(q || ns || severity || owner || releaseId || (outcome && runsShown) || show !== defaultShow)
   const { data, error } = useApi<Entries>(path)
 
   // Older pages, appended below the live first page.
@@ -148,6 +157,13 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
         <span className="muted" style={{ fontSize: 12 }}>Times {tz} {offset(tz)} · filters are in the link</span>
       </form>
 
+      {releaseId && (
+        <div className="banner" role="note">
+          <span className="label">One release</span>
+          <span>Showing only the entries of one release. <Link href={`/releases/${encodeURIComponent(releaseId)}`}>Open the release</Link> · <Link href={withParams(params, { release: null, entry: null })} replace>Show everything</Link></span>
+        </div>
+      )}
+
       {error && !data && <Failed error={error} />}
       {!data && !error && <Loading />}
       {data && (
@@ -156,7 +172,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
             {entries.length === 0 && (
               <div className="empty">
                 {filtered
-                  ? <>Nothing in this range matches these filters. <Link href={withParams(params, { q: null, namespace: null, severity: null, outcome: null, owner: null, show: null, entry: null })} replace>Clear the filters</Link></>
+                  ? <>Nothing in this range matches these filters. <Link href={withParams(params, { q: null, namespace: null, severity: null, outcome: null, owner: null, release: null, show: null, entry: null })} replace>Clear the filters</Link></>
                   : <>Nothing of the kinds shown was recorded in this range. Run starts are off; if OpsTide was not running, System shows when it was not watching.</>}
               </div>
             )}
@@ -195,6 +211,7 @@ function facts(e: Entry): string {
   const f = e.facts ?? {}
   if (e.type === 'job.failed' || e.type === 'job.succeeded') return f.seconds ? `${Math.round(Number(f.seconds) / 60)} min` : ''
   if (e.type === 'collection.gap') return `${f.scope ?? ''}`
+  if (e.releaseId && f.revision) return `revision ${f.revision}`
   return ''
 }
 
@@ -222,6 +239,7 @@ function EntryPanel({ e, tz }: { e: Entry; tz: string }) {
       </dl>
       <span className="muted" style={{ fontSize: 13 }}>
         OpsTide does not keep container logs.{' '}
+        {e.releaseId && <Link href={`/releases/${encodeURIComponent(e.releaseId)}`}>Open the release</Link>}
         {e.operationId && <Link href={`/operations/${encodeURIComponent(e.operationId)}${e.runId ? `?run=${encodeURIComponent(e.runId)}` : ''}`}>Open the operation</Link>}
       </span>
     </>

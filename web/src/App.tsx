@@ -8,6 +8,8 @@ import { Operation } from './screens/Operation'
 import { Schedules } from './screens/Schedules'
 import { System as SystemScreen } from './screens/System'
 import { Overview } from './screens/Overview'
+import { Release } from './screens/Release'
+import { Releases } from './screens/Releases'
 
 export function App() {
   const { path, params } = useLocation()
@@ -23,13 +25,16 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const names: Record<string, string> = { '/': 'Overview', '/log': 'Log', '/schedules': 'Schedules', '/system': 'System' }
+    const names: Record<string, string> = { '/': 'Overview', '/releases': 'Releases', '/log': 'Log', '/schedules': 'Schedules', '/system': 'System' }
     document.title = `${names[path] ?? 'Operation'} · OpsTide${cluster ? ` · ${cluster}` : ''}`
   }, [path, cluster])
 
   let screen
   const op = /^\/operations\/([^/]+)$/.exec(path)
+  const rel = /^\/releases\/([^/]+)$/.exec(path)
   if (path === '/') screen = <Overview params={params} tz={tz} setTz={setTz} />
+  else if (path === '/releases') screen = <Releases params={params} tz={tz} />
+  else if (rel) screen = <Release key={rel[1]} id={decodeURIComponent(rel[1])} params={params} tz={tz} setTz={setTz} />
   else if (path === '/log') screen = <Log params={params} tz={tz} />
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />
   else if (op) screen = <Operation key={op[1]} id={decodeURIComponent(op[1])} params={params} tz={tz} />

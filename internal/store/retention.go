@@ -9,7 +9,7 @@ import (
 
 // PruneResult counts what a prune removed.
 type PruneResult struct {
-	Events, Runs, Operations, Intervals int64
+	Events, Runs, Operations, Intervals, Releases int64
 }
 
 // Prune removes what is older than before, then the oldest entries beyond
@@ -44,7 +44,23 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 		if err := exec(&r.Intervals, `DELETE FROM coverage WHERE ended_at IS NOT NULL AND ended_at < ?`, cut); err != nil {
 			return err
 		}
-		removed := r.Events + r.Runs + r.Operations + r.Intervals
+		// Releases keep their history past Kubernetes garbage collection but not
+		// past retention: the newest release of each workload always stays, so a
+		// quiet Deployment is never left with nothing, and its Pods go with the
+		// releases that are removed. A finished Pod record also ends with retention.
+		if err := exec(&r.Releases, `DELETE FROM releases WHERE observed_at < ? AND id NOT IN (
+	SELECT id FROM releases r2 WHERE r2.revision_num = (SELECT max(revision_num) FROM releases r3 WHERE r3.workload_id = r2.workload_id))`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM release_pods WHERE (terminated_at IS NOT NULL AND terminated_at < ?)
+	OR replicaset_uid NOT IN (SELECT replicaset_uid FROM releases)`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM workloads WHERE deleted_at IS NOT NULL AND deleted_at < ?
+	AND id NOT IN (SELECT workload_id FROM releases)`, cut); err != nil {
+			return err
+		}
+		removed := r.Events + r.Runs + r.Operations + r.Intervals + r.Releases
 		if err := w.setMeta(ctx, "last_prune", strconv.FormatInt(s.now().UnixMilli(), 10)); err != nil {
 			return err
 		}

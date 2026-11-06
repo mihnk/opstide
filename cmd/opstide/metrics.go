@@ -47,6 +47,20 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		w.Counter("opstide_collector_items_total", "Objects written to the record.", float64(cs.Processed))
 		w.Counter("opstide_collector_failures_total", "Tries to write an object that failed.", float64(cs.Failed))
 		w.Gauge("opstide_collector_queue_length", "Objects waiting to be written.", float64(cs.Queued))
+		wl := cs.Workload
+		w.Counter("opstide_releases_observed_total", "Releases (Deployment revisions) OpsTide saw appear.", float64(wl.Releases))
+		w.Counter("opstide_release_assessments_total", "Post-deployment verdicts reached, by verdict.", float64(wl.Healthy), "verdict", "healthy")
+		w.Counter("opstide_release_assessments_total", "Post-deployment verdicts reached, by verdict.", float64(wl.Degraded), "verdict", "degraded")
+		w.Counter("opstide_release_assessments_total", "Post-deployment verdicts reached, by verdict.", float64(wl.Insufficient), "verdict", "insufficient_evidence")
+		for _, t := range []string{"created", "ready", "notready", "restarted", "oomkilled", "waiting", "evicted", "terminated"} {
+			w.Counter("opstide_pod_entries_total", "Deployment Pod lifecycle entries written, by type.", float64(wl.PodEvents[t]), "type", t)
+		}
+		if !wl.LastEvent.IsZero() {
+			w.Gauge("opstide_workload_last_entry_timestamp_seconds", "When a release or Pod entry was last written, Unix time.", float64(wl.LastEvent.Unix()))
+		}
+		if n, err := db.ActiveWindows(ctx, time.Now()); err == nil {
+			w.Gauge("opstide_release_windows_active", "Releases being observed after their rollout.", float64(n))
+		}
 		if st, ok := storage(ctx); ok {
 			w.Gauge("opstide_store_events", "Log entries kept.", float64(st.Events))
 			w.Gauge("opstide_store_bytes", "Size of the database file.", float64(st.Bytes))

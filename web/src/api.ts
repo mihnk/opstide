@@ -186,6 +186,7 @@ export interface Entry {
   resourceUid?: string
   operationId?: string
   runId?: string
+  releaseId?: string
   at: string
   occurredAt?: string
   observedAt: string
@@ -217,6 +218,7 @@ export interface System {
     lastPrune?: string; lastPruneRemoved: number; lastCheckpoint?: string; retentionDays: number; maxEntries: number
   }
   integrations: { name: string; state: string; note: string }[]
+  workload: WorkloadSystem
 }
 
 export class ApiError extends Error {
@@ -255,3 +257,131 @@ export function query(params: Record<string, string | number | undefined | null>
   const s = q.toString()
   return s ? `?${s}` : ''
 }
+
+// ---- Releases: Deployment revisions as OpsTide observed them ----
+
+export type RolloutState = 'observed' | 'progressing' | 'completed' | 'stalled' | 'failed' | 'superseded' | 'unknown'
+export type HealthState = 'still_observing' | 'healthy' | 'degraded' | 'insufficient_evidence'
+
+export interface Brief { at: string; type: string; severity: 'info' | 'warning' | 'error'; summary: string }
+
+export interface ReleaseRow {
+  id: string
+  namespace: string
+  workload: string
+  revision: string
+  origin: 'observed' | 'adopted'
+  observedAt: string
+  startedAt?: string
+  completedAt?: string
+  supersededAt?: string
+  state: RolloutState
+  stateReason?: string
+  health: HealthState
+  healthReasons: string[]
+  desired: number
+  updated: number
+  ready: number
+  available: number
+  paused?: boolean
+  observeUntil?: string
+  windowMinutes: number
+  prevId?: string
+  recent: Brief[]
+}
+
+export interface Releases {
+  schema: number
+  now: string
+  releases: ReleaseRow[]
+  nextCursor?: string
+  windowMinutes: number
+  warnings: string[]
+}
+
+export interface Finding { kind: string; at?: string; observed?: string; pod?: string; container?: string; summary: string }
+
+export interface Assessment {
+  health: HealthState
+  reasons: string[]
+  findings: Finding[]
+  windowStart?: string
+  windowEnd?: string
+  evidence?: string[]
+  windowMinutes: number
+  windows: number[]
+  stored: boolean
+}
+
+export interface Probe { kind: string; path?: string; port?: string; scheme?: string; commandHash?: string; initialDelaySeconds?: number; periodSeconds?: number }
+export interface SnapContainer {
+  name: string
+  image: string
+  requests?: Record<string, string>
+  limits?: Record<string, string>
+  readiness?: Probe
+  liveness?: Probe
+  startup?: Probe
+  envNames?: string[]
+}
+export interface Snapshot {
+  containers: SnapContainer[]
+  initContainers?: SnapContainer[]
+  configMaps?: string[]
+  secrets?: string[]
+  serviceAccount?: string
+  deployment?: { replicas?: number; strategyType?: string; maxSurge?: string; maxUnavailable?: string }
+}
+
+export interface PrevRef { id: string; revision: string; origin: string; observedAt: string }
+
+export interface ReleaseDetail {
+  schema: number
+  now: string
+  release: ReleaseRow
+  workload: { uid: string; namespace: string; name: string; deletedAt?: string }
+  replicaSet: { uid: string; name: string; templateHash?: string; fingerprint: string }
+  assessment: Assessment
+  previous?: PrevRef
+  snapshot: Snapshot
+  imageIds: Record<string, string>
+  warnings: string[]
+}
+
+export interface PodContainer { name: string; init?: boolean; restarts: number; lastReason?: string; lastExit?: number; oomKilled: number; waiting: string[] }
+export interface PodView {
+  uid: string
+  name: string
+  node?: string
+  state: 'pending' | 'running' | 'ready' | 'not ready' | 'terminating' | 'terminated'
+  createdAt: string
+  scheduledAt?: string
+  readyAt?: string
+  terminatedAt?: string
+  termReason?: string
+  evicted?: boolean
+  restarts: number
+  containers: PodContainer[]
+  readiness: { at: string; ready: boolean }[]
+  quiet?: boolean
+}
+export interface ReleasePods {
+  schema: number
+  replicaSet: { uid: string; name: string; templateHash?: string; fingerprint: string }
+  pods: PodView[]
+  truncated: boolean
+}
+
+export interface ChangeView { kind: 'changed' | 'added' | 'removed'; field: string; container?: string; before?: string; after?: string; summary: string }
+export interface ReleaseChanges {
+  schema: number
+  available: boolean
+  reason?: string
+  previous?: PrevRef
+  changes: ChangeView[]
+  sameTemplate: boolean
+  noCapturedDifferences: boolean
+  deploymentCompared: boolean
+}
+
+export interface WorkloadSystem { windowMinutes: number; activeWindows: number; lastEvent?: string; degraded: string[] }
