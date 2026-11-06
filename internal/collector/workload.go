@@ -420,7 +420,7 @@ func (c *Collector) newRelease(d *appsv1.Deployment, cd *candidate, origin strin
 		TemplateHash: cd.rs.Labels["pod-template-hash"], Fingerprint: snap.Fingerprint(), Origin: origin,
 		ObservedAt: now, StartedAt: mt(&cd.rs.CreationTimestamp),
 		State: store.ReleaseObserved, StateAt: now, Health: store.HealthObserving, WindowSeconds: int(c.window / time.Second),
-		Episodes: "[]", Trouble: "[]", ImageIDs: "{}", HealthReasons: "[]", Snapshot: snap.Encode(),
+		Episodes: "[]", Trouble: "[]", ImageIDs: "{}", HealthReasons: "[]", Snapshot: snap.Encode(), AssessmentVersion: release.AssessmentVersion,
 	}
 	if origin == store.OriginAdopted {
 		rel.Health = store.HealthInsufficient
@@ -460,6 +460,7 @@ func (c *Collector) releaseObservedEvent(ctx context.Context, w *store.Writer, r
 // applyRollout copies what the Deployment's status says onto the release of
 // its current revision, and writes the entries for what changed.
 func (c *Collector) applyRollout(ctx context.Context, w *store.Writer, r *store.Release, ro release.Rollout, now time.Time) error {
+	prevDesired := r.Desired
 	r.Desired, r.Updated, r.Ready, r.Available = ro.Desired, ro.Updated, ro.Ready, ro.Available
 	at := ro.At
 	if at.IsZero() {
@@ -514,11 +515,37 @@ func (c *Collector) applyRollout(ctx context.Context, w *store.Writer, r *store.
 		open := len(eps) > 0 && eps[len(eps)-1].Until.IsZero()
 		switch {
 		case ro.Available < ro.Desired && !open:
-			eps = append(eps, release.Episode{Since: now})
+			ep := release.Episode{Since: now}
+			// The episode began with a raised replica target while at least the earlier
+			// target was available: record that, so the assessment can tell catching up
+			// with a new target from losing what was serving.
+			if prevDesired > 0 && ro.Desired > prevDesired && ro.Available >= prevDesired {
+				ep.Scaling = &release.ScaleOpen{From: prevDesired, To: ro.Desired, At: now, MinAvailable: ro.Available, Last: ro.Available}
+			}
+			eps = append(eps, ep)
 			r.Episodes = release.EncodeEpisodes(eps)
 		case ro.Available >= ro.Desired && open:
 			eps[len(eps)-1].Until = now
 			r.Episodes = release.EncodeEpisodes(eps)
+		case open:
+			if sc := eps[len(eps)-1].Scaling; sc != nil {
+				changed := false
+				if ro.Desired > sc.To {
+					sc.To, changed = ro.Desired, true
+				}
+				if ro.Available < sc.Last && ro.Desired >= sc.Last && !sc.Lost {
+					sc.Lost, sc.LostFrom, sc.LostTo, changed = true, sc.Last, ro.Available, true
+				}
+				if ro.Available < sc.MinAvailable {
+					sc.MinAvailable, changed = ro.Available, true
+				}
+				if ro.Available != sc.Last {
+					sc.Last, changed = ro.Available, true
+				}
+				if changed {
+					r.Episodes = release.EncodeEpisodes(eps)
+				}
+			}
 		}
 	}
 	return nil
@@ -800,6 +827,11 @@ func (c *Collector) syncDeployPod(ctx context.Context, it item) error {
 		if err := w.UpsertPod(ctx, store.PodRecord{UID: string(pod.UID), ReleaseID: firstRelease, Namespace: pod.Namespace, Name: pod.Name,
 			ReplicaSetUID: string(rs.UID), WorkloadID: string(dref.UID), CreatedAt: mt(&pod.CreationTimestamp), TerminatedAt: next.TermAt, State: enc}); err != nil {
 			return err
+		}
+		if !had {
+			if err := w.RelinkEvidenceOfPod(ctx, string(pod.UID), string(rs.UID), string(dref.UID)); err != nil {
+				return err
+			}
 		}
 		judge, err := c.writePodSignals(ctx, w, rel, pod, sigs, now, store.Observed)
 		if err != nil {

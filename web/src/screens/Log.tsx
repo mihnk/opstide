@@ -14,6 +14,8 @@ const groups = [
   ['releases', 'releases'],
   ['health', 'workload health'],
   ['pods', 'pod lifecycle'],
+  ['kubernetes', 'Kubernetes Events'],
+  ['scaling', 'scaling'],
   ['collection', 'collection'],
 ] as const
 
@@ -28,20 +30,30 @@ const kindWord: Record<string, string> = {
   'release.health.insufficient': 'Health', 'release.unavailable': 'Health',
   'pod.created': 'Pod', 'pod.ready': 'Pod', 'pod.notready': 'NotReady', 'pod.restarted': 'Restart', 'pod.oomkilled': 'OOMKilled',
   'pod.waiting': 'Waiting', 'pod.evicted': 'Evicted', 'pod.terminated': 'Pod',
+  'evidence.event': 'K8s Event', 'evidence.count_changed': 'K8s Event',
+  'hpa.desired_replicas_changed': 'Scaling', 'hpa.condition_changed': 'Scaling', 'workload.replica_target_changed': 'Scaling',
 }
+
+// What a Kubernetes Event entry can be about (the kinds OpsTide keeps Events for).
+const evidenceKinds = ['Pod', 'ReplicaSet', 'Deployment', 'Job', 'CronJob', 'HorizontalPodAutoscaler']
 
 export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
   const range = params.get('range') ?? '48h'
   const q = params.get('q') ?? ''
   const ns = params.get('namespace') ?? ''
   // Run starts are many and say little; they are off unless asked for.
-  const show = params.get('show') ?? defaultShow
+  const reason = params.get('reason') ?? ''
+  const kind = params.get('kind') ?? ''
+  const workload = params.get('workload') ?? ''
+  // Asking for an evidence reason, a resource kind or a workload is asking for Kubernetes Event and scaling entries too.
+  const asked = params.get('show')
+  const show = asked ?? (reason || kind || workload ? `${defaultShow},kubernetes,scaling` : defaultShow)
   const selected = params.get('entry')
   const severity = params.get('severity') ?? ''
   const outcome = params.get('outcome') ?? ''
   const owner = params.get('owner') ?? ''
   const releaseId = params.get('release') ?? ''
-  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, severity, outcome: show.split(',').includes('runs') ? outcome : '', owner, release: releaseId, limit: 100 })}`
+  const path = `/api/v1/events${query({ within: ranges[range] ?? '48h', q, namespace: ns, show, severity, outcome: show.split(',').includes('runs') ? outcome : '', owner, release: releaseId, reason, kind, workload, limit: 100 })}`
   // The owners that exist (deleted CronJobs included), fetched once.
   const [ownerList, setOwnerList] = useState<string[]>([])
   useEffect(() => {
@@ -50,7 +62,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
   const owners = owner && !ownerList.includes(owner) ? [...ownerList, owner] : ownerList
   const runsShown = show.split(',').includes('runs')
   // Run starts are off by default, so a changed Show list narrows the log as well.
-  const filtered = !!(q || ns || severity || owner || releaseId || (outcome && runsShown) || show !== defaultShow)
+  const filtered = !!(q || ns || severity || owner || releaseId || reason || kind || workload || (outcome && runsShown) || show !== defaultShow)
   const { data, error } = useApi<Entries>(path)
 
   // Older pages, appended below the live first page.
@@ -98,7 +110,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
     else next.add(g)
     if (next.size === 0) return
     const value = groups.map(([k]) => k).filter((k) => next.has(k)).join(',')
-    navigate(withParams(params, { show: value === defaultShow ? null : value, entry: null }), true)
+    navigate(withParams(params, { show: value === defaultShow && !(reason || kind || workload) ? null : value, entry: null }), true)
   }
 
   return (
@@ -139,6 +151,18 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
             </select>
           </label>
         )}
+        <label className="field"><span className="label">Resource kind</span>
+          <select className="control" value={kind} onChange={(e) => navigate(withParams(params, { kind: e.target.value || null, entry: null }), true)}>
+            <option value="">Any</option>
+            {evidenceKinds.map((k) => <option key={k} value={k}>{k}</option>)}
+            {kind && !evidenceKinds.includes(kind) && <option value={kind}>{kind}</option>}
+          </select>
+        </label>
+        <label className="field"><span className="label">Evidence reason</span>
+          <input key={reason} className="control" style={{ width: 150 }} defaultValue={reason} placeholder="e.g. FailedMount" title="The reason Kubernetes reported, exactly as it wrote it"
+            onBlur={(e) => e.target.value !== reason && navigate(withParams(params, { reason: e.target.value.trim() || null, entry: null }), true)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+        </label>
         <label className="field"><span className="label">Owner</span>
           <select className="control" value={owner} onChange={(e) => navigate(withParams(params, { owner: e.target.value || null, entry: null }), true)}>
             <option value="">Anyone</option>
@@ -157,6 +181,13 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
         <span className="muted" style={{ fontSize: 12 }}>Times {tz} {offset(tz)} · filters are in the link</span>
       </form>
 
+      {workload && (
+        <div className="banner" role="note">
+          <span className="label">One workload</span>
+          <span>Showing entries about one Deployment (by UID <span className="mono">{workload.slice(0, 8)}</span>): Kubernetes Events and scaling entries linked to it. <Link href={withParams(params, { workload: null, entry: null })} replace>Show everything</Link></span>
+        </div>
+      )}
+
       {releaseId && (
         <div className="banner" role="note">
           <span className="label">One release</span>
@@ -172,7 +203,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
             {entries.length === 0 && (
               <div className="empty">
                 {filtered
-                  ? <>Nothing in this range matches these filters. <Link href={withParams(params, { q: null, namespace: null, severity: null, outcome: null, owner: null, release: null, show: null, entry: null })} replace>Clear the filters</Link></>
+                  ? <>Nothing in this range matches these filters. <Link href={withParams(params, { q: null, namespace: null, severity: null, outcome: null, owner: null, release: null, reason: null, kind: null, workload: null, show: null, entry: null })} replace>Clear the filters</Link></>
                   : <>Nothing of the kinds shown was recorded in this range. Run starts are off; if OpsTide was not running, System shows when it was not watching.</>}
               </div>
             )}
@@ -234,12 +265,24 @@ function EntryPanel({ e, tz }: { e: Entry; tz: string }) {
         <dd>{e.confidence === 'derived' ? `Derived from ${f.basis ? `the Job's condition ${f.basis}` : 'observed values'}` : e.confidence === 'observed' ? 'Observed from the Kubernetes API' : 'Unknown: OpsTide could not see it happen'}{f.reason ? <>, reason <span className="mono">{f.reason}</span></> : null}</dd>
         {f.scheduledAt && (<><dt className="label">Scheduled</dt><dd className="mono">{hhmm(f.scheduledAt, tz)} <span className="muted">from the {f.scheduledBasis === 'annotation' ? 'scheduled-timestamp annotation' : 'Job name'}</span></dd></>)}
         {f.attempts && (<><dt className="label">Attempts</dt><dd className="mono">{f.attempts}</dd></>)}
-        {f.from && f.to && (<><dt className="label">Not watching</dt><dd className="mono">{hhmmss(f.from, tz)} – {hhmmss(f.to, tz)}</dd></>)}
+        {e.type === 'collection.gap' && f.from && f.to && (<><dt className="label">Not watching</dt><dd className="mono">{hhmmss(f.from, tz)} – {hhmmss(f.to, tz)}</dd></>)}
+        {e.type.startsWith('evidence.') && (<>
+          <dt className="label">Kubernetes reported</dt><dd><span className="mono">{f.reason}</span> <span className="muted">· {f.eventType}{f.count ? ` · count ${f.count}${f.countBasis ? ` (${f.countBasis})` : ''}` : ''}</span></dd>
+          <dt className="label">Message</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.message || <span className="muted">none reported</span>}</dd>
+          <dt className="label">Source</dt><dd className="mono">{f.source}{f.origin === 'adopted' ? ' · adopted: already present when OpsTide began watching' : ''}</dd>
+        </>)}
+        {e.type.startsWith('hpa.') && (<>
+          <dt className="label">Change</dt><dd className="mono">{f.condition ? `${f.condition}: ${f.from} to ${f.to}${f.reason ? ` (${f.reason})` : ''}` : `desired replicas ${f.from} to ${f.to}`}</dd>
+          {f.message && (<><dt className="label">Message</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.message}</dd></>)}
+          {f.targetRelationship && (<><dt className="label">Target</dt><dd>{f.target} <span className="muted">· {f.targetRelationship}, {f.targetVia}</span></dd></>)}
+        </>)}
+        {e.type === 'workload.replica_target_changed' && (<><dt className="label">Change</dt><dd className="mono">replica target {f.from} to {f.to}</dd></>)}
         {e.resourceUid && (<><dt className="label">Identity</dt><dd className="mono">{e.kind?.toLowerCase()} {e.resourceUid}</dd></>)}
       </dl>
       <span className="muted" style={{ fontSize: 13 }}>
         OpsTide does not keep container logs.{' '}
         {e.releaseId && <Link href={`/releases/${encodeURIComponent(e.releaseId)}`}>Open the release</Link>}
+        {e.workloadId && <>{' '}<Link href={`/log?workload=${encodeURIComponent(e.workloadId)}`}>Entries linked to this workload</Link></>}
         {e.operationId && <Link href={`/operations/${encodeURIComponent(e.operationId)}${e.runId ? `?run=${encodeURIComponent(e.runId)}` : ''}`}>Open the operation</Link>}
       </span>
     </>

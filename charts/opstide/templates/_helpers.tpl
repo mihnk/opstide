@@ -44,10 +44,18 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
   resources: [cronjobs, jobs]
   verbs: [list, watch]
 - apiGroups: [""]
-  resources: [pods]
+  # events: only for a cluster that does not serve events.k8s.io (the same Events, older API).
+  resources: [pods, events]
   verbs: [list, watch]
 - apiGroups: [apps]
   resources: [deployments, replicasets]
+  verbs: [list, watch]
+# Kubernetes Events (evidence) and autoscalers (scaling context). Read only.
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [list, watch]
+- apiGroups: [autoscaling]
+  resources: [horizontalpodautoscalers]
   verbs: [list, watch]
 {{- end -}}
 

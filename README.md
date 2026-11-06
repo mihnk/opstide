@@ -143,6 +143,11 @@ live:
   minutes after, what changed from the previous revision, and its Pods' restarts,
   OOMKills and readiness. A revision that already existed when OpsTide started is
   marked adopted and never assessed. See [docs/M2.5-WORKLOAD-RELEASES.md](docs/M2.5-WORKLOAD-RELEASES.md).
+- **Evidence**: on a release, the Kubernetes Events about its ReplicaSet, its Pods
+  and its Deployment, the autoscaler (HPA) context of the workload, and a
+  facts-only list of what was recorded. Kubernetes' reason and message are shown
+  as Kubernetes reported them; OpsTide does not say why anything happened
+  ("Root cause: Not established by OpsTide"). See [docs/M2.6-EVIDENCE.md](docs/M2.6-EVIDENCE.md).
 - **Schedules**: every CronJob with its last 7 days, last run, next
   expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
@@ -254,11 +259,13 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 |---|---|
 | `GET /api/v1/range?within=3h&tz=Europe/Istanbul` | One window of 5 minutes to 7 days: counts, a lane per CronJob, gaps, grouped exceptions, what is still to come. The window is `within=3h` (ending now; also `90m`, `5d`), `date=2026-11-04` (a calendar day in `tz`), or `from=` and `to=`; with none, today. A lane with more than 120 marks comes as runs per hour. `day` is the same endpoint |
 | `GET /api/v1/overview?span=5d&tz=` | The strip above the Overview: runs per hour (per 6 h for 30 days) and failures, when Jobs were not watched, and when OpsTide first watched. `span` is `24h`, `5d`, `7d` or `30d` |
-| `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,collection&severity=warning,error&outcome=failed&owner=&q=&cursor=` | The log, newest first, by stable cursor. `severity` is `info`, `warning`, `error`; `outcome` narrows the run entries to `failed`, `succeeded` or `unknown` (with `show`, it must include `runs`; without `show` all groups are returned); `owner` is an exact owner annotation |
+| `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,kubernetes,scaling,collection&kind=&reason=&workload=&severity=warning,error&outcome=failed&owner=&q=&cursor=` | The log, newest first, by stable cursor. `severity` is `info`, `warning`, `error`; `outcome` narrows the run entries to `failed`, `succeeded` or `unknown` (with `show`, it must include `runs`; without `show` all groups are returned); `owner` is an exact owner annotation |
 | `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
 | `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
 | `GET /api/v1/runs/{id}` | One run with its pods and entries |
-| `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
+| `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` (`/events` takes `include=evidence,scaling`) | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
+| `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`), and where it came from (see docs/M2.6-EVIDENCE.md) |
+| `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |

@@ -56,6 +56,18 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 	OR replicaset_uid NOT IN (SELECT replicaset_uid FROM releases)`, cut); err != nil {
 			return err
 		}
+		// Evidence follows retention too, and is capped like the log: the oldest
+		// go first. Autoscalers that were deleted go with it.
+		if err := exec(&r.Events, `DELETE FROM evidence WHERE at < ?`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Events, `DELETE FROM evidence WHERE id IN (
+	SELECT id FROM evidence ORDER BY at DESC, id DESC LIMIT -1 OFFSET ?)`, maxEvents); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM hpas WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cut); err != nil {
+			return err
+		}
 		if err := exec(&r.Releases, `DELETE FROM workloads WHERE deleted_at IS NOT NULL AND deleted_at < ?
 	AND id NOT IN (SELECT workload_id FROM releases)`, cut); err != nil {
 			return err

@@ -4,7 +4,7 @@ import { Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { ago, duration, hhmm, hhmmss, relativeTime } from '../time'
 
-const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments', replicasets: 'ReplicaSets', deploypods: 'Deployment Pods' }
+const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments', replicasets: 'ReplicaSets', deploypods: 'Deployment Pods', events: 'Kubernetes Events', hpas: 'HorizontalPodAutoscalers' }
 
 function bytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
@@ -90,6 +90,20 @@ export function System({ tz }: { tz: string }) {
           <dd>{data.workload.degraded.length === 0
             ? <>Complete: Deployments, ReplicaSets and their Pods are being watched.</>
             : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workload.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+        </dl>
+      </section>
+
+      <section aria-label="Evidence" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">Evidence <span className="note">· Kubernetes Events and autoscalers</span></h2>
+        <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
+          <dt className="label">Events read through</dt><dd className="mono">{data.evidence.source || <span className="muted" style={{ fontFamily: 'inherit' }}>not chosen yet</span>}</dd>
+          <dt className="label">Events kept</dt><dd><span className="mono">{data.evidence.records.toLocaleString('en')}</span> <span className="muted">· {data.evidence.warnings.toLocaleString('en')} Warning · kept after Kubernetes drops them, for the retention period</span></dd>
+          <dt className="label">Last new Event</dt><dd className="mono">{data.evidence.latestObserved ? <>{hhmmss(data.evidence.latestObserved, tz)} <span className="muted">{ago(data.evidence.latestObserved, nowMs)}</span></> : <span className="muted" style={{ fontFamily: 'inherit' }}>none yet</span>}</dd>
+          <dt className="label">Autoscalers</dt><dd><span className="mono">{data.evidence.autoscalers}</span> <span className="muted">HorizontalPodAutoscaler{data.evidence.autoscalers === 1 ? '' : 's'} observed</span></dd>
+          <dt className="label">Completeness</dt>
+          <dd>{data.evidence.degraded.length === 0
+            ? <>Complete as far as OpsTide can tell: Events and autoscalers are being read.</>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.evidence.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
         </dl>
       </section>
 

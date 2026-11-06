@@ -15,6 +15,8 @@ type Entry struct {
 	Type         string            `json:"type"`
 	Namespace    string            `json:"namespace,omitempty"`
 	Kind         string            `json:"kind,omitempty"`
+	Reason       string            `json:"reason,omitempty"`
+	WorkloadID   string            `json:"workloadId,omitempty"`
 	ResourceName string            `json:"resourceName,omitempty"`
 	ResourceUID  string            `json:"resourceUid,omitempty"`
 	OperationID  string            `json:"operationId,omitempty"`
@@ -32,7 +34,7 @@ type Entry struct {
 
 func entry(e store.Event) Entry {
 	return Entry{ID: e.ID, Type: e.Type, Namespace: e.Namespace, Kind: e.Kind, ResourceName: e.ResourceName,
-		ResourceUID: e.ResourceUID, OperationID: e.OperationID, RunID: e.RunID, ReleaseID: e.ReleaseID, At: e.At(), OccurredAt: e.OccurredAt,
+		ResourceUID: e.ResourceUID, Reason: e.Reason, WorkloadID: e.WorkloadID, OperationID: e.OperationID, RunID: e.RunID, ReleaseID: e.ReleaseID, At: e.At(), OccurredAt: e.OccurredAt,
 		ObservedAt: e.ObservedAt, RecordedAt: e.RecordedAt, Severity: e.Severity, Confidence: string(e.Confidence),
 		Summary: e.Summary, Facts: e.Facts}
 }
@@ -42,6 +44,8 @@ type Entries struct {
 	Schema     int     `json:"schema"`
 	Entries    []Entry `json:"entries"`
 	NextCursor string  `json:"nextCursor,omitempty"`
+	// Truncated is set on a merged timeline that was cut at its limit.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Log filters, by the groups the Log screen offers.
@@ -57,6 +61,11 @@ var typeGroups = map[string][]string{
 	"health": {"release.health.", "release.unavailable", "pod.notready", "pod.oomkilled", "pod.restarted", "pod.waiting", "pod.evicted"},
 	// Pod lifecycle: the routine of Pods coming and going.
 	"pods": {"pod.created", "pod.ready", "pod.terminated"},
+	// Kubernetes Events: what Kubernetes reported (Warning Events only enter the
+	// Log; every Event is kept as evidence).
+	"kubernetes": {"evidence."},
+	// Scaling: what autoscalers and Deployments reported about replica targets.
+	"scaling": {"hpa.", "workload.replica_target_changed"},
 }
 
 // outcomeTypes maps the outcome filter to the entry types of finished runs.
@@ -88,6 +97,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	eq.Namespace, eq.OperationID, eq.RunID, eq.Cursor = q.Get("namespace"), q.Get("operation"), q.Get("run"), q.Get("cursor")
 	eq.ReleaseID = q.Get("release")
+	eq.Kind, eq.Reason, eq.WorkloadID = q.Get("kind"), q.Get("reason"), q.Get("workload")
+	if len(eq.Kind) > 64 || len(eq.Reason) > 128 || len(eq.WorkloadID) > 64 {
+		reply(w, r, s.log, nil, badRequest("kind, reason or workload is too long"))
+		return
+	}
 	if t := q.Get("q"); len(t) > 200 {
 		reply(w, r, s.log, nil, badRequest("q is too long"))
 		return
@@ -117,7 +131,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		for _, g := range strings.Split(show, ",") {
 			types, ok := typeGroups[g]
 			if !ok {
-				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts, releases, health, pods or collection"))
+				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts, releases, health, pods, kubernetes, scaling or collection"))
 				return
 			}
 			if g == "runs" {
@@ -129,6 +143,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			reply(w, r, s.log, nil, badRequest("outcome narrows run entries: add runs to show"))
 			return
 		}
+	}
+	// Kubernetes Event entries are asked for by name or by what they carry
+	// (kind, reason, workload); an unfiltered Log does not include them.
+	if show == "" && eq.Reason == "" && eq.Kind == "" && eq.WorkloadID == "" && eq.OperationID == "" && eq.RunID == "" && eq.ReleaseID == "" {
+		eq.ExcludeTypes = []string{"evidence."}
 	}
 	if sv := q.Get("severity"); sv != "" {
 		for _, v := range strings.Split(sv, ",") {

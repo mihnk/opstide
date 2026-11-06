@@ -61,6 +61,16 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		if n, err := db.ActiveWindows(ctx, time.Now()); err == nil {
 			w.Gauge("opstide_release_windows_active", "Releases being observed after their rollout.", float64(n))
 		}
+		ev := cs.Evidence
+		w.Counter("opstide_evidence_events_total", "Kubernetes Events first recorded, by origin (observed while watching, or adopted when already there).", float64(ev.Observed), "origin", "observed")
+		w.Counter("opstide_evidence_events_total", "Kubernetes Events first recorded, by origin (observed while watching, or adopted when already there).", float64(ev.Adopted), "origin", "adopted")
+		w.Counter("opstide_evidence_updates_total", "Writes that changed an Event already recorded (a count that grew, a changed message).", float64(ev.Updated))
+		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPADesired), "type", "hpa_desired_replicas_changed")
+		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPACondition), "type", "hpa_condition_changed")
+		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPATarget), "type", "workload_replica_target_changed")
+		if es, err := db.EvidenceStats(ctx); err == nil {
+			w.Gauge("opstide_evidence_records", "Kubernetes Event records kept.", float64(es.Records))
+		}
 		if st, ok := storage(ctx); ok {
 			w.Gauge("opstide_store_events", "Log entries kept.", float64(st.Events))
 			w.Gauge("opstide_store_bytes", "Size of the database file.", float64(st.Bytes))

@@ -184,6 +184,8 @@ export interface Entry {
   kind?: string
   resourceName?: string
   resourceUid?: string
+  reason?: string
+  workloadId?: string
   operationId?: string
   runId?: string
   releaseId?: string
@@ -197,7 +199,7 @@ export interface Entry {
   facts?: Record<string, string>
 }
 
-export interface Entries { schema: number; entries: Entry[]; nextCursor?: string }
+export interface Entries { schema: number; entries: Entry[]; nextCursor?: string; truncated?: boolean }
 
 export interface RunDetail { schema: number; run: Run; operation?: Operation; entries: Entry[] }
 
@@ -219,6 +221,16 @@ export interface System {
   }
   integrations: { name: string; state: string; note: string }[]
   workload: WorkloadSystem
+  evidence: EvidenceSystem
+}
+
+export interface EvidenceSystem {
+  source: string
+  records: number
+  warnings: number
+  latestObserved?: string
+  autoscalers: number
+  degraded: string[]
 }
 
 export class ApiError extends Error {
@@ -311,6 +323,10 @@ export interface Assessment {
   windowMinutes: number
   windows: number[]
   stored: boolean
+  /** Observations set aside from the verdict, each with the rule that did so. */
+  context?: { rule: string; summary: string; inputs?: Record<string, string> }[]
+  /** The rule set that produced the verdict: 1 is the original, 2 sets scaling convergence apart. */
+  version?: number
 }
 
 export interface Probe { kind: string; path?: string; port?: string; scheme?: string; commandHash?: string; initialDelaySeconds?: number; periodSeconds?: number }
@@ -385,3 +401,83 @@ export interface ReleaseChanges {
 }
 
 export interface WorkloadSystem { windowMinutes: number; activeWindows: number; lastEvent?: string; degraded: string[] }
+
+/** How two records are connected. A classification of the link, never a cause. */
+export type Relationship = 'DIRECT' | 'OWNERSHIP' | 'SAME_RESOURCE_CONTEXT' | 'UNRESOLVED'
+
+export interface EvidenceLink { kind: string; uid?: string; relationship: Relationship; via?: string }
+
+export interface EvidenceRecord {
+  id: string
+  source: string
+  kind: 'KubernetesEvent'
+  sourceUid: string
+  namespace: string
+  name: string
+  reason: string
+  eventType: string
+  message: string
+  messageTruncated?: boolean
+  action?: string
+  reporter?: string
+  occurredAt: { first: string | null; last: string | null }
+  observedAt: string
+  updatedAt: string
+  count: { value: number; basis: string } | null
+  resource: { kind: string; namespace?: string; name?: string; uid?: string }
+  related?: { kind: string; namespace?: string; name?: string; uid?: string }
+  relationship: Relationship
+  links: EvidenceLink[]
+  origin: 'observed' | 'adopted'
+  sourceDeletedAt: string | null
+  certainty: 'OBSERVED'
+}
+
+export interface ReleaseRecord extends EvidenceRecord {
+  releaseRelationship: Relationship
+  releaseVia: string
+  scope: 'release' | 'workload'
+}
+
+export interface SummaryFact { text: string; rule: string; at?: string; refs: string[] }
+
+export interface ReleaseEvidence {
+  schema: number
+  release: string
+  from: string
+  to?: string
+  records: ReleaseRecord[]
+  scaling: Entry[]
+  summary: { facts: SummaryFact[]; rootCause: string; complete: boolean; note?: string }
+  context: { rule: string; summary: string; inputs?: Record<string, string> }[]
+  truncated: boolean
+  counts: Record<string, number>
+  provenance: { eventsApi: string; notes: string[] }
+}
+
+export interface HPAView {
+  uid: string
+  namespace: string
+  name: string
+  target: string
+  targetRelationship: Relationship
+  targetVia: string
+  minReplicas: number | null
+  maxReplicas: number
+  currentReplicas: number
+  desiredReplicas: number
+  lastScaleTime: string | null
+  conditions: { type: string; status: string; reason?: string; message?: string; transition?: string }[]
+  metrics: { type: string; name?: string; current?: string; target?: string }[]
+  updatedAt: string
+  deletedAt: string | null
+}
+
+export interface WorkloadScaling {
+  schema: number
+  workload: { uid: string; namespace: string; name: string }
+  replicaTarget: number | null
+  hpas: HPAView[]
+  transitions: Entry[]
+  records: EvidenceRecord[]
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -408,6 +409,13 @@ func (s *Server) releaseEvents(w http.ResponseWriter, r *http.Request) {
 	for _, e := range page.Events {
 		out.Entries = append(out.Entries, entry(e))
 	}
+	// include=evidence,scaling merges what is recorded about the release's own
+	// resources and Deployment into the timeline, each entry keeping its type so
+	// the page can tell them apart. Each source is bounded by the limit on its own, they
+	// are added to the first page only, and older pages continue the release's own entries.
+	if inc := splitList(r.URL.Query().Get("include")); err == nil && len(inc) > 0 && eq.Cursor == "" {
+		err = s.mergeTimeline(r, rel, inc, eq.Limit, &out)
+	}
 	if err != nil && strings.HasPrefix(err.Error(), "bad cursor") {
 		err = badRequest(err.Error())
 	}
@@ -604,4 +612,75 @@ func (s *Server) releaseChanges(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Reason = strings.Join(notes, " ")
 	reply(w, r, s.log, out, nil)
+}
+
+// mergeTimeline adds Kubernetes Event and scaling entries to a release timeline.
+func (s *Server) mergeTimeline(r *http.Request, rel store.Release, include []string, limit int, out *Entries) error {
+	ctx := r.Context()
+	from, to, err := s.releaseWindow(r, rel)
+	if err != nil {
+		return err
+	}
+	for _, inc := range include {
+		switch inc {
+		case "evidence":
+			pg, err := s.db.ReleaseEvidence(ctx, store.ReleaseEvidenceQuery{ReplicaSetUID: rel.ReplicaSetUID, WorkloadID: rel.WorkloadID, From: from, To: to, Limit: limit})
+			if err != nil {
+				return err
+			}
+			for _, e := range pg.Records {
+				out.Entries = append(out.Entries, evidenceEntry(e, rel.ID))
+			}
+			out.Truncated = out.Truncated || pg.NextCursor != ""
+		case "scaling":
+			pg, err := s.db.Events(ctx, store.EventQuery{WorkloadID: rel.WorkloadID, Types: []string{"hpa.", "workload.replica_target_changed"}, From: from, To: to, Limit: limit})
+			if err != nil {
+				return err
+			}
+			for _, e := range pg.Events {
+				out.Entries = append(out.Entries, entry(e))
+			}
+			out.Truncated = out.Truncated || pg.NextCursor != ""
+		default:
+			return badRequest("include takes evidence or scaling")
+		}
+	}
+	// An entry can come from two sources (a replica-target change is tied to the
+	// release current when it was seen and to its Deployment): keep it once.
+	seen := map[string]bool{}
+	uniq := out.Entries[:0]
+	for _, e := range out.Entries {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			uniq = append(uniq, e)
+		}
+	}
+	out.Entries = uniq
+	// Newest first.
+	sort.SliceStable(out.Entries, func(i, j int) bool { return out.Entries[i].At.After(out.Entries[j].At) })
+	return nil
+}
+
+// evidenceEntry presents an evidence record as a timeline entry, as what Kubernetes reported.
+func evidenceEntry(e store.Evidence, releaseID string) Entry {
+	sev := "info"
+	if e.EventType == "Warning" {
+		sev = "warning"
+	}
+	facts := map[string]string{"reason": e.Reason, "eventType": e.EventType, "message": e.Message, "source": e.Source, "origin": e.Origin, "evidenceId": e.ID}
+	if e.Count > 0 {
+		facts["count"] = strconv.Itoa(e.Count)
+	}
+	return Entry{ID: "evidence/" + e.ID, Type: "evidence.record", Namespace: e.Namespace, Kind: e.Regarding.Kind, ResourceName: e.Regarding.Name, ResourceUID: e.Regarding.UID,
+		Reason: e.Reason, WorkloadID: e.WorkloadID, ReleaseID: releaseID, At: e.SortTime(), OccurredAt: firstNonZero(e.LastAt, e.FirstAt), ObservedAt: e.ObservedAt, RecordedAt: e.UpdatedAt,
+		Severity: sev, Confidence: string(store.Observed), Summary: "Kubernetes reported " + e.Reason + " for " + e.Regarding.Kind + " " + e.Regarding.Name, Facts: facts}
+}
+
+func firstNonZero(ts ...time.Time) time.Time {
+	for _, t := range ts {
+		if !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
 }

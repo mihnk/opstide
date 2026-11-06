@@ -18,8 +18,10 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -56,6 +58,9 @@ type Options struct {
 	// ReleaseWindow is how long after a rollout completes a release is
 	// observed before it can be called healthy; 10 minutes when zero.
 	ReleaseWindow time.Duration
+	// EventsSource forces the API Kubernetes Events are read through
+	// ("events.k8s.io/v1" or "core/v1"); empty chooses by discovery.
+	EventsSource string
 }
 
 // Collector watches the cluster and writes to the store.
@@ -75,6 +80,12 @@ type Collector struct {
 	processed, failed atomic.Uint64
 
 	window time.Duration
+	// Evidence: Events and autoscalers are optional watches. A cluster that
+	// does not allow reading them must not stop releases and runs from being
+	// recorded, so they are started but not waited for.
+	eventsSourceOpt string
+	evSource        atomic.Value // string, the API in use
+	em              evidenceMetrics
 	// gone holds the last state of a Deployment Pod whose delete was seen, by
 	// UID, until the worker has recorded it: the informer's cache no longer has it.
 	gone sync.Map
@@ -85,6 +96,7 @@ type scope struct {
 	ns                                string
 	cronJobs, jobs, pods, deployments cache.SharedIndexInformer
 	replicaSets, deployPods           cache.SharedIndexInformer
+	eventsV1, eventsCore, hpas        cache.SharedIndexInformer
 }
 
 type item struct {
@@ -115,6 +127,7 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 	if c.now == nil {
 		c.now = time.Now
 	}
+	c.eventsSourceOpt = opt.EventsSource
 	c.window = opt.ReleaseWindow
 	if c.window <= 0 {
 		c.window = release.DefaultWindow
@@ -191,6 +204,33 @@ func (c *Collector) newScope(ns string) *scope {
 	_ = s.deployPods.SetTransform(trimPod)
 	_ = s.replicaSets.SetTransform(trimReplicaSet)
 
+	// Evidence. Only one of the two Event informers is ever started.
+	events := c.client.EventsV1()
+	s.eventsV1 = c.optionalInformer(ns, Events, &eventsv1.Event{}, nil,
+		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return events.Events(ns).List(ctx, o)
+		},
+		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+			return events.Events(ns).Watch(ctx, o)
+		}, false)
+	s.eventsCore = c.optionalInformer(ns, Events, &corev1.Event{}, nil,
+		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return core.Events(ns).List(ctx, o)
+		},
+		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+			return core.Events(ns).Watch(ctx, o)
+		}, false)
+	_ = s.eventsV1.SetTransform(trimEvent)
+	_ = s.eventsCore.SetTransform(trimEvent)
+	autoscaling := c.client.AutoscalingV2()
+	s.hpas = c.optionalInformer(ns, HPAs, &autoscalingv2.HorizontalPodAutoscaler{}, nil,
+		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
+			return autoscaling.HorizontalPodAutoscalers(ns).List(ctx, o)
+		},
+		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
+			return autoscaling.HorizontalPodAutoscalers(ns).Watch(ctx, o)
+		}, true)
+
 	self := func(kind string) func(metav1.Object) (item, bool) {
 		return func(o metav1.Object) (item, bool) {
 			return item{kind: kind, namespace: o.GetNamespace(), name: o.GetName()}, true
@@ -208,6 +248,9 @@ func (c *Collector) newScope(ns string) *scope {
 		return item{kind: Deployments, namespace: o.GetNamespace(), name: ref.Name}, true
 	})
 	c.handleDeployPods(s.deployPods)
+	c.handle(s.eventsV1, true, c.eventItem)
+	c.handle(s.eventsCore, true, c.eventItem)
+	c.handle(s.hpas, true, self(HPAs))
 	// A pod change is a change to its Job's run.
 	c.handle(s.pods, false, func(o metav1.Object) (item, bool) {
 		ref := metav1.GetControllerOf(o)
@@ -217,6 +260,31 @@ func (c *Collector) newScope(ns string) *scope {
 		return item{kind: Jobs, namespace: o.GetNamespace(), name: ref.Name}, true
 	})
 	return s
+}
+
+// eventItem queues an Event unless it is about a kind OpsTide does not follow.
+func (c *Collector) eventItem(o metav1.Object) (item, bool) {
+	kind := ""
+	switch e := o.(type) {
+	case *eventsv1.Event:
+		kind = e.Regarding.Kind
+	case *corev1.Event:
+		kind = e.InvolvedObject.Kind
+	}
+	if !evidenceKinds[kind] {
+		return item{}, false
+	}
+	return item{kind: Events, namespace: o.GetNamespace(), name: o.GetName()}, true
+}
+
+// optionalInformer is informer for a watch the collector starts but does not wait for.
+func (c *Collector) optionalInformer(ns, kind string, example runtime.Object, idx cache.Indexers,
+	list func(context.Context, metav1.ListOptions) (runtime.Object, error),
+	watchFn func(context.Context, metav1.ListOptions) (watch.Interface, error), _ bool) cache.SharedIndexInformer {
+	n := len(c.informers)
+	inf := c.informer(ns, kind, example, idx, list, watchFn)
+	c.informers = c.informers[:n] // not one the collector waits for
+	return inf
 }
 
 func scopeName(kind, ns string) string {
@@ -303,13 +371,15 @@ type Stats struct {
 	Failing int
 	// Workload counts release observation, with bounded labels only.
 	Workload WorkloadStats
+	// Evidence counts Event and autoscaler observation.
+	Evidence EvidenceStats
 }
 
 // Stats returns the collector's counters.
 func (c *Collector) Stats() Stats {
 	return Stats{
 		Synced: c.synced.Load(), Processed: c.processed.Load(), Failed: c.failed.Load(),
-		Queued: c.queue.Len(), Failing: len(c.cov.problems()), Workload: c.wm.stats(),
+		Queued: c.queue.Len(), Failing: len(c.cov.problems()), Workload: c.wm.stats(), Evidence: c.em.stats(c.eventsSource()),
 	}
 }
 
@@ -322,6 +392,34 @@ func (c *Collector) Run(ctx context.Context) error {
 	for _, inf := range c.informers {
 		go inf.RunWithContext(ctx)
 	}
+	// Events (through one API) and autoscalers: started, not waited for.
+	src := c.pickEventsSource()
+	c.evSource.Store(src)
+	var optional []cache.SharedIndexInformer
+	for _, s := range c.scopes {
+		ev := s.eventsV1
+		if src == store.SourceCoreV1 {
+			ev = s.eventsCore
+		}
+		optional = append(optional, ev, s.hpas)
+	}
+	for _, inf := range optional {
+		go inf.RunWithContext(ctx)
+	}
+	go func() {
+		syncd := make([]cache.InformerSynced, len(optional))
+		for i, inf := range optional {
+			syncd[i] = inf.HasSynced
+		}
+		if cache.WaitForCacheSync(ctx.Done(), syncd...) {
+			if err := c.reconcileAbsentHPAs(ctx); err != nil {
+				c.log.Warn("reconciling autoscalers removed while not watching", "err", err)
+			}
+			if err := c.reconcileAbsentEvidence(ctx); err != nil {
+				c.log.Warn("reconciling Events dropped while not watching", "err", err)
+			}
+		}
+	}()
 	synced := make([]cache.InformerSynced, len(c.informers))
 	for i, inf := range c.informers {
 		synced[i] = inf.HasSynced
@@ -367,6 +465,10 @@ func (c *Collector) next(ctx context.Context) bool {
 		err = c.syncDeployment(ctx, it)
 	case DeployPods:
 		err = c.syncDeployPod(ctx, it)
+	case Events:
+		err = c.syncEvent(ctx, it)
+	case HPAs:
+		err = c.syncHPA(ctx, it)
 	}
 	switch {
 	case err == nil:
@@ -382,6 +484,40 @@ func (c *Collector) next(ctx context.Context) bool {
 		c.queue.Forget(it)
 	}
 	return true
+}
+
+// EvidenceSource is the API Events are read through: events.k8s.io/v1, or core/v1
+// on a cluster that does not serve the first. Empty before Run has chosen.
+func (c *Collector) EvidenceSource() string {
+	v, _ := c.evSource.Load().(string)
+	return v
+}
+
+// evidenceSynced reports whether the Event and autoscaler watches have listed
+// at least once. Readiness does not wait for it (a cluster that forbids reading
+// Events must still record runs and releases); tests and System use it.
+func (c *Collector) evidenceSynced() bool {
+	if _, ok := c.evSource.Load().(string); !ok {
+		return false
+	}
+	for _, s := range c.scopes {
+		ev := s.eventsV1
+		if c.eventsSource() == store.SourceCoreV1 {
+			ev = s.eventsCore
+		}
+		if !ev.HasSynced() || !s.hpas.HasSynced() {
+			return false
+		}
+	}
+	return true
+}
+
+// eventsSource is the API Events are read through, once Run has chosen it.
+func (c *Collector) eventsSource() string {
+	if v, ok := c.evSource.Load().(string); ok {
+		return v
+	}
+	return c.pickEventsSource()
 }
 
 func (c *Collector) scopeFor(ns string) *scope {

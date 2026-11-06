@@ -173,7 +173,7 @@ func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Take it back to version 1, as a database written before the indexes would be.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; PRAGMA user_version = 1`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; PRAGMA user_version = 1`); err != nil {
 		t.Fatalf("rewinding to version 1: %v", err)
 	}
 	s.Close()
@@ -791,5 +791,104 @@ func TestRetentionKeepsLivePodsOfAReusedReplicaSet(t *testing.T) {
 	}
 	if _, ok, _ := s.PodByUID(ctx, "orphan"); ok {
 		t.Error("a Pod of a release that is gone was kept")
+	}
+}
+
+// Migration 4 adds evidence and autoscaler tables and the columns that tie
+// entries to them, without touching what migration 3 stored: releases already
+// judged keep assessment version 1.
+func TestMigrationFourKeepsReleasesOnTheirOwnRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v3.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id;
+DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; PRAGMA user_version = 3`); err != nil {
+		t.Fatalf("rewinding to version 3: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO releases (id, workload_id, namespace, workload, revision, revision_num, replicaset_uid, replicaset_name, fingerprint, origin,
+observed_at, state, state_at, health, window_seconds, snapshot, updated_at) VALUES ('old','d','ns','api','1',1,'rs','rs','f','observed',1,'completed',1,'healthy',600,'{}',1)`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r, ok, err := s.Release(ctx, "old")
+	if err != nil || !ok {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if r.AssessmentVersion != 1 {
+		t.Fatalf("a release judged before scaling evidence existed must keep the rules it was judged by: version %d", r.AssessmentVersion)
+	}
+	if _, err := s.Evidence(ctx, EvidenceQuery{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A release's Events are those that overlap its time: one that began while the release was current and
+// kept repeating after a newer revision took over is still its own; one that began later is not.
+func TestReleaseEvidenceIncludesEventsThatKeptRepeatingAfterSupersession(t *testing.T) {
+	s, ctx := open(t)
+	end := t0.Add(time.Hour)
+	mk := func(id, uid string, first, last time.Time) Evidence {
+		return Evidence{ID: id, Source: SourceEventsV1, SourceUID: uid, Namespace: "ns", Name: id, Reason: "BackOff", EventType: "Warning",
+			Regarding: Ref{Kind: "Pod", Name: "p", UID: "p-" + id}, FirstAt: first, LastAt: last, ObservedAt: first, Origin: OriginObservedEvidence, ReplicaSetUID: "rsA", WorkloadID: "d"}
+	}
+	update(t, s, func(w *Writer) error {
+		for _, e := range []Evidence{
+			mk("repeats", "u1", t0.Add(10*time.Minute), end.Add(30*time.Minute)), // began under the release, still repeating
+			mk("inside", "u2", t0.Add(5*time.Minute), t0.Add(20*time.Minute)),
+			mk("later", "u3", end.Add(5*time.Minute), end.Add(10*time.Minute)), // began under the next revision
+			mk("before", "u4", t0.Add(-3*time.Hour), t0.Add(-2*time.Hour)),
+		} {
+			if err := w.SaveEvidence(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	pg, err := s.ReleaseEvidence(ctx, ReleaseEvidenceQuery{ReplicaSetUID: "rsA", WorkloadID: "d", From: t0, To: end, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, e := range pg.Records {
+		ids = append(ids, e.ID)
+	}
+	sort.Strings(ids)
+	if strings.Join(ids, ",") != "inside,repeats" {
+		t.Fatalf("%v", ids)
+	}
+}
+
+// A Deployment deleted and created again under the same name has a new UID; the autoscaler that names it
+// follows, with the Events recorded about it.
+func TestAutoscalerFollowsARecreatedDeployment(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		if err := w.SaveHPA(ctx, HPA{UID: "h", Namespace: "ns", Name: "api", TargetKind: "Deployment", TargetName: "api", TargetUID: "old", WorkloadID: "old", Conditions: "[]", Metrics: "[]", FirstSeenAt: t0}); err != nil {
+			return err
+		}
+		if err := w.SaveEvidence(ctx, Evidence{ID: "e", Source: SourceEventsV1, SourceUID: "u", Namespace: "ns", Name: "e", Regarding: Ref{Kind: "HorizontalPodAutoscaler", Name: "api", UID: "h"},
+			ObservedAt: t0, Origin: OriginObservedEvidence, HPAUID: "h", WorkloadID: "old"}); err != nil {
+			return err
+		}
+		return w.RelinkHPAs(ctx, "ns", "api", "new")
+	})
+	hs, err := s.HPAsOfWorkload(ctx, "new")
+	if err != nil || len(hs) != 1 || hs[0].TargetUID != "new" {
+		t.Fatalf("%v %+v", err, hs)
+	}
+	if old, _ := s.HPAsOfWorkload(ctx, "old"); len(old) != 0 {
+		t.Fatal("still tied to the old Deployment")
+	}
+	pg, _ := s.Evidence(ctx, EvidenceQuery{WorkloadID: "new"})
+	if len(pg.Records) != 1 {
+		t.Fatal("the autoscaler's Events did not follow")
 	}
 }

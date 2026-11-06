@@ -184,6 +184,96 @@ CREATE INDEX release_pods_rs ON release_pods(replicaset_uid, created_at);
 CREATE INDEX release_pods_live ON release_pods(created_at) WHERE terminated_at IS NULL;
 CREATE INDEX release_pods_updated ON release_pods(updated_at);
 `,
+	// 4: Kubernetes evidence and scaling. Events are kept as an allow-listed,
+	// size-bounded record keyed by the Event's own UID, so a count that grows is
+	// one row that changes and not many rows. The links (rs_uid, workload_id, ...)
+	// are written only from UIDs and ownerReferences, never from names.
+	`
+CREATE TABLE evidence (
+	id                TEXT PRIMARY KEY,        -- hash of the Event's UID
+	source            TEXT NOT NULL,           -- events.k8s.io/v1 | core/v1
+	source_uid        TEXT NOT NULL,
+	namespace         TEXT NOT NULL,
+	name              TEXT NOT NULL,           -- the Event object's name
+	reason            TEXT NOT NULL DEFAULT '',
+	event_type        TEXT NOT NULL DEFAULT '',-- Normal | Warning, as reported
+	message           TEXT NOT NULL DEFAULT '',
+	message_truncated INTEGER NOT NULL DEFAULT 0,
+	action            TEXT NOT NULL DEFAULT '',
+	reporter          TEXT NOT NULL DEFAULT '',
+	regarding_kind    TEXT NOT NULL DEFAULT '',
+	regarding_name    TEXT NOT NULL DEFAULT '',
+	regarding_uid     TEXT NOT NULL DEFAULT '',
+	related_kind      TEXT NOT NULL DEFAULT '',
+	related_name      TEXT NOT NULL DEFAULT '',
+	related_uid       TEXT NOT NULL DEFAULT '',
+	first_at          INTEGER,                 -- NULL: the source gave none
+	last_at           INTEGER,
+	count             INTEGER NOT NULL DEFAULT 0,
+	count_basis       TEXT NOT NULL DEFAULT '',-- series | deprecatedCount | count | ''
+	observed_at       INTEGER NOT NULL,        -- when OpsTide first saw it
+	origin            TEXT NOT NULL,           -- observed | adopted
+	at                INTEGER NOT NULL,        -- sort time: last_at, else first_at, else observed_at
+	updated_at        INTEGER NOT NULL,
+	source_deleted_at INTEGER,
+	count_logged      INTEGER NOT NULL DEFAULT 0,
+	count_logged_at   INTEGER,
+	rs_uid            TEXT NOT NULL DEFAULT '',
+	workload_id       TEXT NOT NULL DEFAULT '',
+	run_id            TEXT NOT NULL DEFAULT '',
+	operation_id      TEXT NOT NULL DEFAULT '',
+	hpa_uid           TEXT NOT NULL DEFAULT '',
+	link_via          TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX evidence_source_uid ON evidence(source_uid);
+CREATE INDEX evidence_at ON evidence(at, id);
+CREATE INDEX evidence_regarding ON evidence(regarding_uid, at) WHERE regarding_uid <> '';
+CREATE INDEX evidence_rs ON evidence(rs_uid, at) WHERE rs_uid <> '';
+CREATE INDEX evidence_workload ON evidence(workload_id, at) WHERE workload_id <> '';
+CREATE INDEX evidence_run ON evidence(run_id, at) WHERE run_id <> '';
+CREATE INDEX evidence_hpa ON evidence(hpa_uid, at) WHERE hpa_uid <> '';
+CREATE INDEX evidence_ns ON evidence(namespace, at);
+CREATE INDEX evidence_reason ON evidence(reason, at);
+CREATE INDEX evidence_updated ON evidence(updated_at);
+CREATE INDEX evidence_live ON evidence(at) WHERE source_deleted_at IS NULL;
+
+-- Scaling entries and Event entries in the Log are filtered by what they are about.
+ALTER TABLE events ADD COLUMN reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN workload_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX events_workload ON events(workload_id, at) WHERE workload_id <> '';
+CREATE INDEX events_reason ON events(reason, at) WHERE reason <> '';
+
+-- A Deployment's replica target as last seen, to notice when it changes.
+ALTER TABLE workloads ADD COLUMN spec_replicas INTEGER;
+
+-- Which rules judged a release. 1 is the M2.5 contract, kept for releases
+-- observed before scaling evidence existed; 2 sets scaling convergence apart.
+ALTER TABLE releases ADD COLUMN assessment_version INTEGER NOT NULL DEFAULT 1;
+
+CREATE TABLE hpas (
+	uid               TEXT PRIMARY KEY,
+	namespace         TEXT NOT NULL,
+	name              TEXT NOT NULL,
+	target_api        TEXT NOT NULL DEFAULT '',
+	target_kind       TEXT NOT NULL DEFAULT '',
+	target_name       TEXT NOT NULL DEFAULT '',
+	target_uid        TEXT NOT NULL DEFAULT '', -- the Deployment of that name, when OpsTide has seen it
+	workload_id       TEXT NOT NULL DEFAULT '',
+	min_replicas      INTEGER,
+	max_replicas      INTEGER NOT NULL DEFAULT 0,
+	current_replicas  INTEGER NOT NULL DEFAULT 0,
+	desired_replicas  INTEGER NOT NULL DEFAULT 0,
+	last_scale_at     INTEGER,
+	conditions        TEXT NOT NULL DEFAULT '[]',
+	metrics           TEXT NOT NULL DEFAULT '[]',
+	first_seen_at     INTEGER NOT NULL,
+	updated_at        INTEGER NOT NULL,
+	deleted_at        INTEGER
+);
+CREATE INDEX hpas_workload ON hpas(workload_id) WHERE workload_id <> '';
+CREATE INDEX hpas_target ON hpas(namespace, target_kind, target_name);
+CREATE INDEX hpas_updated ON hpas(updated_at);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

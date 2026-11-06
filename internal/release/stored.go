@@ -100,7 +100,7 @@ func InputFor(rel store.Release, pods []store.PodRecord, rollback bool, now time
 	in := Input{
 		Origin: rel.Origin, Rollout: rel.State, RolloutNote: rel.StateReason,
 		ObservedAt: rel.ObservedAt, CompletedAt: rel.CompletedAt, SupersededAt: rel.SupersededAt,
-		Window: window, Desired: rel.Desired, Episodes: DecodeEpisodes(rel.Episodes), Trouble: DecodeTrouble(rel.Trouble), Now: now, Watched: watched, Rollback: rollback,
+		Window: window, Desired: rel.Desired, Episodes: DecodeEpisodes(rel.Episodes), Trouble: DecodeTrouble(rel.Trouble), Now: now, Watched: watched, Rollback: rollback, Version: rel.AssessmentVersion,
 	}
 	for _, p := range pods {
 		st, err := DecodePod(p.State)

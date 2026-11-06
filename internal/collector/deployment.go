@@ -66,6 +66,20 @@ func (c *Collector) syncDeployment(ctx context.Context, it item) error {
 		if err != nil {
 			return err
 		}
+		releaseID := ""
+		if cur != nil {
+			releaseID = cur.ID
+		}
+		if err := c.replicaTarget(ctx, w, d, releaseID, want, now); err != nil {
+			return err
+		}
+		// Autoscalers and Events that named this Deployment before it was known.
+		if err := w.RelinkHPAs(ctx, d.Namespace, d.Name, string(d.UID)); err != nil {
+			return err
+		}
+		if err := w.RelinkEvidenceOfWorkload(ctx, string(d.UID)); err != nil {
+			return err
+		}
 		if !done {
 			return nil
 		}

@@ -27,6 +27,23 @@ type System struct {
 	Integrations []Integration `json:"integrations"`
 	// Workload is the state of release observation.
 	Workload WorkloadSystem `json:"workload"`
+	// Evidence is the state of Kubernetes Event and autoscaler collection.
+	Evidence EvidenceSystem `json:"evidence"`
+}
+
+// EvidenceSystem is the state of Kubernetes Event and autoscaler collection.
+type EvidenceSystem struct {
+	// Source is the API Events are read through (events.k8s.io/v1, or core/v1 on a
+	// cluster that does not serve the first); empty until the collector has chosen.
+	Source string `json:"source"`
+	// Records and Warnings count the Events kept; LatestObserved is when OpsTide
+	// last saw an Event for the first time.
+	Records        int64     `json:"records"`
+	Warnings       int64     `json:"warnings"`
+	LatestObserved time.Time `json:"latestObserved,omitzero"`
+	Autoscalers    int64     `json:"autoscalers"`
+	// Degraded says what makes evidence collection incomplete right now.
+	Degraded []string `json:"degraded"`
 }
 
 // WorkloadSystem is the state of release observation.
@@ -107,7 +124,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			out.Scopes = append(out.Scopes, scopeView(scope, []Span{}, p))
 		}
 	}
-	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5}
+	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5, "events": 6, "hpas": 7}
 	sort.Slice(out.Scopes, func(i, j int) bool {
 		a, b := out.Scopes[i], out.Scopes[j]
 		if a.Kind != b.Kind {
@@ -131,6 +148,21 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	for _, sc := range out.Scopes {
 		if n, ok := names[sc.Kind]; ok && sc.Problem != "" {
 			out.Workload.Degraded = append(out.Workload.Degraded, fmt.Sprintf("%s cannot be watched (%s): releases from now on may be missing or unassessable.", n, sc.Problem))
+		}
+	}
+	out.Evidence = EvidenceSystem{Source: s.eventsSource(), Degraded: []string{}}
+	if es, err := s.db.EvidenceStats(ctx); err != nil {
+		reply(w, r, s.log, nil, err)
+		return
+	} else {
+		out.Evidence.Records, out.Evidence.Warnings, out.Evidence.LatestObserved, out.Evidence.Autoscalers = es.Records, es.Warnings, es.Latest, es.HPAs
+	}
+	for _, sc := range out.Scopes {
+		switch {
+		case sc.Kind == "events" && sc.Problem != "":
+			out.Evidence.Degraded = append(out.Evidence.Degraded, fmt.Sprintf("Kubernetes Events cannot be read (%s): evidence from now on may be missing.", sc.Problem))
+		case sc.Kind == "hpas" && sc.Problem != "":
+			out.Evidence.Degraded = append(out.Evidence.Degraded, fmt.Sprintf("HorizontalPodAutoscalers cannot be read (%s): scaling context may be missing.", sc.Problem))
 		}
 	}
 	st, err := s.db.Stats(ctx)

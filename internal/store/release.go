@@ -83,6 +83,10 @@ type Release struct {
 	Snapshot string // JSON: the allow-listed revision snapshot
 	ImageIDs string // JSON: container -> image ID, from the first Pod that reported one
 
+	// AssessmentVersion is the rule set that judges the release: 1 is the M2.5
+	// contract, 2 sets scaling convergence apart from release findings.
+	AssessmentVersion int
+
 	UpdatedAt time.Time
 }
 
@@ -110,7 +114,7 @@ type queryer interface {
 const releaseCols = `id, workload_id, namespace, workload, revision, revision_num, replicaset_uid, replicaset_name, template_hash,
 	fingerprint, prev_id, origin, observed_at, started_at, completed_at, superseded_at, scaled_down_at, state, state_reason,
 	state_at, desired, updated, ready, available, paused, health, health_reasons, health_at, window_seconds, observe_until,
-	episodes, trouble, snapshot, image_ids, updated_at`
+	episodes, trouble, snapshot, image_ids, assessment_version, updated_at`
 
 func scanRelease(sc interface{ Scan(...any) error }) (Release, error) {
 	var r Release
@@ -120,7 +124,7 @@ func scanRelease(sc interface{ Scan(...any) error }) (Release, error) {
 	err := sc.Scan(&r.ID, &r.WorkloadID, &r.Namespace, &r.Workload, &r.Revision, &r.RevisionNum, &r.ReplicaSetUID, &r.ReplicaSetName,
 		&r.TemplateHash, &r.Fingerprint, &r.PrevID, &r.Origin, &observed, &started, &completed, &superseded, &scaled, &r.State,
 		&r.StateReason, &state, &r.Desired, &r.Updated, &r.Ready, &r.Available, &paused, &r.Health, &r.HealthReasons, &healthAt,
-		&r.WindowSeconds, &until, &r.Episodes, &r.Trouble, &r.Snapshot, &r.ImageIDs, &upd)
+		&r.WindowSeconds, &until, &r.Episodes, &r.Trouble, &r.Snapshot, &r.ImageIDs, &r.AssessmentVersion, &upd)
 	if err != nil {
 		return r, err
 	}
@@ -194,7 +198,7 @@ func (w *Writer) UpsertRelease(ctx context.Context, r Release) error {
 	}
 	_, err := w.tx.ExecContext(ctx, `
 INSERT INTO releases (`+releaseCols+`)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	prev_id=excluded.prev_id, started_at=excluded.started_at, completed_at=excluded.completed_at,
 	superseded_at=excluded.superseded_at, scaled_down_at=excluded.scaled_down_at, state=excluded.state,
@@ -206,8 +210,12 @@ ON CONFLICT(id) DO UPDATE SET
 		r.Fingerprint, r.PrevID, r.Origin, ms(r.ObservedAt).Int64, ms(r.StartedAt), ms(r.CompletedAt), ms(r.SupersededAt),
 		ms(r.ScaledDownAt), r.State, r.StateReason, ms(r.StateAt).Int64, r.Desired, r.Updated, r.Ready, r.Available, paused,
 		r.Health, r.HealthReasons, ms(r.HealthAt), r.WindowSeconds, ms(r.ObserveUntil), r.Episodes, r.Trouble, r.Snapshot, r.ImageIDs,
-		ms(w.now()).Int64)
-	return err
+		max(r.AssessmentVersion, 1), ms(w.now()).Int64)
+	if err != nil {
+		return err
+	}
+	// Events recorded about this ReplicaSet before its Deployment was known.
+	return w.RelinkEvidenceOfReplicaSet(ctx, r.ReplicaSetUID, r.WorkloadID)
 }
 
 // UpsertWorkload records a Deployment, keeping the time it was first seen.

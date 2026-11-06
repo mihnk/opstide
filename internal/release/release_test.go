@@ -514,3 +514,65 @@ func TestAssessRollbackHasNoSlackBeforeItWasObserved(t *testing.T) {
 		t.Fatalf("a restart after the rollback began counts: %+v", v)
 	}
 }
+
+// A shortfall that began with a raised replica target and never fell below the earlier target is
+// context, not a finding (rule scaling.convergence); under the M2.5 rules (version 1) the same
+// observations still count, so a verdict reached under them reads the same as it always did.
+func TestAssessSetsScalingConvergenceApartFromReleaseFindings(t *testing.T) {
+	ep := func(min int) []Episode {
+		return []Episode{{Since: at(4), Until: at(10), Scaling: &ScaleOpen{From: 3, To: 5, At: at(4), MinAvailable: min}}}
+	}
+	in := baseInput()
+	in.Episodes, in.Version = ep(3), 2
+	v := Assess(in)
+	if v.Health != HealthHealthy || len(v.Findings) != 0 || len(v.Context) != 1 || v.Context[0].Rule != "scaling.convergence" || v.Context[0].Inputs["from"] != "3" || v.Context[0].Inputs["to"] != "5" {
+		t.Fatalf("%+v", v)
+	}
+	if !strings.Contains(strings.Join(v.Reasons, " "), "Not counted against the release (scaling.convergence)") {
+		t.Fatalf("the verdict must say what it set aside: %v", v.Reasons)
+	}
+	// Version 1: unchanged.
+	in.Version = 1
+	if v := Assess(in); v.Health != HealthDegraded || len(v.Context) != 0 || v.Version != 1 {
+		t.Fatalf("the M2.5 contract changed: %+v", v)
+	}
+	// Available fell below what was wanted before the increase: counted, with the scaling stated.
+	in.Version, in.Episodes = 2, ep(2)
+	if v := Assess(in); v.Health != HealthDegraded || len(v.Findings) != 1 || !strings.Contains(v.Findings[0].Summary, "fell to 2, below the earlier target of 3") {
+		t.Fatalf("%+v", v)
+	}
+	// A shortfall that did not begin with a raised target is counted as before.
+	in.Episodes = []Episode{{Since: at(4), Until: at(10)}}
+	if v := Assess(in); v.Health != HealthDegraded {
+		t.Fatalf("%+v", v)
+	}
+	// Scaling never clears a failure that was observed directly.
+	in.Episodes = ep(3)
+	in.Pods[0].State.Containers = map[string]*ContainerObs{"api": {OOM: []OOMObs{{At: at(5), Observed: at(5)}}}}
+	if v := Assess(in); v.Health != HealthDegraded || len(v.Findings) != 1 || v.Findings[0].Kind != "oom" || len(v.Context) != 1 {
+		t.Fatalf("%+v", v)
+	}
+}
+
+// A replica that was serving and is lost while the target is being reached is not catching up, even
+// if the count stays above the earlier target; and a verdict that set a shortfall aside does not
+// claim that no availability was lost.
+func TestAssessScalingLossOfAServingReplicaIsCounted(t *testing.T) {
+	in := baseInput()
+	in.Version = 2
+	in.Episodes = []Episode{{Since: at(4), Until: at(10), Scaling: &ScaleOpen{From: 3, To: 8, At: at(4), MinAvailable: 3, Last: 3, Lost: true, LostFrom: 4, LostTo: 3}}}
+	v := Assess(in)
+	if v.Health != HealthDegraded || len(v.Findings) != 1 || !strings.Contains(v.Findings[0].Summary, "fell from 4 to 3") || len(v.Context) != 0 {
+		t.Fatalf("%+v", v)
+	}
+	// Set aside, still open at the close: healthy, but the reason does not say availability was never lost.
+	in.Episodes = []Episode{{Since: at(4), Scaling: &ScaleOpen{From: 3, To: 5, At: at(4), MinAvailable: 3, Last: 3}}}
+	v = Assess(in)
+	if v.Health != HealthHealthy || len(v.Context) != 1 || !strings.Contains(v.Context[0].Summary, "had not been reached yet") {
+		t.Fatalf("%+v", v)
+	}
+	text := strings.Join(v.Reasons, " ")
+	if strings.Contains(text, "lasting loss of availability") || !strings.Contains(text, "below the earlier target") {
+		t.Fatalf("the verdict must not claim availability was never short: %v", v.Reasons)
+	}
+}

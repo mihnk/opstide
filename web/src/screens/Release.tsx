@@ -6,8 +6,9 @@ import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { duration, hhmm, hhmmss, relativeTime } from '../time'
 import { ZoneSelect } from './common'
+import { Evidence, RecordedEvidence } from './ReleaseEvidence'
 
-const tabs = [['overview', 'Overview'], ['timeline', 'Timeline'], ['pods', 'Pods'], ['changes', 'Changes'], ['context', 'Investigation context']] as const
+const tabs = [['overview', 'Overview'], ['timeline', 'Timeline'], ['pods', 'Pods'], ['evidence', 'Evidence'], ['changes', 'Changes'], ['context', 'Investigation context']] as const
 
 export function Release({ id, params, tz, setTz }: { id: string; params: URLSearchParams; tz: string; setTz: (z: string) => void }) {
   const tab = tabs.find(([k]) => k === params.get('tab'))?.[0] ?? 'overview'
@@ -59,6 +60,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
       {tab === 'overview' && <Overview d={d} tz={tz} windowSel={Number(windowParam) || a.windowMinutes} params={params} />}
       {tab === 'timeline' && <Timeline id={id} tz={tz} />}
       {tab === 'pods' && <Pods id={id} tz={tz} now={d.now} />}
+      {tab === 'evidence' && <Evidence d={d} id={id} tz={tz} />}
       {tab === 'changes' && <Changes id={id} />}
       {tab === 'context' && <Context d={d} id={id} tz={tz} />}
     </div>
@@ -114,8 +116,12 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
             <dt className="label">Verdict</dt><dd><HealthStatus health={a.health} /></dd>
             <dt className="label">Why</dt>
             <dd><ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>{a.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>Evidence comes from the Kubernetes API. Container logs are not kept.</span></dd>
+              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>Evidence comes from the Kubernetes API. Container logs are not kept.{a.version ? ` Judged by rule set ${a.version}${a.version === 1 ? ' (every availability shortfall counts)' : ' (a shortfall that only follows a raised replica target is set aside, with the rule shown)'}.` : ''}</span></dd>
           </dl>
+        </section>
+        <section aria-label="Recorded evidence" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <h2 className="label section-title">Recorded evidence <span className="note">· facts only</span></h2>
+          <RecordedEvidence id={d.release.id} limit={6} link={withParams(params, { tab: 'evidence' })} />
         </section>
         <section aria-label="Observation window" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h2 className="label section-title">Observation window</h2>
@@ -148,7 +154,7 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
 }
 
 function useEntries(id: string) {
-  const path = `/api/v1/releases/${encodeURIComponent(id)}/events?limit=200`
+  const path = `/api/v1/releases/${encodeURIComponent(id)}/events?limit=200&include=evidence,scaling`
   const { data, error } = useApi<Entries>(path)
   const [older, setOlder] = useState<{ base: string; entries: Entry[]; cursor?: string }>({ base: path, entries: [] })
   const [busy, setBusy] = useState(false)
@@ -160,7 +166,7 @@ function useEntries(id: string) {
     if (!cursor) return
     setBusy(true)
     try {
-      const p = await getJSON<Entries>(`${path}&cursor=${encodeURIComponent(cursor)}`)
+      const p = await getJSON<Entries>(`${path.replace('&include=evidence,scaling', '')}&cursor=${encodeURIComponent(cursor)}`)
       setOlder((o) => ({ base: path, entries: [...(o.base === path ? o.entries : []), ...p.entries], cursor: p.nextCursor ?? '' }))
     } finally {
       setBusy(false)
@@ -174,6 +180,18 @@ const typeWord: Record<string, string> = {
   'release.stalled': 'Stalled', 'release.failed': 'Failed', 'release.health.degraded': 'Health', 'release.health.healthy': 'Health', 'release.health.insufficient': 'Health',
   'release.unavailable': 'Health', 'deployment.rollout': 'Rollout', 'pod.created': 'Pod', 'pod.ready': 'Pod', 'pod.notready': 'NotReady', 'pod.restarted': 'Restart',
   'pod.oomkilled': 'OOMKilled', 'pod.waiting': 'Waiting', 'pod.evicted': 'Evicted', 'pod.terminated': 'Pod',
+  'evidence.record': 'K8s Event', 'evidence.event': 'K8s Event', 'evidence.count_changed': 'K8s Event',
+  'hpa.desired_replicas_changed': 'Scaling', 'hpa.condition_changed': 'Scaling', 'workload.replica_target_changed': 'Scaling',
+}
+
+// Which kind of entry a timeline row is, so they can be told apart and filtered.
+const categories = [['release', 'Release lifecycle'], ['pod', 'Pod lifecycle'], ['event', 'Kubernetes Events'], ['scaling', 'Scaling']] as const
+type Category = (typeof categories)[number][0]
+function categoryOf(type: string): Category {
+  if (type.startsWith('pod.')) return 'pod'
+  if (type.startsWith('evidence.')) return 'event'
+  if (type.startsWith('hpa.') || type.startsWith('workload.')) return 'scaling'
+  return 'release'
 }
 
 function EntryRow({ e, tz }: { e: Entry; tz: string }) {
@@ -183,17 +201,21 @@ function EntryRow({ e, tz }: { e: Entry; tz: string }) {
       <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : undefined }}>{typeWord[e.type] ?? e.type}</span>
       <span style={{ minWidth: 0 }}>
         <span>{e.summary}</span>
-        <span className="ref mono">{e.confidence}{e.occurredAt ? '' : ' · the source gives no time'}</span>
+        {e.type.startsWith('evidence.') && e.facts?.message ? <span className="ref" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }} title={e.facts.message}>{e.facts.message.length > 200 ? `${e.facts.message.slice(0, 200)}…` : e.facts.message}</span> : null}
+        <span className="ref mono">{e.type.startsWith('evidence.') ? `Kubernetes reported · ${e.facts?.eventType ?? ''}${e.facts?.count ? ` · count ${e.facts.count}` : ''}${e.facts?.origin === 'adopted' ? ' · already present when OpsTide began watching' : ''}` : e.confidence}{e.occurredAt ? '' : ' · the source gives no time'}</span>
       </span>
     </div>
   )
 }
 
 function Timeline({ id, tz }: { id: string; tz: string }) {
-  const { data, error, entries, cursor, more, busy } = useEntries(id)
+  const { data, error, entries: all, cursor, more, busy } = useEntries(id)
+  const [off, setOff] = useState<Set<Category>>(new Set())
   if (error && !data) return <Failed error={error} />
   if (!data) return <Loading />
-  if (entries.length === 0) return <div className="empty">Nothing has been recorded for this release yet.</div>
+  if (all.length === 0) return <div className="empty">Nothing has been recorded for this release yet.</div>
+  const entries = all.filter((e) => !off.has(categoryOf(e.type)))
+  const count = (c: Category) => all.filter((e) => categoryOf(e.type) === c).length
   // Release-level entries stand alone; a Pod's entries fold into one group, placed
   // where its latest entry falls, and open on their own when something went wrong.
   type Item = { at: number; entry?: Entry; pod?: { name: string; entries: Entry[] } }
@@ -207,6 +229,16 @@ function Timeline({ id, tz }: { id: string; tz: string }) {
   items.sort((x, y) => y.at - x.at)
   return (
     <div className="daygroup" style={{ gap: 0 }}>
+      <fieldset style={{ border: 0, padding: 0, margin: '0 0 12px' }}>
+        <legend className="label" style={{ padding: '0 0 4px' }}>Show</legend>
+        <span className="checks">
+          {categories.map(([k, label]) => (
+            <label key={k}><input type="checkbox" checked={!off.has(k)} onChange={() => setOff((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })} />{label} ({count(k)})</label>
+          ))}
+        </span>
+      </fieldset>
+      {data.truncated && <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>The newest entries are shown; the timeline was cut at its limit. Release lifecycle entries are in the Log.</p>}
+      {entries.length === 0 && <div className="empty">Every kind of entry is hidden.</div>}
       {items.map((it) => it.entry ? <EntryRow key={it.entry.id} e={it.entry} tz={tz} /> : (
         <details key={`pod-${it.pod!.name}`} className="pod-group" open={it.pod!.entries.some((e) => e.severity !== 'info')}>
           <summary>

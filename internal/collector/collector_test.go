@@ -36,12 +36,15 @@ func openStore(t *testing.T) *store.Store {
 func start(t *testing.T, db *store.Store, opt Options, objs ...runtime.Object) (*fake.Clientset, context.Context) {
 	t.Helper()
 	client := fake.NewClientset(objs...)
+	// A current cluster serves events.k8s.io/v1.
+	client.Resources = []*metav1.APIResourceList{{GroupVersion: "events.k8s.io/v1", APIResources: []metav1.APIResource{{Name: "events", Kind: "Event"}}}}
 	c := New(client, db, opt)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); _ = c.Run(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	eventually(t, "synced", func() bool { return c.Synced(ctx) == nil })
+	eventually(t, "evidence watches", c.evidenceSynced)
 	return client, ctx
 }
 
@@ -216,8 +219,10 @@ func TestNamespacedCollectionIgnoresOtherNamespaces(t *testing.T) {
 	for _, iv := range ivs {
 		scopes[iv.Scope] = true
 	}
-	// Four before releases; ReplicaSets and Deployment Pods add two, still only in payments.
-	if !scopes["jobs/payments"] || !scopes["cronjobs/payments"] || !scopes["replicasets/payments"] || !scopes["deploypods/payments"] || len(scopes) != 6 {
+	// Four before releases; ReplicaSets and Deployment Pods add two, Events and
+	// autoscalers two more, all only in payments.
+	if !scopes["jobs/payments"] || !scopes["cronjobs/payments"] || !scopes["replicasets/payments"] || !scopes["deploypods/payments"] ||
+		!scopes["events/payments"] || !scopes["hpas/payments"] || len(scopes) != 8 {
 		t.Fatalf("coverage scopes %v", scopes)
 	}
 }
