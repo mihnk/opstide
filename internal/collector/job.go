@@ -147,9 +147,11 @@ func (c *Collector) syncJob(ctx context.Context, it item) error {
 	if err != nil {
 		return err
 	}
+	nodeOf := map[string]string{}
 	for _, o := range objs {
 		if p, ok := o.(*corev1.Pod); ok {
 			pods[string(p.UID)] = podFrom(p)
+			nodeOf[string(p.UID)] = p.Spec.NodeName
 		}
 	}
 	for _, p := range pods {
@@ -177,6 +179,20 @@ func (c *Collector) syncJob(ctx context.Context, it item) error {
 	}
 	return c.db.Update(ctx, func(w *store.Writer) error {
 		if err := w.UpsertRun(ctx, run); err != nil {
+			return err
+		}
+		// Which Job each Pod belonged to is kept apart from the run, so an Event about a
+		// Pod can be linked to its run after the Pod and the Job are garbage-collected, and
+		// whichever of the Event and the Pod is learned first. Only ownerReferences are used.
+		for _, p := range run.Pods {
+			if err := w.SavePodOwner(ctx, store.PodOwner{PodUID: p.UID, Namespace: run.Namespace, Name: p.Name, RunID: run.ID, OperationID: run.OperationID, Node: nodeOf[p.UID], FirstSeenAt: now}); err != nil {
+				return err
+			}
+			if err := w.RelinkEvidenceOfJobPod(ctx, p.UID, run.ID, run.OperationID); err != nil {
+				return err
+			}
+		}
+		if err := w.RelinkEvidenceOfRun(ctx, run.ID, run.OperationID); err != nil {
 			return err
 		}
 		created := base

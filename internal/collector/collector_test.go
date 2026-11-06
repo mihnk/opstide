@@ -220,9 +220,11 @@ func TestNamespacedCollectionIgnoresOtherNamespaces(t *testing.T) {
 		scopes[iv.Scope] = true
 	}
 	// Four before releases; ReplicaSets and Deployment Pods add two, Events and
-	// autoscalers two more, all only in payments.
+	// autoscalers two more, StatefulSets, DaemonSets, ControllerRevisions and their Pods four more,
+	// all only in payments. Nodes are cluster-scoped and off unless asked for.
 	if !scopes["jobs/payments"] || !scopes["cronjobs/payments"] || !scopes["replicasets/payments"] || !scopes["deploypods/payments"] ||
-		!scopes["events/payments"] || !scopes["hpas/payments"] || len(scopes) != 8 {
+		!scopes["events/payments"] || !scopes["hpas/payments"] || !scopes["statefulsets/payments"] || !scopes["daemonsets/payments"] ||
+		!scopes["controllerrevisions/payments"] || !scopes["workloadpods/payments"] || scopes["nodes"] || len(scopes) != 12 {
 		t.Fatalf("coverage scopes %v", scopes)
 	}
 }

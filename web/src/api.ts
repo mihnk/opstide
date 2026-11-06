@@ -222,6 +222,11 @@ export interface System {
   integrations: { name: string; state: string; note: string }[]
   workload: WorkloadSystem
   evidence: EvidenceSystem
+  workloads: {
+    counts: Record<string, number>
+    nodes: { enabled: boolean; live: number; note: string }
+    degraded: string[]
+  }
 }
 
 export interface EvidenceSystem {
@@ -481,3 +486,104 @@ export interface WorkloadScaling {
   transitions: Entry[]
   records: EvidenceRecord[]
 }
+
+// ---- Workloads and Nodes (M2.7) ----
+
+export interface WorkloadState {
+  generation: number
+  observedGeneration: number
+  desired: number
+  ready: number
+  available: number
+  updated: number
+  current: number
+  misscheduled?: number
+  revision: string
+  updateRevision: string
+  strategy: string
+  partition: number | null
+  maxUnavailable?: string
+  maxSurge?: string
+  podManagement?: string
+  minReadySeconds: number
+  rollout: string
+  rolloutNote: string
+  conditions: { type: string; status: string; reason?: string; message?: string; transition?: string }[]
+  lastChangeAt: string
+}
+
+export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'DaemonSet'
+
+export interface WorkloadView {
+  id: string
+  kind: WorkloadKind
+  namespace: string
+  name: string
+  origin?: string
+  status: 'live' | 'deleted'
+  firstSeenAt: string
+  lastSeenAt: string
+  deletedAt: string | null
+  state: WorkloadState | null
+  evidence: { warnings24h: number; latestWarningReason?: string; latestWarningAt?: string }
+  sections?: string[]
+}
+
+export interface WorkloadList { schema: number; workloads: WorkloadView[]; nextCursor?: string; notes: string[] }
+export interface WorkloadDetail { schema: number; workload: WorkloadView; release?: { id: string; revision: string }; notes: string[] }
+
+export interface RevisionView {
+  id: string
+  source: 'ControllerRevision' | 'Release'
+  name: string
+  number: number
+  createdAt?: string
+  observedAt: string
+  origin: string
+  isCurrent: boolean
+  isUpdate: boolean
+  images: string[]
+  fingerprint: string
+  releaseId?: string
+  comparison: { available: boolean; reason?: string; changes: { kind: string; field: string; container?: string; before?: string; after?: string }[] }
+}
+export interface WorkloadRevisions { schema: number; kind: WorkloadKind; revisions: RevisionView[]; notes: string[] }
+
+export interface WorkloadPodView extends PodView {
+  ordinal?: number
+  revision?: string
+  revisionRole?: 'update' | 'current' | 'other'
+  nodeId?: string
+}
+export interface WorkloadPods {
+  schema: number
+  kind: WorkloadKind
+  pods: WorkloadPodView[]
+  nodesWithoutPod: { nodeId: string; name: string }[] | null
+  notes: string[]
+  truncated?: boolean
+}
+export interface WorkloadEvidence { schema: number; records: EvidenceRecord[]; nextCursor?: string; conditions: WorkloadState['conditions']; provenance: { eventsApi: string; notes: string[] } }
+
+export interface NodeCondition { type: string; status: string; reason?: string; message?: string; lastTransitionTime: string | null; observedAt: string | null }
+export interface NodeView {
+  id: string
+  name: string
+  status: 'live' | 'removed'
+  origin: string
+  createdAt: string | null
+  firstSeenAt: string
+  deletedAt: string | null
+  unschedulable: boolean
+  conditions: NodeCondition[]
+}
+export interface NodesList { schema: number; enabled: boolean; nodes: NodeView[]; notes: string[] }
+export interface NodeDetail {
+  schema: number
+  node: NodeView
+  pods: { uid: string; name: string; namespace: string; workloadId?: string; workloadKind?: string; createdAt: string; terminatedAt: string | null }[]
+  notes: string[]
+  podsTruncated?: boolean
+}
+export interface NodeHistory { schema: number; entries: Entry[]; nextCursor?: string; records: EvidenceRecord[] }
+export interface RunEvidence { schema: number; records: EvidenceRecord[]; notes: string[]; provenance: { eventsApi: string; notes: string[] } }

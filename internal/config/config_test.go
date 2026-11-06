@@ -67,3 +67,21 @@ func TestTokenSettings(t *testing.T) {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
+
+// Node observation is cluster-scoped, so it is off unless asked for, with a flag or the environment, also when
+// only some namespaces are watched.
+func TestNodeObservationIsOffUnlessAskedFor(t *testing.T) {
+	c, err := Load([]string{"-namespaces", "payments"}, env(nil))
+	if err != nil || c.ObserveNodes {
+		t.Fatalf("%v %+v", err, c)
+	}
+	if c, _ := Load(nil, env(map[string]string{"OPSTIDE_OBSERVE_NODES": "true"})); !c.ObserveNodes {
+		t.Fatal("the environment variable")
+	}
+	if c, _ := Load([]string{"-observe-nodes"}, env(nil)); !c.ObserveNodes {
+		t.Fatal("the flag")
+	}
+	if c, _ := Load(nil, env(map[string]string{"OPSTIDE_OBSERVE_NODES": "false"})); c.ObserveNodes {
+		t.Fatal("false means off")
+	}
+}

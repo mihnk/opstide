@@ -44,6 +44,8 @@ type Config struct {
 	// ReleaseWindowMinutes is how long after a rollout completes a release is
 	// observed before it can be called healthy: 5, 10, 15 or 30.
 	ReleaseWindowMinutes int
+	// ObserveNodes watches Nodes (cluster-scoped: it needs cluster RBAC, and is off unless asked for).
+	ObserveNodes bool
 }
 
 // Load parses args, using getenv for defaults (os.Getenv in main).
@@ -93,6 +95,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&c.Context, "context", env("CONTEXT", ""), "kubeconfig context to use; empty uses its current context (OPSTIDE_CONTEXT)")
 	fs.StringVar(&c.TokenFile, "token-file", env("TOKEN_FILE", ""), "file holding the token that protects the API; empty means no login (OPSTIDE_TOKEN_FILE)")
 	fs.IntVar(&c.ReleaseWindowMinutes, "release-window", releaseWindow, "minutes a release is observed after its rollout completes: 5, 10, 15 or 30 (OPSTIDE_RELEASE_WINDOW)")
+	fs.BoolVar(&c.ObserveNodes, "observe-nodes", env("OBSERVE_NODES", "") == "true", "record Node conditions and scheduling changes; needs list and watch on nodes cluster-wide (OPSTIDE_OBSERVE_NODES=true)")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {

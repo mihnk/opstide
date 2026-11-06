@@ -48,6 +48,7 @@ const (
 // follows. Events about Nodes, Services, volumes and the rest are not read into the record.
 var evidenceKinds = map[string]bool{
 	"Pod": true, "ReplicaSet": true, "Deployment": true, "Job": true, "CronJob": true, "HorizontalPodAutoscaler": true,
+	"StatefulSet": true, "DaemonSet": true, "Node": true,
 }
 
 type evidenceMetrics struct {
@@ -364,6 +365,9 @@ func keepLinks(ev *store.Evidence, prev store.Evidence) {
 	if ev.HPAUID == "" {
 		ev.HPAUID = prev.HPAUID
 	}
+	if ev.NodeID == "" {
+		ev.NodeID = prev.NodeID
+	}
 	if ev.LinkVia == "" {
 		ev.LinkVia = prev.LinkVia
 	}
@@ -374,7 +378,7 @@ func sameEvidence(a, b store.Evidence) bool {
 	return a.Reason == b.Reason && a.EventType == b.EventType && a.Message == b.Message && a.Count == b.Count && a.CountBasis == b.CountBasis &&
 		a.FirstAt.Equal(b.FirstAt) && a.LastAt.Equal(b.LastAt) && a.Regarding == b.Regarding && a.Related == b.Related && a.Reporter == b.Reporter &&
 		a.ReplicaSetUID == b.ReplicaSetUID && a.WorkloadID == b.WorkloadID && a.RunID == b.RunID && a.OperationID == b.OperationID &&
-		a.HPAUID == b.HPAUID && a.LinkVia == b.LinkVia && a.SourceDeletedAt.IsZero()
+		a.HPAUID == b.HPAUID && a.NodeID == b.NodeID && a.LinkVia == b.LinkVia && a.SourceDeletedAt.IsZero()
 }
 
 // evidenceEntry is the Log entry for a Warning Event: what Kubernetes reported,
@@ -464,7 +468,7 @@ func (c *Collector) nsOf(ns string) string {
 // informer caches. An Event with no UID, or about something OpsTide never saw,
 // stays unlinked.
 func (c *Collector) linkEvidence(ctx context.Context, w *store.Writer, s *scope, ev *store.Evidence) error {
-	ev.ReplicaSetUID, ev.WorkloadID, ev.RunID, ev.OperationID, ev.HPAUID, ev.LinkVia = "", "", "", "", "", ""
+	ev.ReplicaSetUID, ev.WorkloadID, ev.RunID, ev.OperationID, ev.HPAUID, ev.NodeID, ev.LinkVia = "", "", "", "", "", "", ""
 	uid, ns, name := ev.Regarding.UID, ev.Namespace, ev.Regarding.Name
 	if uid == "" {
 		return nil
@@ -474,7 +478,26 @@ func (c *Collector) linkEvidence(ctx context.Context, w *store.Writer, s *scope,
 		if rec, ok, err := w.Pod(ctx, uid); err != nil {
 			return err
 		} else if ok {
-			ev.ReplicaSetUID, ev.WorkloadID, ev.LinkVia = rec.ReplicaSetUID, rec.WorkloadID, "Pod ownerReference to ReplicaSet to Deployment (recorded)"
+			ev.ReplicaSetUID, ev.WorkloadID = rec.ReplicaSetUID, rec.WorkloadID
+			ev.LinkVia = "Pod ownerReference to ReplicaSet to Deployment (recorded)"
+			if rec.Kind != store.KindDeployment {
+				ev.LinkVia = "Pod ownerReference to " + rec.Kind + " (recorded)"
+			}
+			return nil
+		}
+		// A Job's Pod, kept after the Pod and its Job are gone.
+		if po, ok, err := w.PodOwnerByUID(ctx, uid); err != nil {
+			return err
+		} else if ok {
+			ev.RunID, ev.OperationID, ev.LinkVia = po.RunID, po.OperationID, "Pod ownerReference to Job (recorded)"
+			return nil
+		}
+		if p, err := get[*corev1.Pod](s.workloadPods, ns, name, types.UID(uid)); err != nil {
+			return err
+		} else if p != nil {
+			if ref := metav1.GetControllerOf(p); ownedByApps(ref, "StatefulSet", "DaemonSet") {
+				ev.WorkloadID, ev.LinkVia = string(ref.UID), "Pod ownerReference to "+ref.Kind
+			}
 			return nil
 		}
 		if p, err := get[*corev1.Pod](s.deployPods, ns, name, types.UID(uid)); err != nil {
@@ -500,8 +523,21 @@ func (c *Collector) linkEvidence(ctx context.Context, w *store.Writer, s *scope,
 	case "ReplicaSet":
 		ev.ReplicaSetUID, ev.LinkVia = uid, "regarding.uid"
 		ev.WorkloadID = c.workloadOfReplicaSet(ctx, w, s, ns, name, types.UID(uid))
-	case "Deployment":
+	case "Deployment", "StatefulSet", "DaemonSet":
 		ev.WorkloadID, ev.LinkVia = uid, "regarding.uid"
+	case "Node":
+		// kubelet reports a Node's name as the UID of its Events; the Node controller reports the
+		// real one. A UID OpsTide recorded links directly; otherwise the exact name of the one live
+		// Node of that name is an explicit reference (Nodes are cluster-scoped), recorded as such.
+		if _, ok, err := w.NodeByUID(ctx, uid); err != nil {
+			return err
+		} else if ok {
+			ev.NodeID, ev.LinkVia = uid, "regarding.uid"
+		} else if id, err := w.NodeIDByName(ctx, name); err != nil {
+			return err
+		} else if id != "" {
+			ev.NodeID, ev.LinkVia = id, "regarding names the Node (exact name; kubelet reports the name as the UID)"
+		}
 	case "Job":
 		ev.RunID, ev.LinkVia = uid, "regarding.uid"
 		ev.OperationID = c.operationOfJob(s, ns, name, types.UID(uid))

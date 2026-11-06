@@ -53,7 +53,24 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 			return err
 		}
 		if err := exec(&r.Releases, `DELETE FROM release_pods WHERE (terminated_at IS NOT NULL AND terminated_at < ?)
-	OR replicaset_uid NOT IN (SELECT replicaset_uid FROM releases)`, cut); err != nil {
+	OR (kind = 'Deployment' AND replicaset_uid NOT IN (SELECT replicaset_uid FROM releases))
+	OR (kind <> 'Deployment' AND workload_id NOT IN (SELECT id FROM workloads))`, cut); err != nil {
+			return err
+		}
+		// ControllerRevision history of StatefulSets and DaemonSets: kept past
+		// Kubernetes garbage collection, not past retention; the newest revision of a
+		// workload that still exists stays. Revisions of a workload that was deleted
+		// before the cut go with it, as do Job-Pod ownership and Nodes.
+		if err := exec(&r.Releases, `DELETE FROM workload_revisions WHERE (observed_at < ? AND id NOT IN (
+	SELECT id FROM workload_revisions v2 WHERE v2.revision_num = (SELECT max(revision_num) FROM workload_revisions v3 WHERE v3.workload_id = v2.workload_id)
+	AND v2.workload_id IN (SELECT id FROM workloads WHERE deleted_at IS NULL)))
+	OR workload_id IN (SELECT id FROM workloads WHERE deleted_at IS NOT NULL AND deleted_at < ?)`, cut, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM pod_owners WHERE first_seen_at < ?`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM nodes WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cut); err != nil {
 			return err
 		}
 		// Evidence follows retention too, and is capped like the log: the oldest
@@ -69,7 +86,10 @@ func (s *Store) Prune(ctx context.Context, before time.Time, maxEvents int) (Pru
 			return err
 		}
 		if err := exec(&r.Releases, `DELETE FROM workloads WHERE deleted_at IS NOT NULL AND deleted_at < ?
-	AND id NOT IN (SELECT workload_id FROM releases)`, cut); err != nil {
+	AND id NOT IN (SELECT workload_id FROM releases) AND id NOT IN (SELECT workload_id FROM workload_revisions)`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM workload_state WHERE workload_id NOT IN (SELECT id FROM workloads)`); err != nil {
 			return err
 		}
 		removed := r.Events + r.Runs + r.Operations + r.Intervals + r.Releases

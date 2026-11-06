@@ -12,13 +12,22 @@ import (
 
 // Workload is a Deployment OpsTide has seen.
 type Workload struct {
-	ID        string // the Deployment's UID
+	ID        string // the workload's own UID
+	Kind      string // Deployment | StatefulSet | DaemonSet; Deployment when empty
+	Origin    string // observed | adopted; empty when not known
 	Namespace string
 	Name      string
 	FirstSeen time.Time
 	LastSeen  time.Time
 	DeletedAt time.Time
 }
+
+// Workload kinds.
+const (
+	KindDeployment  = "Deployment"
+	KindStatefulSet = "StatefulSet"
+	KindDaemonSet   = "DaemonSet"
+)
 
 // Release states (the rollout) and health verdicts (what followed it). They
 // are separate on purpose: a release can be completed and degraded.
@@ -92,6 +101,13 @@ type Release struct {
 
 // PodRecord is a Deployment-owned Pod's compact lifecycle record.
 type PodRecord struct {
+	// Kind is the kind of the workload that owns the Pod: Deployment (the default),
+	// StatefulSet or DaemonSet. Revision is the controller-revision-hash label it
+	// carries, Node where it was observed running, Ordinal its StatefulSet index.
+	Kind          string
+	Revision      string
+	Node          string
+	Ordinal       *int
 	UID           string
 	ReleaseID     string
 	Namespace     string
@@ -221,9 +237,10 @@ ON CONFLICT(id) DO UPDATE SET
 // UpsertWorkload records a Deployment, keeping the time it was first seen.
 func (w *Writer) UpsertWorkload(ctx context.Context, wl Workload) error {
 	_, err := w.tx.ExecContext(ctx, `
-INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at, deleted_at) VALUES (?,?,?,?,?,NULL)
-ON CONFLICT(id) DO UPDATE SET namespace=excluded.namespace, name=excluded.name, last_seen_at=excluded.last_seen_at, deleted_at=NULL`,
-		wl.ID, wl.Namespace, wl.Name, ms(wl.FirstSeen).Int64, ms(wl.LastSeen).Int64)
+INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at, deleted_at, kind, origin) VALUES (?,?,?,?,?,NULL,?,?)
+ON CONFLICT(id) DO UPDATE SET namespace=excluded.namespace, name=excluded.name, last_seen_at=excluded.last_seen_at, deleted_at=NULL,
+	origin=coalesce(nullif(workloads.origin, ''), excluded.origin)`,
+		wl.ID, wl.Namespace, wl.Name, ms(wl.FirstSeen).Int64, ms(wl.LastSeen).Int64, kindOf(wl.Kind), wl.Origin)
 	return err
 }
 
@@ -257,7 +274,7 @@ func (w *Writer) MarkWorkloadDeleted(ctx context.Context, id string, at time.Tim
 // LiveWorkloads returns the Deployments last recorded as existing, for the
 // startup reconciliation of Deployments deleted while OpsTide was not running.
 func (s *Store) LiveWorkloads(ctx context.Context) ([]Workload, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, namespace, name FROM workloads WHERE deleted_at IS NULL`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, namespace, name, kind FROM workloads WHERE deleted_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +282,7 @@ func (s *Store) LiveWorkloads(ctx context.Context) ([]Workload, error) {
 	var out []Workload
 	for rows.Next() {
 		var wl Workload
-		if err := rows.Scan(&wl.ID, &wl.Namespace, &wl.Name); err != nil {
+		if err := rows.Scan(&wl.ID, &wl.Namespace, &wl.Name, &wl.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, wl)
@@ -385,6 +402,11 @@ func (s *Store) OpenReleases(ctx context.Context) ([]Release, error) {
 	OR (health = 'degraded' AND superseded_at IS NULL AND (observe_until IS NULL OR observe_until > ?))`, s.now().UnixMilli())
 }
 
+// ReleasesOfWorkloadID lists a Deployment's releases for readers, newest revision first.
+func (s *Store) ReleasesOfWorkloadID(ctx context.Context, id string, limit int) ([]Release, error) {
+	return queryReleases(ctx, s.db, `SELECT `+releaseCols+` FROM releases WHERE workload_id = ? ORDER BY revision_num DESC, observed_at DESC LIMIT ?`, id, min(max(limit, 1), 200))
+}
+
 // ActiveWindows counts releases being observed now.
 func (s *Store) ActiveWindows(ctx context.Context, now time.Time) (int, error) {
 	var n int
@@ -395,23 +417,28 @@ func (s *Store) ActiveWindows(ctx context.Context, now time.Time) (int, error) {
 // UpsertPod records a Pod's lifecycle, keeping its first-seen identity.
 func (w *Writer) UpsertPod(ctx context.Context, p PodRecord) error {
 	_, err := w.tx.ExecContext(ctx, `
-INSERT INTO release_pods (uid, release_id, namespace, name, replicaset_uid, workload_id, created_at, terminated_at, state, updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?)
+INSERT INTO release_pods (uid, release_id, namespace, name, replicaset_uid, workload_id, created_at, terminated_at, state, updated_at, kind, revision, node, ordinal)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(uid) DO UPDATE SET release_id=excluded.release_id, terminated_at=excluded.terminated_at,
-	state=excluded.state, updated_at=excluded.updated_at`,
+	state=excluded.state, updated_at=excluded.updated_at,
+	revision=coalesce(nullif(excluded.revision, ''), release_pods.revision), node=coalesce(nullif(excluded.node, ''), release_pods.node)`,
 		p.UID, p.ReleaseID, p.Namespace, p.Name, p.ReplicaSetUID, p.WorkloadID, ms(p.CreatedAt).Int64, ms(p.TerminatedAt),
-		p.State, ms(w.now()).Int64)
+		p.State, ms(w.now()).Int64, kindOf(p.Kind), p.Revision, p.Node, p.Ordinal)
 	return err
 }
 
-const podCols = `uid, release_id, namespace, name, replicaset_uid, workload_id, created_at, terminated_at, state, updated_at`
+const podCols = `uid, release_id, namespace, name, replicaset_uid, workload_id, created_at, terminated_at, state, updated_at, kind, revision, node, ordinal`
 
 func scanPod(sc interface{ Scan(...any) error }) (PodRecord, error) {
 	var p PodRecord
 	var created, upd int64
-	var term sql.NullInt64
-	if err := sc.Scan(&p.UID, &p.ReleaseID, &p.Namespace, &p.Name, &p.ReplicaSetUID, &p.WorkloadID, &created, &term, &p.State, &upd); err != nil {
+	var term, ord sql.NullInt64
+	if err := sc.Scan(&p.UID, &p.ReleaseID, &p.Namespace, &p.Name, &p.ReplicaSetUID, &p.WorkloadID, &created, &term, &p.State, &upd, &p.Kind, &p.Revision, &p.Node, &ord); err != nil {
 		return p, err
+	}
+	if ord.Valid {
+		n := int(ord.Int64)
+		p.Ordinal = &n
 	}
 	p.CreatedAt, p.TerminatedAt, p.UpdatedAt = time.UnixMilli(created).UTC(), fromMS(term), time.UnixMilli(upd).UTC()
 	return p, nil
@@ -508,7 +535,19 @@ func (w *Writer) ReleasePods(ctx context.Context, r Release) ([]PodRecord, error
 // LivePods returns Pods last recorded as not terminated, for the startup
 // reconciliation of Pods that vanished while OpsTide was not running.
 func (s *Store) LivePods(ctx context.Context) ([]PodRecord, error) {
-	return queryPods(ctx, s.db, `SELECT `+podCols+` FROM release_pods WHERE terminated_at IS NULL`)
+	return queryPods(ctx, s.db, `SELECT `+podCols+` FROM release_pods WHERE terminated_at IS NULL AND kind = 'Deployment'`)
+}
+
+// LiveWorkloadPods is LivePods for the Pods of StatefulSets and DaemonSets.
+func (s *Store) LiveWorkloadPods(ctx context.Context) ([]PodRecord, error) {
+	return queryPods(ctx, s.db, `SELECT `+podCols+` FROM release_pods WHERE terminated_at IS NULL AND kind <> 'Deployment'`)
+}
+
+func kindOf(k string) string {
+	if k == "" {
+		return KindDeployment
+	}
+	return k
 }
 
 // WatchedThroughout reports whether scope was watched without a gap over

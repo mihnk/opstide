@@ -177,6 +177,9 @@ func (c *Collector) noteEvent(ctx context.Context, w *store.Writer, now time.Tim
 // addEvent writes an entry and reports whether it was new: a repeat of an
 // entry already written is not counted anywhere.
 func (c *Collector) addEvent(ctx context.Context, w *store.Writer, e store.Event, now time.Time) (bool, error) {
+	if e.WorkloadID == "" && e.Kind == "Deployment" {
+		e.WorkloadID = e.ResourceUID // an entry about a Deployment names its workload
+	}
 	added, err := w.AddEvent(ctx, e)
 	if err == nil && added {
 		c.noteEvent(ctx, w, now)
@@ -695,7 +698,7 @@ func (c *Collector) podEvent(r store.Release, p *corev1.Pod, sg release.Signal, 
 	}
 	return store.Event{
 		ID: "pod." + sg.Type + "/" + string(p.UID) + key, Type: "pod." + sg.Type, Namespace: p.Namespace, Kind: "Pod", ResourceUID: string(p.UID),
-		ResourceName: p.Name, ReleaseID: r.ID, OccurredAt: sg.At, ObservedAt: now, Severity: sg.Severity, Confidence: conf,
+		ResourceName: p.Name, ReleaseID: r.ID, WorkloadID: r.WorkloadID, OccurredAt: sg.At, ObservedAt: now, Severity: sg.Severity, Confidence: conf,
 		Summary: r.Workload + ": " + sg.Summary, Facts: facts,
 	}
 }
@@ -825,11 +828,12 @@ func (c *Collector) syncDeployPod(ctx context.Context, it item) error {
 			firstRelease = rec.ReleaseID
 		}
 		if err := w.UpsertPod(ctx, store.PodRecord{UID: string(pod.UID), ReleaseID: firstRelease, Namespace: pod.Namespace, Name: pod.Name,
-			ReplicaSetUID: string(rs.UID), WorkloadID: string(dref.UID), CreatedAt: mt(&pod.CreationTimestamp), TerminatedAt: next.TermAt, State: enc}); err != nil {
+			ReplicaSetUID: string(rs.UID), WorkloadID: string(dref.UID), CreatedAt: mt(&pod.CreationTimestamp), TerminatedAt: next.TermAt, State: enc,
+			Kind: store.KindDeployment, Revision: rel.Revision, Node: pod.Spec.NodeName}); err != nil {
 			return err
 		}
 		if !had {
-			if err := w.RelinkEvidenceOfPod(ctx, string(pod.UID), string(rs.UID), string(dref.UID)); err != nil {
+			if err := w.RelinkEvidenceOfPod(ctx, string(pod.UID), string(rs.UID), string(dref.UID), "Pod ownerReference to ReplicaSet to Deployment (recorded)"); err != nil {
 				return err
 			}
 		}
@@ -913,7 +917,8 @@ func (c *Collector) podGone(ctx context.Context, it item) error {
 			next.TermReason = "unknown"
 		}
 		if err := w.UpsertPod(ctx, store.PodRecord{UID: rec.UID, ReleaseID: rec.ReleaseID, Namespace: rec.Namespace, Name: rec.Name,
-			ReplicaSetUID: rec.ReplicaSetUID, WorkloadID: rec.WorkloadID, CreatedAt: rec.CreatedAt, TerminatedAt: next.TermAt, State: release.EncodePod(next)}); err != nil {
+			ReplicaSetUID: rec.ReplicaSetUID, WorkloadID: rec.WorkloadID, CreatedAt: rec.CreatedAt, TerminatedAt: next.TermAt, State: release.EncodePod(next),
+			Kind: rec.Kind, Revision: rec.Revision, Node: rec.Node, Ordinal: rec.Ordinal}); err != nil {
 			return err
 		}
 		if !ok {
@@ -994,6 +999,9 @@ func (c *Collector) reconcileAbsentDeployments(ctx context.Context) error {
 		return err
 	}
 	for _, wl := range live {
+		if wl.Kind != store.KindDeployment {
+			continue // StatefulSets and DaemonSets are reconciled with their own watches
+		}
 		s := c.scopeFor(wl.Namespace)
 		if s == nil {
 			continue

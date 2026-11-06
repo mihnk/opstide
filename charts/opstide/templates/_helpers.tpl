@@ -48,7 +48,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
   resources: [pods, events]
   verbs: [list, watch]
 - apiGroups: [apps]
-  resources: [deployments, replicasets]
+  resources: [deployments, replicasets, statefulsets, daemonsets, controllerrevisions]
   verbs: [list, watch]
 # Kubernetes Events (evidence) and autoscalers (scaling context). Read only.
 - apiGroups: [events.k8s.io]

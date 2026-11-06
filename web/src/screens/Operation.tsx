@@ -1,4 +1,4 @@
-import { query, type OperationDetail, type RunDetail } from '../api'
+import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { Legend, Timeline } from '../components/Timeline'
 import { useApi } from '../live'
@@ -166,6 +166,7 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
           <span key={p.uid} className="mono" style={{ paddingLeft: 28 }}>
             {i === all.length - 1 ? '└' : '├'} Pod …{p.name.slice(-5)}{' '}
             {p.exitCode !== undefined ? <span className={p.exitCode ? 'fail' : 'muted'}>exit {p.exitCode}</span> : <span className="muted">{p.phase}</span>}
+            {p.reason ? <span className="muted"> · {p.reason}</span> : null}
             {p.finishedAt && <span className="muted"> {hhmm(p.finishedAt, tz)}</span>}
           </span>
         ))}
@@ -179,6 +180,7 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
         <dt className="label">Identity</dt>
         <dd className="mono">job {r.id}</dd>
       </dl>
+      <RunEvents id={id} tz={tz} />
       {data.entries.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
           <span className="label">Log entries</span>
@@ -189,5 +191,34 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
       )}
       <span className="muted" style={{ fontSize: 12 }}>OpsTide does not keep container logs. <Link href={`/log?q=${encodeURIComponent(r.job)}&range=30d`}>All entries for this Job</Link></span>
     </>
+  )
+}
+
+// The Kubernetes Events linked to a run, as Kubernetes reported them. An Event is here because it names the Job by
+// UID or names a Pod whose ownerReference is the Job, never because of its name or its time.
+function RunEvents({ id, tz }: { id: string; tz: string }) {
+  const { data } = useApi<RunEvidence>(`/api/v1/runs/${encodeURIComponent(id)}/evidence`)
+  if (!data) return null
+  const words: Record<string, string> = { DIRECT: 'names the Job by UID', OWNERSHIP: 'names a Pod owned by the Job', SAME_RESOURCE_CONTEXT: 'same resource context', UNRESOLVED: 'unresolved' }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+      <span className="label">Kubernetes Events <span className="muted">· as reported, linked by UID and ownerReference</span></span>
+      {data.records.length === 0 && <span className="muted">No Kubernetes Event is recorded for this run.</span>}
+      {data.records.map((e) => {
+        const link = e.links.find((l) => l.kind === 'Run')
+        const first = e.occurredAt.first, last = e.occurredAt.last
+        return (
+          <div key={e.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--rule)', paddingTop: 6 }}>
+            <span><b>{e.reason || 'no reason reported'}</b> <span className="muted">· {e.eventType} · {e.resource.kind} <span className="mono">{e.resource.name}</span></span></span>
+            {e.message && <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.message.length > 240 ? `${e.message.slice(0, 240)}…` : e.message}</span>}
+            <span className="muted mono" style={{ fontSize: 12 }}>
+              {e.count ? `count ${e.count.value} · ` : 'count not reported · '}{first ? `first ${hhmmss(first, tz)}` : 'first time not reported'}{last ? ` · last ${hhmmss(last, tz)}` : ''} · {e.source}{link ? ` · ${words[link.relationship] ?? link.relationship}` : ''}
+            </span>
+          </div>
+        )
+      })}
+      {data.notes.map((n, i) => <span key={i} className="muted" style={{ fontSize: 12 }}>{n}</span>)}
+      {data.provenance.notes.map((n, i) => <span key={i} className="fail" style={{ fontSize: 12 }}>{n}</span>)}
+    </div>
   )
 }

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { type Exception, type Range } from '../api'
+import { type Entries, type Entry, type Exception, type Range } from '../api'
 import { Strip } from '../components/Strip'
 import { Failed, Loading } from '../components/Shell'
 import { Legend, Timeline, type TimelineLane } from '../components/Timeline'
 import { useApi } from '../live'
 import { exceptionText, rangeSentence } from '../narrative'
+import { entryWord } from '../entryWords'
 import { Link, navigate, withParams } from '../router'
 import { hhmm, offset, utcToZoned, zonedToUtc } from '../time'
 import { HOUR, MAX_WINDOW, MIN_WINDOW, MINUTE, params as selParams, presets, presetSelection, pressedPreset, rangeQuery, selection, selectionFor, title, type Selection } from '../window'
@@ -115,7 +116,59 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
           <Link href="/schedules" style={{ paddingTop: 12, fontSize: 13 }}>All schedules</Link>
         </section>
       </div>
+      <RecentChanges tz={tz} />
     </div>
+  )
+}
+
+// What changed in the last day, in order: revisions, reported availability, Node conditions and the Warning
+// Events Kubernetes recorded. It is a list of what was reported, not a verdict: scheduled operations that failed
+// are under Exceptions, and an empty list means nothing of these kinds was recorded, not that nothing is wrong.
+const changeKinds = [['revisions', 'Revisions'], ['availability', 'Availability'], ['nodes', 'Nodes'], ['evidence', 'Evidence']] as const
+type ChangeKind = (typeof changeKinds)[number][0]
+
+function changeKind(type: string): ChangeKind | null {
+  if (type === 'release.observed' || type === 'release.stalled' || type === 'release.failed' || /^(statefulset|daemonset)\.(revision_changed|update_)/.test(type)) return 'revisions'
+  if (type === 'release.unavailable' || type.endsWith('.counts_changed')) return 'availability'
+  if (type.startsWith('node.')) return 'nodes'
+  if (type.startsWith('evidence.')) return 'evidence'
+  return null
+}
+
+function changeHref(e: Entry): string {
+  if (e.kind === 'Node' && e.resourceUid) return `/nodes/${encodeURIComponent(e.resourceUid)}`
+  if (e.releaseId && e.type.startsWith('release.')) return `/releases/${encodeURIComponent(e.releaseId)}`
+  if (e.workloadId) return `/workloads/${encodeURIComponent(e.workloadId)}`
+  return `/log?q=${encodeURIComponent(e.resourceName ?? '')}&range=7d`
+}
+
+function RecentChanges({ tz }: { tz: string }) {
+  const { data } = useApi<Entries>('/api/v1/events?within=24h&show=releases,statefulsets,daemonsets,nodes,kubernetes,counts&limit=200', { refreshMs: 60_000 })
+  const [off, setOff] = useState<Set<ChangeKind>>(new Set())
+  const all = (data?.entries ?? []).filter((e) => changeKind(e.type))
+  const shown = all.filter((e) => !off.has(changeKind(e.type)!)).slice(0, 14)
+  const count = (k: ChangeKind) => all.filter((e) => changeKind(e.type) === k).length
+  return (
+    <section aria-label="Recent operational changes" className="rows">
+      <h2 className="label section-title">Recent operational changes <span className="note">· last 24 hours, newest first</span></h2>
+      <fieldset style={{ border: 0, padding: 0, margin: '0 0 8px' }}>
+        <span className="checks">
+          {changeKinds.map(([k, label]) => (
+            <label key={k}><input type="checkbox" checked={!off.has(k)} onChange={() => setOff((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })} />{label} ({count(k)})</label>
+          ))}
+        </span>
+      </fieldset>
+      {data && shown.length === 0 && <div className="empty">{data.nextCursor ? 'The newest entries of these kinds are all of another kind than the ones selected; the list is limited to 200 entries, open the Log for more.' : 'No revision, availability change, Node condition or Warning Event was recorded in the last 24 hours. That says what was recorded, not that nothing else happened.'}</div>}
+      {data?.nextCursor && shown.length > 0 && <span className="muted" style={{ fontSize: 12 }}>Limited to the newest 200 entries of these kinds; the counts above are of those.</span>}
+      {shown.map((e) => (
+        <Link key={e.id} className="row" href={changeHref(e)} style={{ gridTemplateColumns: '60px 110px minmax(0, 1fr)' }}>
+          <span className="mono">{hhmm(e.at, tz)}</span>
+          <span className="label">{entryWord(e.type, { 'release.observed': 'Release', 'release.stalled': 'Stalled', 'release.failed': 'Failed', 'release.unavailable': 'Availability', 'statefulset.counts_changed': 'Counts', 'daemonset.counts_changed': 'Counts', 'evidence.event': 'K8s Event', 'evidence.count_changed': 'K8s Event' })}</span>
+          <span style={{ overflowWrap: 'anywhere' }}>{e.summary}</span>
+        </Link>
+      ))}
+      <Link href="/log?show=releases,statefulsets,daemonsets,nodes,kubernetes,counts&range=24h" style={{ paddingTop: 10, fontSize: 13 }}>All of these in the Log</Link>
+    </section>
   )
 }
 

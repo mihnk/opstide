@@ -68,6 +68,7 @@ type Evidence struct {
 	RunID         string
 	OperationID   string
 	HPAUID        string
+	NodeID        string // the Node an Event is about, when the Node is one OpsTide recorded
 	LinkVia       string
 }
 
@@ -90,7 +91,7 @@ func (e Evidence) SortTime() time.Time {
 
 const evidenceCols = `id, source, source_uid, namespace, name, reason, event_type, message, message_truncated, action, reporter,
 	regarding_kind, regarding_name, regarding_uid, related_kind, related_name, related_uid, first_at, last_at, count, count_basis,
-	observed_at, origin, at, updated_at, source_deleted_at, count_logged, count_logged_at, rs_uid, workload_id, run_id, operation_id, hpa_uid, link_via`
+	observed_at, origin, at, updated_at, source_deleted_at, count_logged, count_logged_at, rs_uid, workload_id, run_id, operation_id, hpa_uid, link_via, node_id`
 
 func scanEvidence(sc interface{ Scan(...any) error }) (Evidence, error) {
 	var e Evidence
@@ -99,7 +100,7 @@ func scanEvidence(sc interface{ Scan(...any) error }) (Evidence, error) {
 	var trunc int
 	err := sc.Scan(&e.ID, &e.Source, &e.SourceUID, &e.Namespace, &e.Name, &e.Reason, &e.EventType, &e.Message, &trunc, &e.Action, &e.Reporter,
 		&e.Regarding.Kind, &e.Regarding.Name, &e.Regarding.UID, &e.Related.Kind, &e.Related.Name, &e.Related.UID, &first, &last, &e.Count, &e.CountBasis,
-		&observed, &e.Origin, &at, &upd, &deleted, &e.CountLogged, &loggedAt, &e.ReplicaSetUID, &e.WorkloadID, &e.RunID, &e.OperationID, &e.HPAUID, &e.LinkVia)
+		&observed, &e.Origin, &at, &upd, &deleted, &e.CountLogged, &loggedAt, &e.ReplicaSetUID, &e.WorkloadID, &e.RunID, &e.OperationID, &e.HPAUID, &e.LinkVia, &e.NodeID)
 	if err != nil {
 		return e, err
 	}
@@ -125,11 +126,11 @@ func (w *Writer) SaveEvidence(ctx context.Context, e Evidence) error {
 	if e.MessageTruncated {
 		trunc = 1
 	}
-	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO evidence (`+evidenceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO evidence (`+evidenceCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.Source, e.SourceUID, e.Namespace, e.Name, e.Reason, e.EventType, e.Message, trunc, e.Action, e.Reporter,
 		e.Regarding.Kind, e.Regarding.Name, e.Regarding.UID, e.Related.Kind, e.Related.Name, e.Related.UID, ms(e.FirstAt), ms(e.LastAt), e.Count, e.CountBasis,
 		ms(e.ObservedAt).Int64, e.Origin, ms(e.SortTime()).Int64, ms(w.now()).Int64, ms(e.SourceDeletedAt), e.CountLogged, ms(e.CountLoggedAt),
-		e.ReplicaSetUID, e.WorkloadID, e.RunID, e.OperationID, e.HPAUID, e.LinkVia)
+		e.ReplicaSetUID, e.WorkloadID, e.RunID, e.OperationID, e.HPAUID, e.LinkVia, e.NodeID)
 	return err
 }
 
@@ -162,9 +163,9 @@ func (s *Store) LiveEvidence(ctx context.Context) ([]Evidence, error) {
 
 // RelinkEvidenceOfPod links the Events recorded about a Pod before OpsTide
 // knew which ReplicaSet owned it.
-func (w *Writer) RelinkEvidenceOfPod(ctx context.Context, podUID, rsUID, workloadID string) error {
-	_, err := w.tx.ExecContext(ctx, `UPDATE evidence SET rs_uid = ?, workload_id = ?, link_via = 'Pod ownerReference to ReplicaSet to Deployment', updated_at = ?
-WHERE regarding_uid = ? AND regarding_uid <> '' AND regarding_kind = 'Pod' AND rs_uid = ''`, rsUID, workloadID, ms(w.now()).Int64, podUID)
+func (w *Writer) RelinkEvidenceOfPod(ctx context.Context, podUID, rsUID, workloadID, via string) error {
+	_, err := w.tx.ExecContext(ctx, `UPDATE evidence SET rs_uid = ?, workload_id = ?, link_via = ?, updated_at = ?
+WHERE regarding_uid = ? AND regarding_uid <> '' AND regarding_kind = 'Pod' AND rs_uid = '' AND workload_id = ''`, rsUID, workloadID, via, ms(w.now()).Int64, podUID)
 	return err
 }
 
@@ -176,10 +177,10 @@ func (w *Writer) RelinkEvidenceOfReplicaSet(ctx context.Context, rsUID, workload
 	return err
 }
 
-// RelinkEvidenceOfWorkload links the Events about a Deployment (by UID) and
+// RelinkEvidenceOfWorkload links the Events about a Deployment, StatefulSet or DaemonSet (by UID) and
 // about the HorizontalPodAutoscalers that target it.
 func (w *Writer) RelinkEvidenceOfWorkload(ctx context.Context, workloadID string) error {
-	_, err := w.tx.ExecContext(ctx, `UPDATE evidence SET workload_id = ?, updated_at = ? WHERE regarding_uid = ? AND regarding_uid <> '' AND regarding_kind = 'Deployment' AND workload_id = ''`,
+	_, err := w.tx.ExecContext(ctx, `UPDATE evidence SET workload_id = ?, updated_at = ? WHERE regarding_uid = ? AND regarding_uid <> '' AND regarding_kind IN ('Deployment', 'StatefulSet', 'DaemonSet') AND workload_id = ''`,
 		workloadID, ms(w.now()).Int64, workloadID)
 	return err
 }
@@ -196,6 +197,7 @@ type EvidenceQuery struct {
 	ReplicaSet   string // a ReplicaSet UID
 	RunID        string
 	HPAUID       string
+	NodeID       string
 	Text         string
 	Cursor       string
 	Limit        int // default 100, at most 500
@@ -249,6 +251,9 @@ func (s *Store) Evidence(ctx context.Context, q EvidenceQuery) (EvidencePage, er
 	}
 	if q.HPAUID != "" {
 		add("hpa_uid = ? AND hpa_uid <> ''", q.HPAUID)
+	}
+	if q.NodeID != "" {
+		add("node_id = ? AND node_id <> ''", q.NodeID)
 	}
 	if q.Text != "" {
 		like := "%" + escapeLike(q.Text) + "%"

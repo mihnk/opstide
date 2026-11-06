@@ -77,6 +77,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 |---|---|
 | `clusterName` | Name shown in the UI |
 | `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
+| `nodes.observe` | Record Node conditions and scheduling changes (`false` by default). Nodes are cluster-scoped, so this adds a small ClusterRole with `list` and `watch` on nodes, also for installs limited to some namespaces |
 | `releases.observationMinutes` | How long after a Deployment rollout completes a release is observed before it can be called healthy: 5, 10 (default), 15 or 30 |
 | `retention.days`, `retention.maxEntries` | How much history to keep (30 days, 2,000,000 entries) |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
@@ -143,6 +144,12 @@ live:
   minutes after, what changed from the previous revision, and its Pods' restarts,
   OOMKills and readiness. A revision that already existed when OpsTide started is
   marked adopted and never assessed. See [docs/M2.5-WORKLOAD-RELEASES.md](docs/M2.5-WORKLOAD-RELEASES.md).
+- **Workloads**: Deployments, StatefulSets and DaemonSets in one list, each with its
+  revisions, Pods (with ordinal, revision and the node each reported), history and evidence.
+  A StatefulSet stopped at its partition, or waiting under OnDelete, is described as that and
+  never as a failure. A DaemonSet's Pods are shown by node. Node conditions and scheduling
+  changes can be recorded too (off unless `nodes.observe` is set). See
+  [docs/M2.7-WORKLOADS.md](docs/M2.7-WORKLOADS.md).
 - **Evidence**: on a release, the Kubernetes Events about its ReplicaSet, its Pods
   and its Deployment, the autoscaler (HPA) context of the workload, and a
   facts-only list of what was recorded. Kubernetes' reason and message are shown
@@ -266,6 +273,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` (`/events` takes `include=evidence,scaling`) | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
 | `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`), and where it came from (see docs/M2.6-EVIDENCE.md) |
 | `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
+| `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Log's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |

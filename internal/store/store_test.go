@@ -173,7 +173,7 @@ func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Take it back to version 1, as a database written before the indexes would be.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; PRAGMA user_version = 1`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; PRAGMA user_version = 1`); err != nil {
 		t.Fatalf("rewinding to version 1: %v", err)
 	}
 	s.Close()
@@ -804,7 +804,8 @@ func TestMigrationFourKeepsReleasesOnTheirOwnRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id;
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin; DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
+DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id;
 DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; PRAGMA user_version = 3`); err != nil {
 		t.Fatalf("rewinding to version 3: %v", err)
 	}
@@ -890,5 +891,89 @@ func TestAutoscalerFollowsARecreatedDeployment(t *testing.T) {
 	pg, _ := s.Evidence(ctx, EvidenceQuery{WorkloadID: "new"})
 	if len(pg.Records) != 1 {
 		t.Fatal("the autoscaler's Events did not follow")
+	}
+}
+
+// Migration 5 gives every existing Deployment the kind it already had, and names the
+// workload on the release and rollout entries that did not yet.
+func TestMigrationFiveKeepsDeploymentsAndNamesTheirEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v4.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners;
+DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin;
+DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
+DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; PRAGMA user_version = 4`); err != nil {
+		t.Fatalf("rewinding to version 4: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at) VALUES ('d1','ns','api',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO events (id, type, namespace, kind, resource_uid, resource_name, observed_at, recorded_at, at, severity, confidence, summary)
+VALUES ('e1','release.observed','ns','Deployment','d1','api',1,1,1,'info','observed','x'), ('e2','job.created','ns','Job','j1','job',1,1,1,'info','observed','y')`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	wl, ok, err := s.WorkloadByID(ctx, "d1")
+	if err != nil || !ok || wl.Kind != KindDeployment {
+		t.Fatalf("%+v %v %v", wl, ok, err)
+	}
+	pg, err := s.Events(ctx, EventQuery{WorkloadID: "d1"})
+	if err != nil || len(pg.Events) != 1 || pg.Events[0].ID != "e1" {
+		t.Fatalf("the release entry must name its workload, and the Job entry must not: %v %+v", err, pg.Events)
+	}
+}
+
+// A rollback gives an existing ControllerRevision a new, higher number: the stored number follows it, so the
+// revision sorts and compares as the newest.
+func TestRevisionRenumberingByARollbackIsKept(t *testing.T) {
+	s, ctx := open(t)
+	mk := func(id string, n int64) WorkloadRevision {
+		return WorkloadRevision{ID: id, WorkloadID: "w", Kind: KindStatefulSet, Name: id, Number: n, ControllerRevisionUID: "u-" + id, ObservedAt: t0, Origin: OriginObserved, Fingerprint: id, Snapshot: "{}"}
+	}
+	update(t, s, func(w *Writer) error {
+		for _, r := range []WorkloadRevision{mk("r1", 1), mk("r2", 2)} {
+			if _, err := w.AddRevision(ctx, r); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	update(t, s, func(w *Writer) error { _, err := w.AddRevision(ctx, mk("r1", 3)); return err }) // rolled back to r1
+	revs, err := s.Revisions(ctx, "w")
+	if err != nil || len(revs) != 2 || revs[1].Name != "r1" || revs[1].Number != 3 {
+		t.Fatalf("%v %+v", err, revs)
+	}
+}
+
+// Events about an earlier Node of the same name are not linked to a later one, and an Event is linked only when it states this Node's UID or its name as the UID.
+func TestNodeEvidenceRelinkIsBoundedByUIDAndTime(t *testing.T) {
+	s, ctx := open(t)
+	ev := func(id, uid string, at time.Time) Evidence {
+		return Evidence{ID: id, Source: SourceEventsV1, SourceUID: "s" + id, Namespace: "default", Name: id, Regarding: Ref{Kind: "Node", Name: "node-a", UID: uid}, FirstAt: at, LastAt: at, ObservedAt: at, Origin: OriginObservedEvidence}
+	}
+	update(t, s, func(w *Writer) error {
+		for _, e := range []Evidence{ev("kubelet", "node-a", t0), ev("old", "old-real-uid", t0), ev("early", "node-a", t0.Add(-time.Hour)), ev("direct", "n-new", t0)} {
+			if err := w.SaveEvidence(ctx, e); err != nil {
+				return err
+			}
+		}
+		return w.RelinkEvidenceOfNode(ctx, "n-new", "node-a", t0)
+	})
+	got := map[string]string{}
+	pg, _ := s.Evidence(ctx, EvidenceQuery{Limit: 10})
+	for _, e := range pg.Records {
+		got[e.ID] = e.NodeID
+	}
+	if got["kubelet"] != "n-new" || got["direct"] != "n-new" || got["old"] != "" || got["early"] != "" {
+		t.Fatalf("%v", got)
 	}
 }

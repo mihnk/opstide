@@ -103,8 +103,10 @@ type EventQuery struct {
 	// Kind, Reason and WorkloadID narrow to the resource kind an entry is about,
 	// the reason Kubernetes reported, and the Deployment (by UID) it concerns.
 	Kind, Reason, WorkloadID string
-	Text                     string   // substring of the summary or resource name
-	Severities               []string // info, warning or error
+	// ResourceUID narrows to the entries about one resource; with Kind it is served by an index.
+	ResourceUID string
+	Text        string   // substring of the summary or resource name
+	Severities  []string // info, warning or error
 	// Owner keeps entries of operations whose owner annotation is exactly this.
 	Owner string
 	// Cursor continues a previous page (its NextCursor).
@@ -148,6 +150,9 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	}
 	if q.Kind != "" {
 		where, args = append(where, "kind = ?"), append(args, q.Kind)
+	}
+	if q.ResourceUID != "" {
+		where, args = append(where, "resource_uid = ? AND resource_uid <> ''"), append(args, q.ResourceUID)
 	}
 	if q.Reason != "" {
 		where, args = append(where, "reason = ? AND reason <> ''"), append(args, q.Reason)

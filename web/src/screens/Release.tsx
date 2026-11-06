@@ -3,6 +3,7 @@ import { getJSON, query, type Entries, type Entry, type ReleaseChanges, type Rel
 import { HealthGlyph, HealthStatus, RolloutGlyph, RolloutStatus, healthWords, rolloutWords } from '../components/status'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
+import { entryWord } from '../entryWords'
 import { Link, navigate, withParams } from '../router'
 import { duration, hhmm, hhmmss, relativeTime } from '../time'
 import { ZoneSelect } from './common'
@@ -194,11 +195,11 @@ function categoryOf(type: string): Category {
   return 'release'
 }
 
-function EntryRow({ e, tz }: { e: Entry; tz: string }) {
+export function EntryRow({ e, tz }: { e: Entry; tz: string }) {
   return (
     <div className={`entry static ${e.severity}`}>
       <span className={`when mono${e.severity === 'error' ? ' fail' : e.confidence === 'unknown' ? ' muted' : ''}`} title={`${e.at} UTC`}>{hhmmss(e.at, tz)}</span>
-      <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : undefined }}>{typeWord[e.type] ?? e.type}</span>
+      <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : undefined }}>{entryWord(e.type, typeWord)}</span>
       <span style={{ minWidth: 0 }}>
         <span>{e.summary}</span>
         {e.type.startsWith('evidence.') && e.facts?.message ? <span className="ref" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }} title={e.facts.message}>{e.facts.message.length > 200 ? `${e.facts.message.slice(0, 200)}…` : e.facts.message}</span> : null}

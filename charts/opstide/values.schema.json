@@ -16,6 +16,10 @@
       "items": { "type": "string", "minLength": 1 },
       "description": "A list: --set 'namespaces={payments,data}'."
     },
+    "nodes": {
+      "type": "object",
+      "properties": { "observe": { "type": "boolean" } }
+    },
     "releases": {
       "type": "object",
       "properties": { "observationMinutes": { "enum": [5, 10, 15, 30] } }

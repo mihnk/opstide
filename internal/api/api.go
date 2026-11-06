@@ -42,6 +42,8 @@ type Config struct {
 	// ReleaseWindow is the observation length after a rollout completes
 	// (default 10 minutes).
 	ReleaseWindow time.Duration
+	// ObserveNodes says whether Nodes are watched (they need cluster RBAC and are off by default).
+	ObserveNodes bool
 	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
 	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
 	ClustrailURL string
@@ -87,6 +89,16 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/evidence", s.evidenceList)
 	mux.HandleFunc("GET /api/v1/evidence/{id}", s.evidenceOne)
 	mux.HandleFunc("GET /api/v1/workloads/{id}/scaling", s.workloadScaling)
+	mux.HandleFunc("GET /api/v1/workloads", s.workloadList)
+	mux.HandleFunc("GET /api/v1/workloads/{id}", s.workloadOne)
+	mux.HandleFunc("GET /api/v1/workloads/{id}/history", s.workloadHistory)
+	mux.HandleFunc("GET /api/v1/workloads/{id}/revisions", s.workloadRevisions)
+	mux.HandleFunc("GET /api/v1/workloads/{id}/pods", s.workloadPods)
+	mux.HandleFunc("GET /api/v1/workloads/{id}/evidence", s.workloadEvidence)
+	mux.HandleFunc("GET /api/v1/nodes", s.nodeList)
+	mux.HandleFunc("GET /api/v1/nodes/{id}", s.nodeOne)
+	mux.HandleFunc("GET /api/v1/nodes/{id}/history", s.nodeHistory)
+	mux.HandleFunc("GET /api/v1/runs/{id}/evidence", s.runEvidence)
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.operation)
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("GET /api/v1/system", s.system)

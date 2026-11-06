@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getJSON, query, type Entries, type Entry } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
+import { entryWord } from '../entryWords'
 import { Link, navigate, withParams } from '../router'
 import { hhmm, hhmmss, isoDate, longDay, offset } from '../time'
 
@@ -16,10 +17,15 @@ const groups = [
   ['pods', 'pod lifecycle'],
   ['kubernetes', 'Kubernetes Events'],
   ['scaling', 'scaling'],
+  ['statefulsets', 'StatefulSet activity'],
+  ['daemonsets', 'DaemonSet activity'],
+  ['nodes', 'Node conditions'],
+  ['counts', 'reported counts'],
   ['collection', 'collection'],
 ] as const
 
-const defaultShow = 'runs,schedules,rollouts,releases,health,collection'
+// Reported counts are routine and off by default, like run starts and Pod lifecycle.
+const defaultShow = 'runs,schedules,rollouts,releases,health,collection,statefulsets,daemonsets,nodes'
 
 const kindWord: Record<string, string> = {
   'job.created': 'Created', 'job.succeeded': 'Succeeded', 'job.failed': 'Failed', 'job.lost': 'Unknown',
@@ -184,7 +190,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
       {workload && (
         <div className="banner" role="note">
           <span className="label">One workload</span>
-          <span>Showing entries about one Deployment (by UID <span className="mono">{workload.slice(0, 8)}</span>): Kubernetes Events and scaling entries linked to it. <Link href={withParams(params, { workload: null, entry: null })} replace>Show everything</Link></span>
+          <span>Showing entries about one workload (by UID <span className="mono">{workload.slice(0, 8)}</span>): its own entries, Kubernetes Events and scaling entries linked to it. <Link href={withParams(params, { workload: null, entry: null })} replace>Show everything</Link></span>
         </div>
       )}
 
@@ -215,7 +221,7 @@ export function Log({ params, tz }: { params: URLSearchParams; tz: string }) {
                     onClick={() => navigate(withParams(params, { entry: e.id === selected ? null : e.id }), true)}>
                     <span className={`when mono${e.severity === 'error' ? ' fail' : e.confidence === 'unknown' ? ' muted' : ''}`}>{hhmm(e.at, tz)}</span>
                     <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : e.type.startsWith('deployment') ? 'var(--accent)' : undefined }}>
-                      {kindWord[e.type] ?? e.type}
+                      {entryWord(e.type, kindWord)}
                     </span>
                     <span style={{ minWidth: 0 }}>
                       <span>{e.summary}</span>
@@ -252,7 +258,7 @@ function EntryPanel({ e, tz }: { e: Entry; tz: string }) {
   return (
     <>
       <div className="panel-head">
-        <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : undefined }}>{kindWord[e.type] ?? e.type}</span>
+        <span className="label" style={{ color: e.severity === 'error' ? 'var(--fail)' : undefined }}>{entryWord(e.type, kindWord)}</span>
         <span className="name">{e.summary}</span>
         {e.resourceName && <span className="mono muted" style={{ fontSize: 12 }}>{e.namespace ? `${e.namespace}/` : ''}{e.resourceName}</span>}
       </div>
@@ -276,13 +282,28 @@ function EntryPanel({ e, tz }: { e: Entry; tz: string }) {
           {f.message && (<><dt className="label">Message</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.message}</dd></>)}
           {f.targetRelationship && (<><dt className="label">Target</dt><dd>{f.target} <span className="muted">· {f.targetRelationship}, {f.targetVia}</span></dd></>)}
         </>)}
+        {(e.type.startsWith('statefulset.') || e.type.startsWith('daemonset.')) && (<>
+          {f.rollout && (<><dt className="label">Update state</dt><dd className="mono">{f.rollout}</dd></>)}
+          {f.note && (<><dt className="label">Values used</dt><dd style={{ overflowWrap: 'anywhere' }}>{f.note}</dd></>)}
+          {f.condition ? (<><dt className="label">Condition</dt><dd className="mono">{f.condition}: {f.from} to {f.to}{f.reason ? ` (${f.reason})` : ''}</dd></>)
+            : f.from !== undefined && f.to !== undefined ? (<><dt className="label">Change</dt><dd className="mono">{f.from || 'none'} → {f.to}</dd></>) : null}
+          {f.message && (<><dt className="label">Message</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.message}</dd></>)}
+          {f.origin && (<><dt className="label">Origin</dt><dd>{f.origin === 'adopted' ? 'already present when OpsTide began watching' : 'seen being created'}</dd></>)}
+        </>)}
+        {e.type.startsWith('node.') && (<>
+          {f.condition && (<><dt className="label">Condition</dt><dd className="mono">{f.condition}: {f.from} to {f.to}</dd></>)}
+          {f.reason && (<><dt className="label">Reason (Kubernetes)</dt><dd className="mono">{f.reason}</dd></>)}
+          {f.message && (<><dt className="label">Message (Kubernetes)</dt><dd style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.message}</dd></>)}
+          {e.type === 'node.unschedulable_changed' && (<><dt className="label">Change</dt><dd className="mono">spec.unschedulable {f.from} → {f.to}</dd></>)}
+        </>)}
         {e.type === 'workload.replica_target_changed' && (<><dt className="label">Change</dt><dd className="mono">replica target {f.from} to {f.to}</dd></>)}
         {e.resourceUid && (<><dt className="label">Identity</dt><dd className="mono">{e.kind?.toLowerCase()} {e.resourceUid}</dd></>)}
       </dl>
       <span className="muted" style={{ fontSize: 13 }}>
         OpsTide does not keep container logs.{' '}
         {e.releaseId && <Link href={`/releases/${encodeURIComponent(e.releaseId)}`}>Open the release</Link>}
-        {e.workloadId && <>{' '}<Link href={`/log?workload=${encodeURIComponent(e.workloadId)}`}>Entries linked to this workload</Link></>}
+        {e.workloadId && <>{' '}<Link href={`/workloads/${encodeURIComponent(e.workloadId)}`}>Open the workload</Link>{' · '}<Link href={`/log?workload=${encodeURIComponent(e.workloadId)}`}>Entries linked to it</Link></>}
+        {e.kind === 'Node' && e.resourceUid && <>{' '}<Link href={`/nodes/${encodeURIComponent(e.resourceUid)}`}>Open the Node</Link></>}
         {e.operationId && <Link href={`/operations/${encodeURIComponent(e.operationId)}${e.runId ? `?run=${encodeURIComponent(e.runId)}` : ''}`}>Open the operation</Link>}
       </span>
     </>

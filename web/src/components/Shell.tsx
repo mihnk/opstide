@@ -7,8 +7,9 @@ import { ago } from '../time'
 
 const sections = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
-  { href: '/releases', label: 'Releases', match: (p: string) => p.startsWith('/releases') },
   { href: '/log', label: 'Log', match: (p: string) => p.startsWith('/log') },
+  { href: '/workloads', label: 'Workloads', match: (p: string) => p.startsWith('/workloads') || p.startsWith('/nodes') },
+  { href: '/releases', label: 'Releases', match: (p: string) => p.startsWith('/releases') },
   { href: '/schedules', label: 'Schedules', match: (p: string) => p.startsWith('/schedules') || p.startsWith('/operations') },
   { href: '/system', label: 'System', match: (p: string) => p.startsWith('/system') },
 ]

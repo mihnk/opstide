@@ -29,6 +29,12 @@ namespaces: []
 releases:
   observationMinutes: 10
 
+# Node conditions and scheduling changes. Nodes are cluster-scoped, so this needs
+# list and watch on nodes cluster-wide (a small ClusterRole is added); it is off by default,
+# also for installs limited to some namespaces. Capacity, labels, taints and images are not read.
+nodes:
+  observe: false
+
 retention:
   days: 30
   maxEntries: 2000000

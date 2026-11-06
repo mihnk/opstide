@@ -66,6 +66,13 @@ var typeGroups = map[string][]string{
 	"kubernetes": {"evidence."},
 	// Scaling: what autoscalers and Deployments reported about replica targets.
 	"scaling": {"hpa.", "workload.replica_target_changed"},
+	// StatefulSet and DaemonSet activity: first observed, revision and rollout changes, deletion.
+	"statefulsets": {"statefulset.observed", "statefulset.revision_changed", "statefulset.current_revision_changed", "statefulset.partition_changed", "statefulset.strategy_changed", "statefulset.update_started", "statefulset.update_partitioned", "statefulset.update_awaiting_pod_deletion", "statefulset.update_completed", "statefulset.condition_changed", "statefulset.deleted"},
+	"daemonsets":   {"daemonset.observed", "daemonset.revision_changed", "daemonset.current_revision_changed", "daemonset.partition_changed", "daemonset.strategy_changed", "daemonset.update_started", "daemonset.update_partitioned", "daemonset.update_awaiting_pod_deletion", "daemonset.update_completed", "daemonset.condition_changed", "daemonset.deleted"},
+	// Node conditions and scheduling changes, as reported.
+	"nodes": {"node."},
+	// Reported replica and scheduled counts of StatefulSets and DaemonSets. Routine, so off by default.
+	"counts": {"statefulset.counts_changed", "daemonset.counts_changed"},
 }
 
 // outcomeTypes maps the outcome filter to the entry types of finished runs.
@@ -131,7 +138,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		for _, g := range strings.Split(show, ",") {
 			types, ok := typeGroups[g]
 			if !ok {
-				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts, releases, health, pods, kubernetes, scaling or collection"))
+				reply(w, r, s.log, nil, badRequest("show takes runs, starts, schedules, rollouts, releases, health, pods, kubernetes, scaling, statefulsets, daemonsets, nodes, counts or collection"))
 				return
 			}
 			if g == "runs" {
@@ -147,7 +154,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	// Kubernetes Event entries are asked for by name or by what they carry
 	// (kind, reason, workload); an unfiltered Log does not include them.
 	if show == "" && eq.Reason == "" && eq.Kind == "" && eq.WorkloadID == "" && eq.OperationID == "" && eq.RunID == "" && eq.ReleaseID == "" {
-		eq.ExcludeTypes = []string{"evidence."}
+		// Kubernetes Event entries and reported counts are routine: asked for by name, not in the unfiltered Log.
+		eq.ExcludeTypes = []string{"evidence.", "statefulset.counts_changed", "daemonset.counts_changed"}
 	}
 	if sv := q.Get("severity"); sv != "" {
 		for _, v := range strings.Split(sv, ",") {

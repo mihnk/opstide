@@ -61,6 +61,9 @@ type Options struct {
 	// EventsSource forces the API Kubernetes Events are read through
 	// ("events.k8s.io/v1" or "core/v1"); empty chooses by discovery.
 	EventsSource string
+	// ObserveNodes watches Nodes. They are cluster-scoped, so it needs cluster RBAC
+	// and is off unless asked for, whatever the namespaces being watched.
+	ObserveNodes bool
 }
 
 // Collector watches the cluster and writes to the store.
@@ -83,6 +86,9 @@ type Collector struct {
 	// Evidence: Events and autoscalers are optional watches. A cluster that
 	// does not allow reading them must not stop releases and runs from being
 	// recorded, so they are started but not waited for.
+	opt             []optInf
+	observeNodes    bool
+	nodes           cache.SharedIndexInformer // cluster-scoped; nil unless Nodes are observed
 	eventsSourceOpt string
 	evSource        atomic.Value // string, the API in use
 	em              evidenceMetrics
@@ -97,6 +103,14 @@ type scope struct {
 	cronJobs, jobs, pods, deployments cache.SharedIndexInformer
 	replicaSets, deployPods           cache.SharedIndexInformer
 	eventsV1, eventsCore, hpas        cache.SharedIndexInformer
+	statefulSets, daemonSets          cache.SharedIndexInformer
+	revisions, workloadPods           cache.SharedIndexInformer
+}
+
+// optInf is an optional watch and the group it starts with.
+type optInf struct {
+	inf   cache.SharedIndexInformer
+	group string
 }
 
 type item struct {
@@ -128,6 +142,7 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 		c.now = time.Now
 	}
 	c.eventsSourceOpt = opt.EventsSource
+	c.observeNodes = opt.ObserveNodes
 	c.window = opt.ReleaseWindow
 	if c.window <= 0 {
 		c.window = release.DefaultWindow
@@ -140,6 +155,9 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 	}
 	for _, ns := range namespaces {
 		c.scopes[ns] = c.newScope(ns)
+	}
+	if c.observeNodes {
+		c.addNodeInformer()
 	}
 	return c
 }
@@ -212,14 +230,15 @@ func (c *Collector) newScope(ns string) *scope {
 		},
 		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
 			return events.Events(ns).Watch(ctx, o)
-		}, false)
+		}, "events-v1")
 	s.eventsCore = c.optionalInformer(ns, Events, &corev1.Event{}, nil,
 		func(ctx context.Context, o metav1.ListOptions) (runtime.Object, error) {
 			return core.Events(ns).List(ctx, o)
 		},
 		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
 			return core.Events(ns).Watch(ctx, o)
-		}, false)
+		}, "events-core")
+	c.addWorkloadInformers(s, ns)
 	_ = s.eventsV1.SetTransform(trimEvent)
 	_ = s.eventsCore.SetTransform(trimEvent)
 	autoscaling := c.client.AutoscalingV2()
@@ -229,7 +248,7 @@ func (c *Collector) newScope(ns string) *scope {
 		},
 		func(ctx context.Context, o metav1.ListOptions) (watch.Interface, error) {
 			return autoscaling.HorizontalPodAutoscalers(ns).Watch(ctx, o)
-		}, true)
+		}, "hpa")
 
 	self := func(kind string) func(metav1.Object) (item, bool) {
 		return func(o metav1.Object) (item, bool) {
@@ -280,10 +299,11 @@ func (c *Collector) eventItem(o metav1.Object) (item, bool) {
 // optionalInformer is informer for a watch the collector starts but does not wait for.
 func (c *Collector) optionalInformer(ns, kind string, example runtime.Object, idx cache.Indexers,
 	list func(context.Context, metav1.ListOptions) (runtime.Object, error),
-	watchFn func(context.Context, metav1.ListOptions) (watch.Interface, error), _ bool) cache.SharedIndexInformer {
+	watchFn func(context.Context, metav1.ListOptions) (watch.Interface, error), group string) cache.SharedIndexInformer {
 	n := len(c.informers)
 	inf := c.informer(ns, kind, example, idx, list, watchFn)
 	c.informers = c.informers[:n] // not one the collector waits for
+	c.opt = append(c.opt, optInf{inf, group})
 	return inf
 }
 
@@ -395,31 +415,34 @@ func (c *Collector) Run(ctx context.Context) error {
 	// Events (through one API) and autoscalers: started, not waited for.
 	src := c.pickEventsSource()
 	c.evSource.Store(src)
-	var optional []cache.SharedIndexInformer
-	for _, s := range c.scopes {
-		ev := s.eventsV1
-		if src == store.SourceCoreV1 {
-			ev = s.eventsCore
-		}
-		optional = append(optional, ev, s.hpas)
-	}
+	optional := c.optionalInformers(src)
 	for _, inf := range optional {
 		go inf.RunWithContext(ctx)
 	}
-	go func() {
-		syncd := make([]cache.InformerSynced, len(optional))
-		for i, inf := range optional {
-			syncd[i] = inf.HasSynced
+	// Each group is reconciled once its own watches have listed: a group that cannot be
+	// read (no permission) must not hold back the others, and an unlisted cache must
+	// never be taken to mean that objects are gone.
+	c.whenSynced(ctx, []string{"events-v1", "events-core", "hpa"}, src, func() {
+		if err := c.reconcileAbsentHPAs(ctx); err != nil {
+			c.log.Warn("reconciling autoscalers removed while not watching", "err", err)
 		}
-		if cache.WaitForCacheSync(ctx.Done(), syncd...) {
-			if err := c.reconcileAbsentHPAs(ctx); err != nil {
-				c.log.Warn("reconciling autoscalers removed while not watching", "err", err)
-			}
-			if err := c.reconcileAbsentEvidence(ctx); err != nil {
-				c.log.Warn("reconciling Events dropped while not watching", "err", err)
-			}
+		if err := c.reconcileAbsentEvidence(ctx); err != nil {
+			c.log.Warn("reconciling Events dropped while not watching", "err", err)
 		}
-	}()
+	})
+	c.whenSynced(ctx, []string{StatefulSets, DaemonSets, WorkloadPods}, src, func() {
+		if err := c.reconcileAbsentWorkloads(ctx); err != nil {
+			c.log.Warn("reconciling workloads removed while not watching", "err", err)
+		}
+		if err := c.reconcileAbsentWorkloadPods(ctx); err != nil {
+			c.log.Warn("reconciling Pods removed while not watching", "err", err)
+		}
+	})
+	c.whenSynced(ctx, []string{Nodes}, src, func() {
+		if err := c.reconcileAbsentNodes(ctx); err != nil {
+			c.log.Warn("reconciling Nodes removed while not watching", "err", err)
+		}
+	})
 	synced := make([]cache.InformerSynced, len(c.informers))
 	for i, inf := range c.informers {
 		synced[i] = inf.HasSynced
@@ -465,6 +488,14 @@ func (c *Collector) next(ctx context.Context) bool {
 		err = c.syncDeployment(ctx, it)
 	case DeployPods:
 		err = c.syncDeployPod(ctx, it)
+	case StatefulSets:
+		err = c.syncStatefulSet(ctx, it)
+	case DaemonSets:
+		err = c.syncDaemonSet(ctx, it)
+	case WorkloadPods:
+		err = c.syncWorkloadPod(ctx, it)
+	case Nodes:
+		err = c.syncNode(ctx, it)
 	case Events:
 		err = c.syncEvent(ctx, it)
 	case HPAs:
@@ -500,16 +531,45 @@ func (c *Collector) evidenceSynced() bool {
 	if _, ok := c.evSource.Load().(string); !ok {
 		return false
 	}
-	for _, s := range c.scopes {
-		ev := s.eventsV1
-		if c.eventsSource() == store.SourceCoreV1 {
-			ev = s.eventsCore
-		}
-		if !ev.HasSynced() || !s.hpas.HasSynced() {
+	for _, inf := range c.optionalInformers(c.eventsSource()) {
+		if !inf.HasSynced() {
 			return false
 		}
 	}
 	return true
+}
+
+// whenSynced runs fn once every running optional watch of these groups has listed.
+func (c *Collector) whenSynced(ctx context.Context, groups []string, eventsSource string, fn func()) {
+	var syncd []cache.InformerSynced
+	for _, o := range c.opt {
+		for _, g := range groups {
+			if o.group != g || (g == "events-v1" && eventsSource != store.SourceEventsV1) || (g == "events-core" && eventsSource != store.SourceCoreV1) {
+				continue
+			}
+			syncd = append(syncd, o.inf.HasSynced)
+		}
+	}
+	if len(syncd) == 0 {
+		return
+	}
+	go func() {
+		if cache.WaitForCacheSync(ctx.Done(), syncd...) {
+			fn()
+		}
+	}()
+}
+
+// optionalInformers are the optional watches that run, given which Events API is read.
+func (c *Collector) optionalInformers(eventsSource string) []cache.SharedIndexInformer {
+	var out []cache.SharedIndexInformer
+	for _, o := range c.opt {
+		if (o.group == "events-v1" && eventsSource != store.SourceEventsV1) || (o.group == "events-core" && eventsSource != store.SourceCoreV1) {
+			continue
+		}
+		out = append(out, o.inf)
+	}
+	return out
 }
 
 // eventsSource is the API Events are read through, once Run has chosen it.

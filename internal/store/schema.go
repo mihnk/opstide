@@ -274,6 +274,108 @@ CREATE INDEX hpas_workload ON hpas(workload_id) WHERE workload_id <> '';
 CREATE INDEX hpas_target ON hpas(namespace, target_kind, target_name);
 CREATE INDEX hpas_updated ON hpas(updated_at);
 `,
+	// 5: more workload kinds and Nodes. One workloads table now holds Deployments,
+	// StatefulSets and DaemonSets, each keyed by its own UID; workload_state is the
+	// current observed state and workload_revisions the ControllerRevision history of
+	// the kinds that have one (Deployments keep theirs in releases). Nothing here
+	// holds a whole object: snapshots are the allow-list of internal/release.
+	`
+ALTER TABLE workloads ADD COLUMN kind TEXT NOT NULL DEFAULT 'Deployment';
+ALTER TABLE workloads ADD COLUMN origin TEXT NOT NULL DEFAULT '';
+CREATE INDEX workloads_kind ON workloads(kind, namespace, name);
+
+CREATE TABLE workload_state (
+	workload_id         TEXT PRIMARY KEY,
+	kind                TEXT NOT NULL,
+	generation          INTEGER NOT NULL DEFAULT 0,
+	observed_generation INTEGER NOT NULL DEFAULT 0,
+	desired             INTEGER NOT NULL DEFAULT 0,
+	ready               INTEGER NOT NULL DEFAULT 0,
+	available           INTEGER NOT NULL DEFAULT 0,
+	updated             INTEGER NOT NULL DEFAULT 0,
+	current             INTEGER NOT NULL DEFAULT 0,  -- StatefulSet currentReplicas, DaemonSet currentNumberScheduled
+	misscheduled        INTEGER NOT NULL DEFAULT 0,  -- DaemonSet numberMisscheduled
+	revision            TEXT NOT NULL DEFAULT '',    -- Deployment revision; StatefulSet currentRevision; DaemonSet newest ControllerRevision
+	update_revision     TEXT NOT NULL DEFAULT '',
+	strategy            TEXT NOT NULL DEFAULT '',
+	partition_          INTEGER,
+	max_unavailable     TEXT NOT NULL DEFAULT '',
+	max_surge           TEXT NOT NULL DEFAULT '',
+	pod_management      TEXT NOT NULL DEFAULT '',
+	min_ready_seconds   INTEGER NOT NULL DEFAULT 0,
+	rollout             TEXT NOT NULL DEFAULT '',
+	rollout_note        TEXT NOT NULL DEFAULT '',
+	conditions          TEXT NOT NULL DEFAULT '[]',
+	state_hash          TEXT NOT NULL DEFAULT '',
+	last_change_at      INTEGER NOT NULL,
+	updated_at          INTEGER NOT NULL
+);
+CREATE INDEX workload_state_change ON workload_state(last_change_at, workload_id);
+CREATE INDEX workload_state_updated ON workload_state(updated_at);
+
+CREATE TABLE workload_revisions (
+	id                      TEXT PRIMARY KEY,   -- hash of the workload UID and the ControllerRevision UID
+	workload_id             TEXT NOT NULL,
+	kind                    TEXT NOT NULL,
+	name                    TEXT NOT NULL,      -- the ControllerRevision's name
+	hash                    TEXT NOT NULL DEFAULT '',
+	revision_num            INTEGER NOT NULL,   -- ControllerRevision.revision, meaningful within this workload only
+	controller_revision_uid TEXT NOT NULL,
+	created_at              INTEGER,
+	observed_at             INTEGER NOT NULL,
+	origin                  TEXT NOT NULL,      -- observed | adopted
+	fingerprint             TEXT NOT NULL,
+	snapshot                TEXT NOT NULL,
+	updated_at              INTEGER NOT NULL
+);
+CREATE INDEX workload_revisions_workload ON workload_revisions(workload_id, revision_num);
+CREATE INDEX workload_revisions_observed ON workload_revisions(observed_at);
+
+-- Pods of StatefulSets and DaemonSets live in release_pods too, with their placement.
+ALTER TABLE release_pods ADD COLUMN kind TEXT NOT NULL DEFAULT 'Deployment';
+ALTER TABLE release_pods ADD COLUMN revision TEXT NOT NULL DEFAULT '';
+ALTER TABLE release_pods ADD COLUMN node TEXT NOT NULL DEFAULT '';
+ALTER TABLE release_pods ADD COLUMN ordinal INTEGER;
+CREATE INDEX release_pods_workload ON release_pods(workload_id, created_at);
+CREATE INDEX release_pods_node ON release_pods(node, created_at) WHERE node <> '';
+
+CREATE TABLE nodes (
+	uid           TEXT PRIMARY KEY,
+	name          TEXT NOT NULL,
+	first_seen_at INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	created_at    INTEGER,
+	deleted_at    INTEGER,
+	origin        TEXT NOT NULL,           -- observed | adopted
+	unschedulable INTEGER NOT NULL DEFAULT 0,
+	conditions    TEXT NOT NULL DEFAULT '[]',
+	state_hash    TEXT NOT NULL DEFAULT '',
+	updated_at    INTEGER NOT NULL
+);
+CREATE INDEX nodes_name ON nodes(name, first_seen_at);
+CREATE INDEX nodes_updated ON nodes(updated_at);
+CREATE INDEX events_node ON events(resource_uid, at) WHERE kind = 'Node';
+
+-- Which Job a Pod belonged to, kept after the Pod and Job are garbage-collected,
+-- so an Event about the Pod can be linked to its run whenever either is learned.
+CREATE TABLE pod_owners (
+	pod_uid       TEXT PRIMARY KEY,
+	namespace     TEXT NOT NULL,
+	name          TEXT NOT NULL,
+	run_id        TEXT NOT NULL,            -- the Job's UID
+	operation_id  TEXT NOT NULL DEFAULT '', -- the CronJob's UID, when the Job's controller was one
+	node          TEXT NOT NULL DEFAULT '',
+	first_seen_at INTEGER NOT NULL
+);
+CREATE INDEX pod_owners_run ON pod_owners(run_id);
+CREATE INDEX pod_owners_seen ON pod_owners(first_seen_at);
+
+ALTER TABLE evidence ADD COLUMN node_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX evidence_node ON evidence(node_id, at) WHERE node_id <> '';
+
+-- Deployment entries now name their workload, like the others.
+UPDATE events SET workload_id = resource_uid WHERE workload_id = '' AND kind = 'Deployment' AND resource_uid <> '' AND (type LIKE 'release.%' OR type LIKE 'deployment.%');
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

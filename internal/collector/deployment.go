@@ -73,6 +73,9 @@ func (c *Collector) syncDeployment(ctx context.Context, it item) error {
 		if err := c.replicaTarget(ctx, w, d, releaseID, want, now); err != nil {
 			return err
 		}
+		if err := c.saveDeploymentState(ctx, w, d, rev, want, cur, now); err != nil {
+			return err
+		}
 		// Autoscalers and Events that named this Deployment before it was known.
 		if err := w.RelinkHPAs(ctx, d.Namespace, d.Name, string(d.UID)); err != nil {
 			return err

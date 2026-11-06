@@ -213,13 +213,13 @@ func TestEventsAboutOtherKindsAreNotKept(t *testing.T) {
 	db := openStore(t)
 	client, ctx := start(t, db, Options{})
 	now := time.Now().UTC()
-	node := podEvent("n", "ev-8", "node-1", "NodeNotReady", now)
-	node.Regarding.Kind = "Node"
-	_, _ = client.EventsV1().Events("shop").Create(ctx, node, metav1.CreateOptions{})
+	svc := podEvent("n", "ev-8", "api", "SyncLoadBalancerFailed", now)
+	svc.Regarding.Kind = "Service"
+	_, _ = client.EventsV1().Events("shop").Create(ctx, svc, metav1.CreateOptions{})
 	_, _ = client.EventsV1().Events("shop").Create(ctx, podEvent("p", "ev-9", "api-42-a", "Unhealthy", now), metav1.CreateOptions{})
 	eventually(t, "pod event", func() bool { _, ok := evidenceOf(t, db, "ev-9"); return ok })
 	if _, ok := evidenceOf(t, db, "ev-8"); ok {
-		t.Fatal("an Event about a Node was recorded")
+		t.Fatal("an Event about a Service was recorded")
 	}
 }
 

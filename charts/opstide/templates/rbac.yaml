@@ -70,3 +70,33 @@ subjects:
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if and .Values.rbac.create .Values.nodes.observe }}
+---
+# Read-only, cluster-wide, and only because Node observation was asked for: list and
+# watch Nodes. Nodes are cluster-scoped, so this cannot be a namespaced Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-nodes" (include "opstide.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: [nodes]
+  verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-nodes" (include "opstide.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-nodes" (include "opstide.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "opstide.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

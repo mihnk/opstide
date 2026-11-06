@@ -68,6 +68,14 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPADesired), "type", "hpa_desired_replicas_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPACondition), "type", "hpa_condition_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPATarget), "type", "workload_replica_target_changed")
+		if wc, err := db.WorkloadCounts(ctx); err == nil {
+			for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet"} {
+				w.Gauge("opstide_workloads", "Live workloads recorded, by kind.", float64(wc[k]), "kind", k)
+			}
+		}
+		if nodes, err := db.LiveNodes(ctx); err == nil {
+			w.Gauge("opstide_nodes", "Live Nodes recorded (0 unless Node observation is on).", float64(len(nodes)))
+		}
 		if es, err := db.EvidenceStats(ctx); err == nil {
 			w.Gauge("opstide_evidence_records", "Kubernetes Event records kept.", float64(es.Records))
 		}

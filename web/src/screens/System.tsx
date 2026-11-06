@@ -4,7 +4,7 @@ import { Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { ago, duration, hhmm, hhmmss, relativeTime } from '../time'
 
-const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments', replicasets: 'ReplicaSets', deploypods: 'Deployment Pods', events: 'Kubernetes Events', hpas: 'HorizontalPodAutoscalers' }
+const kindName: Record<string, string> = { cronjobs: 'CronJobs', jobs: 'Jobs', pods: 'Pods', deployments: 'Deployments', replicasets: 'ReplicaSets', deploypods: 'Deployment Pods', events: 'Kubernetes Events', hpas: 'HorizontalPodAutoscalers', statefulsets: 'StatefulSets', daemonsets: 'DaemonSets', controllerrevisions: 'ControllerRevisions', workloadpods: 'StatefulSet and DaemonSet Pods', nodes: 'Nodes' }
 
 function bytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
@@ -90,6 +90,20 @@ export function System({ tz }: { tz: string }) {
           <dd>{data.workload.degraded.length === 0
             ? <>Complete: Deployments, ReplicaSets and their Pods are being watched.</>
             : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workload.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+        </dl>
+      </section>
+
+      <section aria-label="Workloads and Nodes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">Workloads and Nodes <span className="note">· StatefulSets, DaemonSets, Nodes</span></h2>
+        <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
+          <dt className="label">Workloads recorded</dt>
+          <dd className="mono">{['Deployment', 'StatefulSet', 'DaemonSet'].map((k) => `${data.workloads.counts[k] ?? 0} ${k}${(data.workloads.counts[k] ?? 0) === 1 ? '' : 's'}`).join(' · ')}</dd>
+          <dt className="label">Node observation</dt>
+          <dd>{data.workloads.nodes.enabled ? <><span className="mono">on</span> <span className="muted">· {data.workloads.nodes.live} live Node{data.workloads.nodes.live === 1 ? '' : 's'} recorded</span></> : <span className="mono">off</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.workloads.nodes.note}</span></dd>
+          <dt className="label">Completeness</dt>
+          <dd>{data.workloads.degraded.length === 0
+            ? <>Complete as far as OpsTide can tell for the kinds it is set to watch.</>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workloads.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
         </dl>
       </section>
 

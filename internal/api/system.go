@@ -29,6 +29,22 @@ type System struct {
 	Workload WorkloadSystem `json:"workload"`
 	// Evidence is the state of Kubernetes Event and autoscaler collection.
 	Evidence EvidenceSystem `json:"evidence"`
+	// Workloads is the state of StatefulSet, DaemonSet and Node observation.
+	Workloads WorkloadsSystem `json:"workloads"`
+}
+
+// WorkloadsSystem is what OpsTide can and cannot see of workloads other than Deployments, and of Nodes.
+type WorkloadsSystem struct {
+	// Counts are the live workloads recorded, by kind.
+	Counts map[string]int `json:"counts"`
+	// Nodes says whether Node observation is on (it is off unless asked for) and how many live Nodes are recorded.
+	Nodes struct {
+		Enabled bool   `json:"enabled"`
+		Live    int    `json:"live"`
+		Note    string `json:"note"`
+	} `json:"nodes"`
+	// Degraded says what makes StatefulSet, DaemonSet or Node observation incomplete right now.
+	Degraded []string `json:"degraded"`
 }
 
 // EvidenceSystem is the state of Kubernetes Event and autoscaler collection.
@@ -124,7 +140,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			out.Scopes = append(out.Scopes, scopeView(scope, []Span{}, p))
 		}
 	}
-	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5, "events": 6, "hpas": 7}
+	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5, "events": 6, "hpas": 7, "statefulsets": 8, "daemonsets": 9, "controllerrevisions": 10, "workloadpods": 11, "nodes": 12}
 	sort.Slice(out.Scopes, func(i, j int) bool {
 		a, b := out.Scopes[i], out.Scopes[j]
 		if a.Kind != b.Kind {
@@ -165,6 +181,28 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			out.Evidence.Degraded = append(out.Evidence.Degraded, fmt.Sprintf("HorizontalPodAutoscalers cannot be read (%s): scaling context may be missing.", sc.Problem))
 		}
 	}
+	out.Workloads = WorkloadsSystem{Counts: map[string]int{}, Degraded: []string{}}
+	if cs, err := s.db.WorkloadCounts(ctx); err == nil {
+		out.Workloads.Counts = cs
+	}
+	out.Workloads.Nodes.Enabled = s.cfg.ObserveNodes
+	if live, err := s.db.LiveNodes(ctx); err == nil {
+		out.Workloads.Nodes.Live = len(live)
+	}
+	if !s.cfg.ObserveNodes {
+		out.Workloads.Nodes.Note = "Off. Nodes are cluster-scoped: observing them needs list and watch on nodes cluster-wide (nodes.observe)."
+	} else {
+		out.Workloads.Nodes.Note = "Node conditions and spec.unschedulable are recorded; capacity, labels, taints and images are not read."
+	}
+	for _, sc := range out.Scopes {
+		if sc.Problem == "" {
+			continue
+		}
+		switch sc.Kind {
+		case "statefulsets", "daemonsets", "controllerrevisions", "workloadpods", "nodes":
+			out.Workloads.Degraded = append(out.Workloads.Degraded, fmt.Sprintf("%s cannot be watched (%s): what is shown for them may be missing.", workloadScopes[sc.Kind]+nodesWord(sc.Kind), sc.Problem))
+		}
+	}
 	st, err := s.db.Stats(ctx)
 	if err != nil {
 		reply(w, r, s.log, nil, err)
@@ -185,4 +223,11 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 func scopeView(scope string, spans []Span, problem string) Scope {
 	kind, ns, _ := strings.Cut(scope, "/")
 	return Scope{Scope: scope, Kind: kind, Namespace: ns, Watching: spans, Problem: problem}
+}
+
+func nodesWord(kind string) string {
+	if kind == "nodes" {
+		return "Nodes"
+	}
+	return ""
 }
