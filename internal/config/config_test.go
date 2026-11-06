@@ -85,3 +85,13 @@ func TestNodeObservationIsOffUnlessAskedFor(t *testing.T) {
 		t.Fatal("false means off")
 	}
 }
+
+func TestDemoFlag(t *testing.T) {
+	c, err := Load([]string{"-demo"}, func(string) string { return "" })
+	if err != nil || !c.Demo {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if c, _ := Load(nil, func(string) string { return "" }); c.Demo {
+		t.Fatal("the demo is off unless asked for")
+	}
+}

@@ -35,6 +35,8 @@ type System struct {
 	Workloads WorkloadsSystem `json:"workloads"`
 	// Dropped counts objects OpsTide gave up recording after repeated failures since it started. Each is a gap in
 	// coverage over the stretch its changes may have been lost, and a Log entry says which.
+	// Demo says the data is made up and nothing is being collected.
+	Demo    bool `json:"demo"`
 	Dropped struct {
 		Count uint64     `json:"count"`
 		Last  *time.Time `json:"last"`
@@ -198,6 +200,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		n, at := d.DroppedObjects()
 		out.Dropped.Count, out.Dropped.Last = n, tp(at)
 	}
+	out.Demo = s.cfg.Demo
 	out.Workloads = WorkloadsSystem{Counts: map[string]int{}, Degraded: []string{}}
 	if cs, err := s.db.WorkloadCounts(ctx); err == nil {
 		out.Workloads.Counts = cs

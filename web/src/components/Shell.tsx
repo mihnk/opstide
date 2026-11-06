@@ -16,7 +16,7 @@ const sections = [
   { href: '/system', label: 'System', match: (p: string) => p.startsWith('/system') },
 ]
 
-export function Shell({ path, cluster, children }: { path: string; cluster?: string; children: ReactNode }) {
+export function Shell({ path, cluster, demo, children }: { path: string; cluster?: string; demo?: boolean; children: ReactNode }) {
   const live = useLive()
   const auth = useAuth()
   const ws = useWorkspace()
@@ -40,6 +40,11 @@ export function Shell({ path, cluster, children }: { path: string; cluster?: str
 
   return (
     <>
+      {demo && (
+        <div className="demo-banner" role="note">
+          <b>Demo.</b> Made-up data, not a real cluster. Nothing is being collected; the history is a snapshot taken when this started.
+        </div>
+      )}
       <header className="masthead">
         <Link href="/" className="brand" style={{ color: 'var(--ink)', textDecoration: 'none' }}>OpsTide</Link>
         {cluster && <span className="mono muted" style={{ fontSize: 13 }}>{cluster}</span>}

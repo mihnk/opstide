@@ -194,9 +194,18 @@ Dark and light themes follow the system until you pick one. Times show in
 your browser's zone or UTC. The app is built into the binary; fonts and
 everything else are served by the collector itself.
 
+## Try it
+
+`make demo-local` (or `go run ./cmd/opstide -demo`) serves a made-up history from a temporary database: CronJobs
+with a failed run and an unwatched hour, a Deployment's three releases, a StatefulSet held at its partition,
+a DaemonSet, a Node that was recreated under the same name, Kubernetes Events, a collection gap and an object
+OpsTide gave up on. It needs no cluster, kubeconfig or Docker, collects nothing, and says so on every page. It is
+a snapshot, not a live view; to see real watching use kind below.
+
 ## Try it on kind
 
 ```bash
+make demo-local   # no cluster, no Docker: made-up data in a temporary database, http://127.0.0.1:8080
 make demo-up      # kind cluster "opstide-demo" with demo CronJobs (needs Docker and kind)
 make demo         # OpsTide against it; open http://127.0.0.1:8080
 make demo-rollout # a Deployment rollout to see on the Overview

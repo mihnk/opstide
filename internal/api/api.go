@@ -47,6 +47,8 @@ type Config struct {
 	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
 	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
 	ClustrailURL string
+	// Demo says the data is made up (opstide -demo); the UI shows it on every page.
+	Demo bool
 }
 
 // Server answers API requests.

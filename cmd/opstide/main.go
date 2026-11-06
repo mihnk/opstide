@@ -44,6 +44,13 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if cfg.Demo {
+		if err := runDemo(ctx, cfg, log); err != nil {
+			log.Error("stopped", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(ctx, cfg, log); err != nil {
 		log.Error("stopped", "err", err)
 		os.Exit(1)

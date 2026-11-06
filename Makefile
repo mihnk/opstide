@@ -5,7 +5,7 @@ KUBECONFIG_FILE ?=
 DEMO_CONTEXT = kind-opstide-demo
 DEMO_KUBECONFIG = ./data-demo/kubeconfig
 
-.PHONY: build web test lint run image perf demo-up demo demo-install demo-rollout demo-down
+.PHONY: build web test lint run image perf demo-local demo-up demo demo-install demo-rollout demo-down
 
 # The web app, built into internal/webui/dist and embedded by build.
 web:
@@ -39,6 +39,11 @@ run:
 
 image:
 	docker build --build-arg VERSION=$(VERSION) -t opstide:$(VERSION) .
+
+# The quickest look: made-up data, no cluster, Docker or kind. Open http://127.0.0.1:8080.
+# Everything is a snapshot taken when it starts; nothing is collected.
+demo-local: $(if $(wildcard internal/webui/dist/index.html),,web)
+	go run ./cmd/opstide -demo
 
 # A local demo: a kind cluster with CronJobs that run every few minutes,
 # some failing, one slow, one suspended, one undescribed. Needs Docker and

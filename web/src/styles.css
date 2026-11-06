@@ -390,3 +390,6 @@ table.data.compact td:first-child, table.data.compact th:first-child { padding-l
     padding: 16px; background: var(--bg); border-top: 2px solid var(--ink); box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
   }
 }
+
+.demo-banner { padding: 6px 40px; background: var(--ink); color: var(--bg); font-size: 13px; text-align: center; }
+@media (max-width: 900px) { .demo-banner { padding: 6px 16px; } }

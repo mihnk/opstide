@@ -20,13 +20,14 @@ export function App() {
   const { path, params } = useLocation()
   const [tz, setTzState] = useState(savedZone)
   const [cluster, setCluster] = useState<string>()
+  const [demo, setDemo] = useState(false)
   const setTz = (z: string) => {
     saveZone(z)
     setTzState(z)
   }
 
   useEffect(() => {
-    getJSON<System>('/api/v1/system').then((s) => setCluster(s.cluster)).catch(() => {})
+    getJSON<System>('/api/v1/system').then((s) => { setCluster(s.cluster); setDemo(!!s.demo) }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -53,5 +54,5 @@ export function App() {
   else if (path === '/system') screen = <SystemScreen tz={tz} />
   else screen = <div className="page"><div className="empty">There is no page here. <a href="/">Go to the Overview</a></div></div>
 
-  return <Shell path={path} cluster={cluster}>{screen}</Shell>
+  return <Shell path={path} cluster={cluster} demo={demo}>{screen}</Shell>
 }
