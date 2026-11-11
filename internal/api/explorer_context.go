@@ -121,11 +121,13 @@ var scopeKindsOf = map[string][]string{
 	"nodes":      {"nodes"},
 	"scaling":    {"hpas", "deployments"},
 	"events":     {"events"},
+	"config":     {"configmaps", "secrets"},
 }
 
 var scopeLabel = map[string]string{"cronjobs": "CronJobs", "jobs": "Jobs", "pods": "Job Pods", "deployments": "Deployments", "replicasets": "ReplicaSets",
 	"deploypods": "Deployment Pods", "events": "Kubernetes Events", "hpas": "Autoscalers", "statefulsets": "StatefulSets", "daemonsets": "DaemonSets",
-	"controllerrevisions": "ControllerRevisions", "workloadpods": "StatefulSet and DaemonSet Pods", "nodes": "Nodes"}
+	"controllerrevisions": "ControllerRevisions", "workloadpods": "StatefulSet and DaemonSet Pods", "nodes": "Nodes",
+	"configmaps": "ConfigMaps", "secrets": "Secrets (metadata only)"}
 
 func labelOf(kind string) string {
 	if l, ok := scopeLabel[kind]; ok {
@@ -201,6 +203,9 @@ func (s *Server) buildContext(ctx context.Context, from, to time.Time, namespace
 	if !s.cfg.ObserveNodes {
 		names[collector.Nodes] = true
 	}
+	if !s.cfg.WatchSecretMetadata {
+		names[collector.Secrets] = true // off unless asked for: shown as off, never as calm
+	}
 	out.FirstObservedAt = tpp(firstAll)
 	list := make([]string, 0, len(names))
 	for sc := range names {
@@ -233,6 +238,12 @@ func (s *Server) buildContext(ctx context.Context, from, to time.Time, namespace
 		case kind == collector.Nodes && !s.cfg.ObserveNodes:
 			v.State = CovDisabled
 			v.Note = "Node observation is off. Nodes are not shown as live; the last time they were observed is given."
+		case kind == collector.Secrets && !s.cfg.WatchSecretMetadata:
+			v.State = CovDisabled
+			v.Note = "Secret metadata is not watched (it is off unless asked for). Nothing says when Secrets were created, written or deleted."
+		case kind == collector.ConfigMaps && !s.cfg.WatchConfigMaps:
+			v.State = CovDisabled
+			v.Note = "ConfigMaps are not watched (turned off). Nothing says when they were created, written or deleted."
 		case v.Problem != "":
 			v.State = CovUnavailable
 		case !watched:

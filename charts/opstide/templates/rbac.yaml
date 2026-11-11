@@ -13,8 +13,8 @@ metadata:
 {{- if .Values.rbac.create }}
 {{- if not .Values.namespaces }}
 ---
-# Read-only, cluster-wide: list and watch the kinds in the opstide.rules helper (batch, pods, apps, events, autoscaling).
-# No Secrets, no logs, no exec.
+# Read-only, cluster-wide: list and watch the kinds in the opstide.rules helper (batch, pods, apps, events, autoscaling,
+# configmaps unless watch.configMaps is false, secrets only with watch.secretMetadata). No logs, no exec.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

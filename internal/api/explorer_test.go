@@ -576,7 +576,8 @@ func TestExplorerSummaryCountsRecordsAcrossKindsAndNamesWhatWasNotWatched(t *tes
 		events = events || (n.Label == "Kubernetes Events" && n.State == CovGap)
 		nodes = nodes || (n.Label == "Nodes" && n.State == CovDisabled)
 	}
-	if !events || !nodes {
+	// Nodes are off by configuration: a choice, not a gap, so the summary does not repeat it.
+	if !events || nodes {
 		t.Fatalf("%+v", sm.NotWhole)
 	}
 }

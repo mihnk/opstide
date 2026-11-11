@@ -113,8 +113,10 @@ ON CONFLICT(id) DO UPDATE SET
 // MarkOperationDeleted records that the CronJob is gone. Its runs and
 // history stay until retention removes them.
 func (w *Writer) MarkOperationDeleted(ctx context.Context, id string, at time.Time) error {
-	_, err := w.tx.ExecContext(ctx, `UPDATE operations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at), id)
-	return err
+	if _, err := w.tx.ExecContext(ctx, `UPDATE operations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at), id); err != nil {
+		return err
+	}
+	return w.EndConfigRefs(ctx, id, at) // a CronJob that is gone names nothing any more
 }
 
 const operationCols = `id, namespace, name, display_name, description, owner, criticality, runbook_url,

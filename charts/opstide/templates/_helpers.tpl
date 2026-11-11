@@ -57,6 +57,19 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 - apiGroups: [autoscaling]
   resources: [horizontalpodautoscalers]
   verbs: [list, watch]
+{{- if dig "configMaps" true (.Values.watch | default dict) }}
+# ConfigMaps: who wrote them and when; values are reduced to a hash on arrival and never kept.
+- apiGroups: [""]
+  resources: [configmaps]
+  verbs: [list, watch]
+{{- end }}
+{{- if dig "secretMetadata" false (.Values.watch | default dict) }}
+# Secrets, only because watch.secretMetadata was asked for. RBAC cannot grant metadata alone: this allows list and watch
+# on Secrets, and OpsTide asks the API server for their metadata only (PartialObjectMetadata), so their data is never sent.
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [list, watch]
+{{- end }}
 {{- end -}}
 
 {{/* Name of the Secret that holds the token. */}}

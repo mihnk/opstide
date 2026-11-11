@@ -53,6 +53,7 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	probes.Register(mux)
 	auth.New("").Register(mux) // no login: the session endpoint still answers
 	api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: time.Now(), Demo: true, ReleaseWindow: 10 * time.Minute,
+		WatchConfigMaps: true, WatchSecretMetadata: true,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}}, log).Register(mux)
 	mux.Handle("/", webui.Handler())
 	log.Info("demo: made-up data, no cluster; open the address below", "url", "http://"+listen)

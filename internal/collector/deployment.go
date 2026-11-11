@@ -46,6 +46,9 @@ func (c *Collector) syncDeployment(ctx context.Context, it item) error {
 	if err := c.recordSpecWrites(ctx, "deployment", "Deployment", d.Namespace, d.Name, string(d.UID), d.ManagedFields); err != nil {
 		return err
 	}
+	if err := c.recordConfigRefs(ctx, string(d.UID), "Deployment", d.Namespace, d.Name, configRefsOf(d.Spec.Template)); err != nil {
+		return err
+	}
 	rev := d.Annotations[annRevision]
 	if rev == "" {
 		return nil

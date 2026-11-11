@@ -50,6 +50,11 @@ type Config struct {
 	ReleaseWindowMinutes int
 	// ObserveNodes watches Nodes (cluster-scoped: it needs cluster RBAC, and is off unless asked for).
 	ObserveNodes bool
+	// WatchConfigMaps records ConfigMaps being created, deleted and written (on by default). Values are never kept.
+	WatchConfigMaps bool
+	// WatchSecretMetadata records Secrets being created, deleted and written, through the metadata-only API (off by
+	// default). Their data is never requested.
+	WatchSecretMetadata bool
 	// Demo serves a made-up history from a temporary database, with no cluster, kubeconfig or Docker. Nothing is
 	// collected, and the UI says so on every page.
 	Demo bool
@@ -108,6 +113,8 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.StringVar(&c.TokenFile, "token-file", env("TOKEN_FILE", ""), "file holding the token that protects the API; empty means no login (OPSTIDE_TOKEN_FILE)")
 	fs.IntVar(&c.ReleaseWindowMinutes, "release-window", releaseWindow, "minutes a release is observed after its rollout completes: 5, 10, 15 or 30 (OPSTIDE_RELEASE_WINDOW)")
 	fs.BoolVar(&c.ObserveNodes, "observe-nodes", env("OBSERVE_NODES", "") == "true", "record Node conditions and scheduling changes; needs list and watch on nodes cluster-wide (OPSTIDE_OBSERVE_NODES=true)")
+	fs.BoolVar(&c.WatchConfigMaps, "watch-configmaps", env("WATCH_CONFIGMAPS", "true") != "false", "record ConfigMaps being created, deleted and written; values are never kept; needs list and watch on configmaps (OPSTIDE_WATCH_CONFIGMAPS=false to turn off)")
+	fs.BoolVar(&c.WatchSecretMetadata, "watch-secret-metadata", env("WATCH_SECRET_METADATA", "") == "true", "record Secrets being created, deleted and written, reading metadata only (never their data); needs list and watch on secrets (OPSTIDE_WATCH_SECRET_METADATA=true)")
 	fs.BoolVar(&c.Demo, "demo", false, "serve a made-up history from a temporary database, with no cluster needed; nothing is collected")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")

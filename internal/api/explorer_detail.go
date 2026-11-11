@@ -13,7 +13,8 @@ import (
 )
 
 // Relationship classes (the same four the evidence views use).
-var _ = []string{Direct, Ownership, SameResourceContext, Unresolved}
+// REFERENCE is added for a workload whose Pod template names a ConfigMap or Secret.
+var _ = []string{Direct, Ownership, SameResourceContext, Unresolved, Reference}
 
 // Relationship says how a record is known to connect to another record or resource. It is a classification of the
 // link, never a statement that one caused the other.
@@ -203,6 +204,11 @@ func (s *Server) detailOf(ctx context.Context, row store.ExplorerRow) (ExplorerD
 		return d, err
 	}
 	d.Relationships = append(d.Relationships, extra...)
+	refs, err := s.configReferrers(ctx, rec)
+	if err != nil {
+		return d, err
+	}
+	d.Relationships = append(d.Relationships, refs...)
 	d.Observation = ExplorerObservation{RecordTime: rec.At, ObservedAt: rec.ObservedAt, OccurredAt: rec.OccurredAt, LastOccurredAt: rec.LastOccurredAt}
 	switch {
 	case row.Evidence != nil:
@@ -450,6 +456,9 @@ func (s *Server) currentLink(rec ExplorerRecord) *ExplorerCurrent {
 // coverageAtRecord says whether OpsTide was watching what the record concerns at the record's time.
 func (s *Server) coverageAtRecord(ctx context.Context, rec ExplorerRecord) (ExplorerRecordCoverage, error) {
 	kinds := scopeKindsOf[rec.Group]
+	if k := kindScopes[rec.Resource.Kind]; rec.Group == "config" && len(k) > 0 {
+		kinds = k // a ConfigMap's record depends on the ConfigMap watch only, a Secret's on the Secret watch only
+	}
 	if len(kinds) == 0 {
 		return ExplorerRecordCoverage{State: "not_applicable", Scopes: []string{}, Note: "This record is OpsTide's own account of its watching."}, nil
 	}
@@ -466,6 +475,10 @@ func (s *Server) coverageAt(ctx context.Context, kinds []string, ns string, at t
 	var watching, total int
 	var earliest time.Time
 	for _, k := range kinds {
+		if off, note := s.configOff(k); off {
+			out.State, out.Note = CovDisabled, note
+			return out, nil
+		}
 		if k == collector.Nodes && !s.cfg.ObserveNodes {
 			out.State, out.Note = CovDisabled, "Node observation is off, so nothing says what the Nodes were doing then."
 			if last, ok, err := s.db.ScopeLastWatched(ctx, k, s.now().UTC()); err == nil && ok {
@@ -535,6 +548,7 @@ type ExplorerState struct {
 var kindScopes = map[string][]string{
 	"Deployment": {"deployments", "replicasets"}, "StatefulSet": {"statefulsets"}, "DaemonSet": {"daemonsets"}, "Node": {"nodes"},
 	"HorizontalPodAutoscaler": {"hpas"}, "Pod": {"pods", "deploypods", "workloadpods"}, "Job": {"jobs"}, "CronJob": {"cronjobs"}, "ReplicaSet": {"replicasets"},
+	"ConfigMap": {"configmaps"}, "Secret": {"secrets"},
 }
 
 var uidRe = regexp.MustCompile(`^[A-Za-z0-9._:/=-]{1,128}$`)
@@ -627,4 +641,58 @@ func sortRecords(rs []ExplorerRecord, asc bool) {
 		}
 		return (rs[i].ID < rs[j].ID) == asc
 	})
+}
+
+// configOff says whether a ConfigMap or Secret watch is turned off, and what that means for a record.
+func (s *Server) configOff(kind string) (bool, string) {
+	switch {
+	case kind == collector.Secrets && !s.cfg.WatchSecretMetadata:
+		return true, "Secret metadata is not watched (it is off unless asked for), so nothing says what happened to Secrets then."
+	case kind == collector.ConfigMaps && !s.cfg.WatchConfigMaps:
+		return true, "ConfigMaps are not watched (turned off), so nothing says what happened to them then."
+	}
+	return false, ""
+}
+
+// configReferrers lists, for a record about a ConfigMap or Secret, the workloads whose Pod templates name it, as OpsTide
+// recorded them: a reference by name, never a claim that the change reached or affected the workload.
+func (s *Server) configReferrers(ctx context.Context, rec ExplorerRecord) ([]Relationship, error) {
+	k := rec.Resource.Kind
+	if (k != store.KindConfigMap && k != store.KindSecret) || rec.Resource.Name == "" || rec.Type == store.EvidenceTypeName {
+		return nil, nil
+	}
+	refs, err := s.db.ConfigReferrers(ctx, rec.Resource.Namespace, k, rec.Resource.Name, rec.At)
+	if err != nil {
+		return nil, err
+	}
+	out := []Relationship{}
+	for _, x := range refs {
+		how := "a volume, envFrom or env valueFrom"
+		if k == store.KindSecret {
+			how = "a volume, envFrom, env valueFrom or an image pull Secret"
+		}
+		r := Relationship{Kind: x.WorkloadKind, UID: x.WorkloadID, Name: x.WorkloadName, Classification: Reference,
+			Via: "the " + x.WorkloadKind + "'s Pod template names this " + k + " (" + how + "), as OpsTide last saw it"}
+		ok := true
+		r.Resolved = &ok
+		if x.WorkloadKind == "CronJob" {
+			r.Path = "/operations/" + pathValue(x.WorkloadID)
+		} else {
+			r.Path = "/workloads/" + pathValue(x.WorkloadID)
+		}
+		notes := []string{"Named by name, so it applies to whichever " + k + " has that name. A reference does not say the change reached the workload or affected it."}
+		if x.FirstSeenAt.After(rec.At) {
+			notes = append(notes, "OpsTide first saw this reference at "+x.FirstSeenAt.UTC().Format(time.RFC3339)+", after this record; whether it existed then is not known.")
+		}
+		if !x.EndedAt.IsZero() {
+			notes = append(notes, "The template stopped naming it (or the workload went) at "+x.EndedAt.UTC().Format(time.RFC3339)+".")
+		}
+		r.Note = strings.Join(notes, " ")
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		out = append(out, Relationship{Kind: "Workload", Classification: Unresolved,
+			Via: "No Deployment, StatefulSet, DaemonSet or CronJob OpsTide recorded names this " + k + " in its Pod template (it may be read another way, or by something OpsTide does not watch)."})
+	}
+	return out, nil
 }

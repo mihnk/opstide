@@ -45,7 +45,7 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 		key, label, plural, query string
 		q                         store.ExplorerQuery
 	}{
-		{"changes", "recorded change (a spec written, a revision, a replica target, a schedule)", "recorded changes (a spec written, a revision, a replica target, a schedule)", "preset=changes", store.ExplorerQuery{Types: changeTypes}},
+		{"changes", "recorded change (a spec or config written, a revision, a replica target, a schedule)", "recorded changes (a spec or config written, a revision, a replica target, a schedule)", "preset=changes", store.ExplorerQuery{Types: changeTypes}},
 		{"runs_failed", "failed run", "failed runs", "type=job.failed", store.ExplorerQuery{Types: []string{"job.failed"}}},
 		{"runs_unknown", "run with an unknown outcome", "runs with an unknown outcome", "type=job.lost", store.ExplorerQuery{Types: []string{"job.lost"}}},
 		{"releases", "release appeared", "releases appeared", "type=release.observed", store.ExplorerQuery{Types: []string{"release.observed"}}},
@@ -69,8 +69,10 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 		reply(w, r, s.log, nil, err)
 		return
 	}
+	// A watch turned off by configuration (Nodes, Secret metadata) is a choice, not a gap: System lists it, and the
+	// Explorer's coverage still says so for records of that kind. Here it would only repeat on every install.
 	for _, sc := range ctx.Scopes {
-		if sc.State == CovGap || sc.State == CovUnavailable || sc.State == CovDisabled {
+		if sc.State == CovGap || sc.State == CovUnavailable {
 			out.NotWhole = append(out.NotWhole, SummaryNotWhole{Label: sc.Label, State: sc.State})
 		}
 	}

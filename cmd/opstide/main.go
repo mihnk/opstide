@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -72,6 +73,13 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Secrets are read through the metadata-only API: the server sends PartialObjectMetadata, never a Secret's data.
+	var md metadata.Interface
+	if cfg.WatchSecretMetadata {
+		if md, err = metadata.NewForConfig(kube); err != nil {
+			return err
+		}
+	}
 
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return err
@@ -101,7 +109,8 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer maint.Wait()
 	defer stopMaint()
 
-	col := collector.New(client, db, collector.Options{Namespaces: cfg.Namespaces, Log: log, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes})
+	col := collector.New(client, db, collector.Options{Namespaces: cfg.Namespaces, Log: log, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
+		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Metadata: md})
 	colErr := make(chan error, 1)
 	go func() { colErr <- col.Run(ctx) }()
 
@@ -124,6 +133,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
 		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
+		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
 	}, log).Register(mux)
 	mux.Handle("/", webui.Handler())

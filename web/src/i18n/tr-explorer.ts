@@ -240,4 +240,11 @@ export const explorer: Record<string, string> = {
   "scaling": "ölçekleme",
   "observation": "gözlem",
   "other": "diğer",
+  "reference (named in its Pod template)": "referans (Pod şablonunda adı geçiyor)",
+  "ConfigMaps and Secrets": "ConfigMap ve Secret'lar",
+  "Content changed": "İçerik değişti mi",
+  "Keys changed": "Değişen anahtarlar",
+  "Keys added": "Eklenen anahtarlar",
+  "Keys removed": "Kaldırılan anahtarlar",
+  "A field manager is the name a client gave itself (argocd-controller, kubectl-edit, helm): it says which software wrote, not which person. OpsTide keeps the name, the kind of operation and the time; for a ConfigMap also a hash of its content and the names of its keys, never a value. A Secret is read as metadata only: its data never reaches OpsTide.": "Field manager, bir istemcinin kendine verdiği addır (argocd-controller, kubectl-edit, helm): hangi yazılımın yazdığını söyler, hangi kişinin değil. OpsTide adı, işlem türünü ve zamanı tutar; bir ConfigMap için ayrıca içeriğinin bir hash'ini ve anahtarlarının adlarını, hiçbir zaman bir değeri değil. Bir Secret yalnızca metadata olarak okunur: verisi OpsTide'a hiç ulaşmaz.",
 }

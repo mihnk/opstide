@@ -20,6 +20,13 @@
       "type": "object",
       "properties": { "observe": { "type": "boolean" } }
     },
+    "watch": {
+      "type": "object",
+      "properties": {
+        "configMaps": { "type": "boolean" },
+        "secretMetadata": { "type": "boolean", "description": "Grants list and watch on Secrets; OpsTide requests their metadata only." }
+      }
+    },
     "releases": {
       "type": "object",
       "properties": { "observationMinutes": { "enum": [5, 10, 15, 30] } }

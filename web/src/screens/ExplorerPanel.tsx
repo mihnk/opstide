@@ -111,7 +111,17 @@ export function RecordPanel({ id, tz, close }: { id: string; tz: string; close: 
       {f.fieldManager && (
         <Section title={t('Written by')}>
           <p style={{ margin: 0 }}><span className="mono">{f.fieldManager}</span> <span className="muted">· {f.operation}{f.subresource ? `, ${f.subresource}` : ''}{f.writtenAt && !Number.isNaN(Date.parse(f.writtenAt)) ? ` · ${hhmmss(f.writtenAt, tz)}` : ''}</span></p>
-          <Note more={t('A field manager is the name a client gave itself (argocd-controller, kubectl-edit, helm): it says which software wrote, not which person; the API server\'s audit log holds who. Kubernetes moves a manager\'s time whenever it writes any field it owns, so this says a manager of the spec wrote, not that the spec changed. Only the name, the kind of operation and the time are kept, never the fields or their values.')}>{t('A client name, not a person')}</Note>
+          {(f.keysAdded || f.keysRemoved || f.keysChanged || f.contentChanged) && (
+            <dl className="facts" style={{ gridTemplateColumns: '130px minmax(0, 1fr)' }}>
+              {f.contentChanged && <><dt className="label">{t('Content changed')}</dt><dd>{f.contentChanged}</dd></>}
+              {f.keysChanged && <><dt className="label">{t('Keys changed')}</dt><dd className="mono" style={dd}>{f.keysChanged}</dd></>}
+              {f.keysAdded && <><dt className="label">{t('Keys added')}</dt><dd className="mono" style={dd}>{f.keysAdded}</dd></>}
+              {f.keysRemoved && <><dt className="label">{t('Keys removed')}</dt><dd className="mono" style={dd}>{f.keysRemoved}</dd></>}
+            </dl>
+          )}
+          {/^(configmap|secret)\./.test(r.type)
+            ? <Note more={t('A field manager is the name a client gave itself (argocd-controller, kubectl-edit, helm): it says which software wrote, not which person. OpsTide keeps the name, the kind of operation and the time; for a ConfigMap also a hash of its content and the names of its keys, never a value. A Secret is read as metadata only: its data never reaches OpsTide.')}>{t('A client name, not a person')}</Note>
+            : <Note more={t('A field manager is the name a client gave itself (argocd-controller, kubectl-edit, helm): it says which software wrote, not which person; the API server\'s audit log holds who. Kubernetes moves a manager\'s time whenever it writes any field it owns, so this says a manager of the spec wrote, not that the spec changed. Only the name, the kind of operation and the time are kept, never the fields or their values.')}>{t('A client name, not a person')}</Note>}
         </Section>
       )}
 

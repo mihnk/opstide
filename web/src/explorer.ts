@@ -5,7 +5,7 @@ import { createElement, Fragment, type ReactNode } from 'react'
 import { t } from './i18n'
 
 export type Provenance = 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
-export type Classification = 'DIRECT' | 'OWNERSHIP' | 'SAME_RESOURCE_CONTEXT' | 'UNRESOLVED'
+export type Classification = 'DIRECT' | 'OWNERSHIP' | 'SAME_RESOURCE_CONTEXT' | 'UNRESOLVED' | 'REFERENCE'
 
 export interface ResourceRef { kind: string; namespace?: string; name?: string; uid?: string }
 
@@ -176,6 +176,7 @@ export const classWords: Record<Classification, string> = {
   get OWNERSHIP() { return t('ownership (ownerReferences)') },
   get SAME_RESOURCE_CONTEXT() { return t('same resource context') },
   get UNRESOLVED() { return t('unresolved') },
+  get REFERENCE() { return t('reference (named in its Pod template)') },
 }
 
 export const groupWords: Record<string, string> = {
@@ -185,6 +186,7 @@ export const groupWords: Record<string, string> = {
   get pods() { return t('Pod lifecycle') },
   get nodes() { return t('Node conditions') },
   get scaling() { return t('Scaling') },
+  get config() { return t('ConfigMaps and Secrets') },
   get observation() { return t('Observation') },
   get events() { return t('Kubernetes Events') },
   get other() { return t('Other') },

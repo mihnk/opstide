@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
@@ -64,11 +65,22 @@ type Options struct {
 	// ObserveNodes watches Nodes. They are cluster-scoped, so it needs cluster RBAC
 	// and is off unless asked for, whatever the namespaces being watched.
 	ObserveNodes bool
+	// WatchConfigMaps records ConfigMaps being created, deleted and written (by which field manager), keeping a hash of
+	// their content and the names of their keys, never a value.
+	WatchConfigMaps bool
+	// WatchSecretMetadata records Secrets being created, deleted and written, through Metadata only: their data is never
+	// requested. Off unless asked for, and ignored without Metadata.
+	WatchSecretMetadata bool
+	// Metadata is the metadata-only client Secrets are read through (PartialObjectMetadata).
+	Metadata metadata.Interface
+	// configWriteEvery overrides the least time between two write entries of one ConfigMap or Secret (tests).
+	configWriteEvery time.Duration
 }
 
 // Collector watches the cluster and writes to the store.
 type Collector struct {
 	client kubernetes.Interface
+	md     metadata.Interface // metadata-only reads (Secrets); nil when not asked for
 	db     *store.Store
 	log    *slog.Logger
 	now    func() time.Time
@@ -82,7 +94,11 @@ type Collector struct {
 	// written remembers the spec writes already put in the change ledger; started is when this process began.
 	written writtenSeen
 	started time.Time
-	failMu  sync.Mutex
+	// cfg is what ConfigMap and Secret observation remembers between two looks; the watches are on when asked for.
+	cfg                           configState
+	watchConfigMaps, watchSecrets bool
+	cfgEvery                      time.Duration
+	failMu                        sync.Mutex
 	// dropped counts objects given up on; droppedAt is the last time.
 	dropped   atomic.Uint64
 	droppedAt atomic.Int64
@@ -117,6 +133,7 @@ type scope struct {
 	eventsV1, eventsCore, hpas        cache.SharedIndexInformer
 	statefulSets, daemonSets          cache.SharedIndexInformer
 	revisions, workloadPods           cache.SharedIndexInformer
+	configMaps, secrets               cache.SharedIndexInformer // nil unless watched
 }
 
 // optInf is an optional watch and the group it starts with.
@@ -160,6 +177,12 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 	c.started = c.now()
 	c.eventsSourceOpt = opt.EventsSource
 	c.observeNodes = opt.ObserveNodes
+	c.md = opt.Metadata
+	c.cfgEvery = opt.configWriteEvery
+	if c.cfgEvery <= 0 {
+		c.cfgEvery = configWriteEvery
+	}
+	c.watchConfigMaps, c.watchSecrets = opt.WatchConfigMaps, opt.WatchSecretMetadata && opt.Metadata != nil
 	c.window = opt.ReleaseWindow
 	if c.window <= 0 {
 		c.window = release.DefaultWindow
@@ -256,6 +279,7 @@ func (c *Collector) newScope(ns string) *scope {
 			return core.Events(ns).Watch(ctx, o)
 		}, "events-core")
 	c.addWorkloadInformers(s, ns)
+	c.addConfigInformers(s, ns)
 	_ = s.eventsV1.SetTransform(trimEvent)
 	_ = s.eventsCore.SetTransform(trimEvent)
 	autoscaling := c.client.AutoscalingV2()
@@ -349,7 +373,7 @@ func (c *Collector) informer(ns, kind string, example runtime.Object, idx cache.
 func (c *Collector) add(it item) { c.queueOf(it.kind).Add(it) }
 
 func (c *Collector) queueOf(kind string) workqueue.TypedRateLimitingInterface[item] {
-	if kind == Events || kind == HPAs {
+	if kind == Events || kind == HPAs || kind == ConfigMaps || kind == Secrets {
 		return c.lowQueue
 	}
 	return c.queue
@@ -468,6 +492,13 @@ func (c *Collector) Run(ctx context.Context) error {
 			c.log.Warn("reconciling Pods removed while not watching", "err", err)
 		}
 	})
+	for _, kind := range []string{ConfigMaps, Secrets} { // each on its own: one that cannot be read must not hold back the other
+		c.whenSynced(ctx, []string{kind}, src, func() {
+			if err := c.reconcileAbsentConfig(ctx, kind); err != nil {
+				c.log.Warn("reconciling ConfigMaps or Secrets removed while not watching", "kind", kind, "err", err)
+			}
+		})
+	}
 	c.whenSynced(ctx, []string{Nodes}, src, func() {
 		if err := c.reconcileAbsentNodes(ctx); err != nil {
 			c.log.Warn("reconciling Nodes removed while not watching", "err", err)
@@ -535,6 +566,8 @@ func (c *Collector) next(ctx context.Context, q workqueue.TypedRateLimitingInter
 		err = c.syncEvent(ctx, it)
 	case HPAs:
 		err = c.syncHPA(ctx, it)
+	case ConfigMaps, Secrets:
+		err = c.syncConfig(ctx, it)
 	}
 	switch {
 	case err == nil:

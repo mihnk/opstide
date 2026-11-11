@@ -128,6 +128,8 @@ var changeTypes = []string{
 	"deployment.spec_written", "statefulset.spec_written", "daemonset.spec_written", "cronjob.spec_written",
 	"release.observed", "statefulset.revision_changed", "daemonset.revision_changed", "workload.replica_target_changed", "hpa.desired_replicas_changed",
 	"cronjob.schedule_changed", "cronjob.suspended", "cronjob.resumed", "node.unschedulable_changed",
+	"configmap.created", "configmap.data_written", "configmap.metadata_written", "configmap.data_changed", "configmap.deleted",
+	"secret.created", "secret.data_written", "secret.metadata_written", "secret.deleted",
 }
 
 // ---- parameters ----

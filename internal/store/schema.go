@@ -409,6 +409,40 @@ UPDATE evidence SET record_key = coalesce(first_at, observed_at);
 DROP INDEX IF EXISTS evidence_explorer;
 CREATE INDEX evidence_record_key ON evidence(record_key, id);
 `,
+	// 8: ConfigMaps and Secrets. Only identity, when each was seen, and for a ConfigMap a hash of its content and the
+	// names of its keys: never a value, and for a Secret nothing beyond its metadata (OpsTide does not read its data).
+	// config_refs is which workloads' Pod templates name which ConfigMap or Secret, by name, as OpsTide last saw them.
+	`
+CREATE TABLE config_objects (
+	uid           TEXT PRIMARY KEY,
+	kind          TEXT NOT NULL,            -- ConfigMap | Secret
+	namespace     TEXT NOT NULL,
+	name          TEXT NOT NULL,
+	created_at    INTEGER,
+	first_seen_at INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	deleted_at    INTEGER,
+	origin        TEXT NOT NULL,            -- observed | adopted
+	content_hash  TEXT NOT NULL DEFAULT '', -- ConfigMap only: sha256 of the sorted keys and values; '' for a Secret
+	keys          TEXT NOT NULL DEFAULT '[]', -- ConfigMap only: key names, never values
+	updated_at    INTEGER NOT NULL
+);
+CREATE INDEX config_objects_name ON config_objects(namespace, kind, name);
+
+CREATE TABLE config_refs (
+	workload_id   TEXT NOT NULL,            -- the workload's UID (a CronJob's UID for a CronJob)
+	workload_kind TEXT NOT NULL,            -- Deployment | StatefulSet | DaemonSet | CronJob
+	namespace     TEXT NOT NULL,
+	workload_name TEXT NOT NULL,
+	ref_kind      TEXT NOT NULL,            -- ConfigMap | Secret
+	ref_name      TEXT NOT NULL,
+	first_seen_at INTEGER NOT NULL,
+	last_seen_at  INTEGER NOT NULL,
+	ended_at      INTEGER,                  -- when OpsTide saw the template stop naming it, or the workload go
+	PRIMARY KEY (workload_id, ref_kind, ref_name)
+);
+CREATE INDEX config_refs_target ON config_refs(namespace, ref_kind, ref_name);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

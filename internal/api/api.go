@@ -45,6 +45,8 @@ type Config struct {
 	ReleaseWindow time.Duration
 	// ObserveNodes says whether Nodes are watched (they need cluster RBAC and are off by default).
 	ObserveNodes bool
+	// WatchConfigMaps and WatchSecretMetadata say whether ConfigMaps, and Secrets' metadata, are watched.
+	WatchConfigMaps, WatchSecretMetadata bool
 	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
 	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
 	ClustrailURL string

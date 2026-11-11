@@ -22,6 +22,9 @@ const (
 	SameResourceContext = "SAME_RESOURCE_CONTEXT"
 	// Unresolved: there is not enough evidence to link them.
 	Unresolved = "UNRESOLVED"
+	// Reference: a workload's Pod template names a ConfigMap or Secret by name (a volume, envFrom, env valueFrom or an
+	// image pull Secret). It says the workload refers to it, not that a change to one affected the other.
+	Reference = "REFERENCE"
 )
 
 // ResourceRef is a resource as an Event names it.

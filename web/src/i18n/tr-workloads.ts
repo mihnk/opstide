@@ -386,4 +386,7 @@ export const workloads: Record<string, string> = {
   "{n} Kubernetes Events about the autoscaler": "Autoscaler hakkında {n} Kubernetes Event",
   "current {current} · desired {desired} · min {min} · max {max}": "mevcut {current} · istenen {desired} · min {min} · max {max}",
   "Last scale time reported: {time} · target {target}, linked {relation} ({via})": "Bildirilen son ölçekleme zamanı: {time} · hedef {target}, bağlantı {relation} ({via})",
+  "Config it references": "Başvurduğu yapılandırma",
+  "no longer named since {time}": "{time} itibarıyla artık adı geçmiyor",
+  "Changes to these ConfigMaps and Secrets are shown here too. The Pod template names them; that does not say a change reached this workload.": "Bu ConfigMap ve Secret'lardaki değişiklikler de burada gösterilir. Pod şablonu bunların adını verir; bu, bir değişikliğin bu workload'a ulaştığını söylemez.",
 }

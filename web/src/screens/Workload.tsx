@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getJSON, type Entries, type Entry, type RevisionView, type WorkloadDetail, type WorkloadEvidence, type WorkloadPods, type WorkloadRevisions, type WorkloadState } from '../api'
+import { getJSON, type Entry, type WorkloadHistory, type RevisionView, type WorkloadDetail, type WorkloadEvidence, type WorkloadPods, type WorkloadRevisions, type WorkloadState } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link, withParams } from '../router'
@@ -156,7 +156,7 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
 function History({ id, tz }: { id: string; tz: string }) {
   const [all, setAll] = useState(false)
   const path = `/api/v1/workloads/${encodeURIComponent(id)}/history?limit=100${all ? '&pods=all' : ''}`
-  const { data, error } = useApi<Entries>(path)
+  const { data, error } = useApi<WorkloadHistory>(path)
   const [older, setOlder] = useState<{ base: string; entries: Entry[]; cursor?: string }>({ base: path, entries: [] })
   const [busy, setBusy] = useState(false)
   if (error && !data) return <Failed error={error} />
@@ -168,7 +168,7 @@ function History({ id, tz }: { id: string; tz: string }) {
     if (!cursor) return
     setBusy(true)
     try {
-      const p = await getJSON<Entries>(`${path}&cursor=${encodeURIComponent(cursor)}`)
+      const p = await getJSON<WorkloadHistory>(`${path}&cursor=${encodeURIComponent(cursor)}`)
       setOlder((o) => ({ base: path, entries: [...(o.base === path ? o.entries : []), ...p.entries], cursor: p.nextCursor ?? '' }))
     } finally {
       setBusy(false)
@@ -177,6 +177,15 @@ function History({ id, tz }: { id: string; tz: string }) {
   return (
     <div className="daygroup" style={{ gap: 0 }}>
       <label style={{ marginBottom: 10, fontSize: 13 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t('Include routine Pod entries (created, ready, terminated)')}</label>
+      {data.references.length > 0 && (
+        <p style={{ margin: '0 0 10px', fontSize: 13 }}>
+          <span className="label">{t('Config it references')}</span>{' '}
+          {data.references.map((r, i) => (
+            <span key={`${r.kind}/${r.name}`}>{i > 0 ? ' · ' : ''}<Link href={explorerLink({ kind: r.kind, name: r.name, range: '7d' })}><span className="mono">{r.kind} {r.name}</span></Link>{r.endedAt ? <span className="muted"> ({t('no longer named since {time}', { time: hhmmss(r.endedAt, tz) })})</span> : null}</span>
+          ))}
+          <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t('Changes to these ConfigMaps and Secrets are shown here too. The Pod template names them; that does not say a change reached this workload.')}</span>
+        </p>
+      )}
       {entries.length === 0 && <div className="empty">{t('Nothing has been recorded for this workload yet.')}</div>}
       {entries.map((e) => <EntryRow key={e.id} e={e} tz={tz} />)}
       {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? t('Loading…') : t('Older entries')}</button>}

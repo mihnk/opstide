@@ -28,7 +28,7 @@ func (Watcher) Synced(context.Context) error { return nil }
 func (Watcher) Problems() []collector.Problem { return nil }
 
 // scopes OpsTide "watches" in the demo story, all from the start of the history.
-var scopes = []string{"cronjobs", "jobs", "pods", "deployments", "replicasets", "deploypods", "events", "hpas", "statefulsets", "daemonsets", "controllerrevisions", "workloadpods"}
+var scopes = []string{"cronjobs", "jobs", "pods", "deployments", "replicasets", "deploypods", "events", "hpas", "statefulsets", "daemonsets", "controllerrevisions", "workloadpods", "configmaps", "secrets"}
 
 func snap(image, mem string, replicas int32) string {
 	c := corev1.Container{Name: "app", Image: image}
@@ -55,7 +55,7 @@ func Seed(ctx context.Context, db *store.Store, now time.Time) error {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	return db.Update(ctx, func(w *store.Writer) error {
 		s := &seeder{ctx: ctx, w: w, now: now, ago: ago}
-		for _, step := range []func(*seeder) error{coverage, cronJobs, deployment, statefulSets, nodes, events} {
+		for _, step := range []func(*seeder) error{coverage, cronJobs, deployment, statefulSets, nodes, events, config} {
 			if err := step(s); err != nil {
 				return err
 			}
@@ -447,4 +447,70 @@ func events(s *seeder) error {
 		return err
 	}
 	return ev("node-early", "NodeNotReady", "Warning", "Node", "node-a", "default", "node-a", "Node node-a status is now: NodeNotReady", s.ago(3*24*time.Hour), 1, nil)
+}
+
+// config is the ConfigMap and Secret part of the story: the api's ConfigMap written by Argo CD a few minutes before an api
+// Pod restarted (side by side on the timeline, nothing said between them), a ConfigMap created and later relabelled, one
+// deleted, and Secret metadata writes (the demo shows Secret metadata as turned on). No value appears anywhere.
+func config(s *seeder) error {
+	start := s.ago(4 * 24 * time.Hour)
+	for _, o := range []store.ConfigObject{
+		{UID: "cm-api-config", Kind: store.KindConfigMap, Namespace: "shop", Name: "api-config", CreatedAt: s.ago(20 * 24 * time.Hour), Origin: store.OriginAdopted, ContentHash: "demo-api-config-2", Keys: []string{"CACHE_TTL", "LOG_LEVEL", "UPSTREAM_URL"}},
+		{UID: "cm-web-flags", Kind: store.KindConfigMap, Namespace: "shop", Name: "web-flags", CreatedAt: s.ago(2 * 24 * time.Hour), Origin: store.OriginObserved, ContentHash: "demo-web-flags-1", Keys: []string{"new_checkout"}},
+		{UID: "cm-old-settings", Kind: store.KindConfigMap, Namespace: "shop", Name: "old-settings", CreatedAt: s.ago(40 * 24 * time.Hour), Origin: store.OriginAdopted, ContentHash: "demo-old", Keys: []string{"MODE"}, DeletedAt: s.ago(12 * time.Hour)},
+		{UID: "sec-api-db", Kind: store.KindSecret, Namespace: "shop", Name: "api-db", CreatedAt: s.ago(60 * 24 * time.Hour), Origin: store.OriginAdopted},
+		{UID: "sec-backup-creds", Kind: store.KindSecret, Namespace: "data", Name: "backup-credentials", CreatedAt: s.ago(26 * time.Hour), Origin: store.OriginObserved},
+	} {
+		o.FirstSeenAt, o.LastSeenAt = start, s.now
+		if o.FirstSeenAt.Before(o.CreatedAt) {
+			o.FirstSeenAt = o.CreatedAt
+		}
+		if err := s.w.SaveConfigObject(s.ctx, o); err != nil {
+			return err
+		}
+	}
+	for _, r := range []struct {
+		id, kind, ns, name string
+		refs               []store.ConfigName
+	}{
+		{"d-api", "Deployment", "shop", "api", []store.ConfigName{{Kind: store.KindConfigMap, Name: "api-config"}, {Kind: store.KindSecret, Name: "api-db"}}},
+		{"sts-web", "StatefulSet", "shop", "web", []store.ConfigName{{Kind: store.KindConfigMap, Name: "api-config"}, {Kind: store.KindConfigMap, Name: "web-flags"}}},
+		{"cj-backup", "CronJob", "data", "nightly-backup", []store.ConfigName{{Kind: store.KindSecret, Name: "backup-credentials"}}},
+	} {
+		if err := s.w.SetConfigRefs(s.ctx, r.id, r.kind, r.ns, r.name, r.refs, start); err != nil {
+			return err
+		}
+	}
+	type entry struct {
+		typ, kind, uid, name, ns string
+		at                       time.Duration
+		summary                  string
+		facts                    map[string]string
+	}
+	written := func(mgr, op string, at time.Duration, extra map[string]string) map[string]string {
+		f := map[string]string{"fieldManager": mgr, "operation": op, "writtenAt": s.ago(at).Format(time.RFC3339), "seen": "recorded after OpsTide started watching"}
+		for k, v := range extra {
+			f[k] = v
+		}
+		return f
+	}
+	for _, e := range []entry{
+		{"configmap.data_written", "ConfigMap", "cm-api-config", "api-config", "shop", 29*time.Hour + 3*time.Minute,
+			"ConfigMap shop/api-config: data written by argocd-controller (Apply)",
+			written("argocd-controller", "Apply", 29*time.Hour+3*time.Minute, map[string]string{"contentChanged": "yes, since OpsTide's previous observation", "keysChanged": "CACHE_TTL, LOG_LEVEL"})},
+		{"configmap.created", "ConfigMap", "cm-web-flags", "web-flags", "shop", 2 * 24 * time.Hour,
+			"ConfigMap shop/web-flags created by helm (Update)", map[string]string{"fieldManager": "helm", "operation": "Update", "keyCount": "1", "keys": "new_checkout"}},
+		{"configmap.metadata_written", "ConfigMap", "cm-web-flags", "web-flags", "shop", 5 * time.Hour,
+			"ConfigMap shop/web-flags: labels or annotations written by kubectl-label (Update)", written("kubectl-label", "Update", 5*time.Hour, nil)},
+		{"configmap.deleted", "ConfigMap", "cm-old-settings", "old-settings", "shop", 12 * time.Hour, "ConfigMap shop/old-settings deleted", nil},
+		{"secret.data_written", "Secret", "sec-api-db", "api-db", "shop", 3 * time.Hour,
+			"Secret shop/api-db: data written by external-secrets (Update)", written("external-secrets", "Update", 3*time.Hour, nil)},
+		{"secret.created", "Secret", "sec-backup-creds", "backup-credentials", "data", 26 * time.Hour,
+			"Secret data/backup-credentials created by helm (Update)", map[string]string{"fieldManager": "helm", "operation": "Update"}},
+	} {
+		if err := s.log(e.typ, e.kind, e.uid, e.name, e.ns, s.ago(e.at), store.Observed, "info", e.summary, e.facts, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }

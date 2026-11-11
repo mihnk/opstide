@@ -60,6 +60,10 @@ spec:
               value: {{ .Values.retention.maxRoutineEntries | default 0 | int64 | quote }}
             - name: OPSTIDE_OBSERVE_NODES
               value: {{ .Values.nodes.observe | default false | quote }}
+            - name: OPSTIDE_WATCH_CONFIGMAPS
+              value: {{ dig "configMaps" true (.Values.watch | default dict) | quote }}
+            - name: OPSTIDE_WATCH_SECRET_METADATA
+              value: {{ dig "secretMetadata" false (.Values.watch | default dict) | quote }}
             - name: OPSTIDE_RELEASE_WINDOW
               value: {{ .Values.releases.observationMinutes | quote }}
             - name: OPSTIDE_LOG_LEVEL

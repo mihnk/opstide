@@ -267,8 +267,10 @@ func (w *Writer) WorkloadKnown(ctx context.Context, id string) (bool, error) {
 
 // MarkWorkloadDeleted notes that the Deployment is gone; its releases stay.
 func (w *Writer) MarkWorkloadDeleted(ctx context.Context, id string, at time.Time) error {
-	_, err := w.tx.ExecContext(ctx, `UPDATE workloads SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at).Int64, id)
-	return err
+	if _, err := w.tx.ExecContext(ctx, `UPDATE workloads SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at).Int64, id); err != nil {
+		return err
+	}
+	return w.EndConfigRefs(ctx, id, at) // a workload that is gone names nothing any more
 }
 
 // LiveWorkloads returns the Deployments last recorded as existing, for the

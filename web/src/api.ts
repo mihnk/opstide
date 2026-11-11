@@ -202,6 +202,10 @@ export interface Entry {
 
 export interface Entries { schema: number; entries: Entry[]; nextCursor?: string; truncated?: boolean }
 
+/** A ConfigMap or Secret a workload's Pod template names, by name. */
+export interface ConfigRef { kind: 'ConfigMap' | 'Secret'; name: string; firstSeenAt: string; endedAt: string | null }
+export interface WorkloadHistory extends Entries { references: ConfigRef[] }
+
 export interface RunDetail { schema: number; run: Run; operation?: Operation; entries: Entry[] }
 
 export interface System {
@@ -231,6 +235,7 @@ export interface System {
     nodes: { enabled: boolean; live: number; recorded: number; lastObservedAt: string | null; note: string }
     degraded: string[]
   }
+  config: { configMaps: boolean; secretMetadata: boolean; configMapCount: number; secretCount: number; configMapNote: string; secretNote: string; degraded: string[] }
 }
 
 export interface EvidenceSystem {

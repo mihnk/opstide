@@ -20,7 +20,8 @@ record has holes.
   gap is recorded and shown. Nothing inside a gap is reported as failed or
   missed.
 - **Read-only.** OpsTide needs only `list` and `watch`. It never changes
-  the cluster, never reads Secrets, logs or exec.
+  the cluster, never reads a Secret's data, logs or exec. (Secret *metadata*
+  can be recorded if you turn it on; see [ConfigMaps and Secrets](#configmaps-and-secrets).)
 - **Private by default.** One pod, one SQLite database on a volume, nothing
   sent out of the cluster. No AI, Prometheus or Loki required.
 
@@ -77,10 +78,12 @@ for the SQLite record, and a ServiceAccount that can only `list` and `watch`
 | `apps` | deployments, replicasets, statefulsets, daemonsets, controllerrevisions | releases and workloads |
 | `autoscaling` | horizontalpodautoscalers | scaling context |
 | core (only with `nodes.observe`) | nodes | Node conditions, in a separate ClusterRole; cluster-scoped |
+| core (unless `watch.configMaps=false`) | configmaps | who created, wrote or deleted a ConfigMap; values are never kept |
+| core (only with `watch.secretMetadata`) | secrets | who created, wrote or deleted a Secret, read as metadata only (see below) |
 
 Pod and ControllerRevision objects are reduced to an allow-listed subset as they
-arrive (no environment values, commands or arguments are kept). The chart does not read
-Secrets, logs or exec. The pod runs as a non-root user with a read-only
+arrive (no environment values, commands or arguments are kept). OpsTide does not read
+a Secret's data, logs or exec; by default the chart grants nothing on Secrets at all. The pod runs as a non-root user with a read-only
 root filesystem and the default seccomp profile.
 
 Before a new version migrates an existing database, OpsTide copies it next to itself as
@@ -100,6 +103,8 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `clusterName` | Name shown in the UI |
 | `namespaces: [payments, data]` | Watch only these. The chart creates a Role in each instead of a ClusterRole |
 | `nodes.observe` | Record Node conditions and scheduling changes (`false` by default). Nodes are cluster-scoped, so this adds a small ClusterRole with `list` and `watch` on nodes, also for installs limited to some namespaces |
+| `watch.configMaps` | Record ConfigMaps being created, written and deleted, and by which field manager (`true` by default). Adds `list` and `watch` on configmaps |
+| `watch.secretMetadata` | The same for Secrets, through the metadata-only API (`false` by default). Adds `list` and `watch` on secrets: read [what that grants](#configmaps-and-secrets) first |
 | `releases.observationMinutes` | How long after a Deployment rollout completes a release is observed before it can be called healthy: 5, 10 (default), 15 or 30 |
 | `retention.days`, `retention.maxEntries`, `retention.maxRoutineEntries` | How much history to keep (30 days, 2,000,000 entries). Routine-volume entries (Pod lifecycle, Event entries, autoscaler entries) have their own budget (half by default), so a burst of them cannot push out older Job and release history; when a budget rather than age removes records, System and the Explorer say so |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
@@ -208,6 +213,43 @@ DaemonSets and CronJobs, OpsTide takes from `managedFields` the **field manager*
 `kubectl-edit`, `helm`), the kind of operation and when, and keeps nothing else: no fields, no values. A field manager is
 the name a client gave itself, not a person; the API server's audit log holds who. A write already there when OpsTide began
 watching is marked as such.
+
+## ConfigMaps and Secrets
+
+Many incidents start with a configuration change. OpsTide records when a ConfigMap (and, if you turn it on, a Secret) is
+created, deleted or written, with the field manager that wrote it, in the same way as the change ledger above: the
+manager's name, the kind of operation and the time from `managedFields`, nothing else. The entries are
+`configmap.created`, `configmap.data_written`, `configmap.metadata_written` (only labels or annotations),
+`configmap.data_changed` (the content differs and no dated write explains it), `configmap.deleted`, and `secret.*`
+likewise. They are in **Changes only**, in the Explorer group *ConfigMaps and Secrets*, and in the Overview's count of
+changes. They are history: the routine-volume budget never removes them.
+
+- **ConfigMaps** (`watch.configMaps`, on by default). OpsTide reads them through the normal API, because telling a data
+  change from a metadata change needs the content, and replaces every value with a hash the moment the object arrives.
+  It keeps a SHA-256 of the sorted keys and values and the names of the keys, so an entry can say which keys were added,
+  removed or changed. No value is kept, in memory or in the database. A ConfigMap that already existed when OpsTide
+  began watching is a baseline, not a creation. A ConfigMap some controller rewrites every few seconds is recorded at
+  most once every five minutes; the entry says how many updates it stands for. The annotation writes of a ConfigMap used
+  as a leader-election lock are left out.
+- **Secrets** (`watch.secretMetadata`, off by default). OpsTide asks the API server for Secrets' **metadata only**
+  (`PartialObjectMetadata`, the metadata client), so their data is never sent to OpsTide at all. A data write is told
+  from a metadata write by the `f:data` and `f:stringData` paths in `managedFields`, never by reading the data. No keys,
+  no hash and no value of a Secret are recorded.
+
+  **What turning it on grants:** Kubernetes RBAC cannot grant "metadata only". `watch.secretMetadata=true` gives the
+  ServiceAccount `list` and `watch` on `secrets` (in each watched namespace, or cluster-wide), which is enough to read
+  their data; OpsTide does not, because it only makes metadata requests, but the permission is the full one. Leave it off
+  if that is more than you want to grant. With it off, OpsTide makes no request about Secrets.
+
+**Which workloads use them.** From the Pod templates of the Deployments, StatefulSets, DaemonSets and CronJobs it
+records, OpsTide notes which ConfigMaps and Secrets each names: volumes (projected ones too), `envFrom`, `env`
+`valueFrom` and image pull Secrets. In the Explorer, the record of a config change lists those workloads as a
+`REFERENCE` relationship: the template names it, by name. That is not ownership and not a cause; whether the change
+reached the workload (a restart, a reload) is a separate record, if any. A workload's History includes the changes to
+the ConfigMaps and Secrets it names (`/workloads/{id}/history?config=none` leaves them out).
+
+Each watch is a coverage scope (`configmaps`, `secrets`) like the others: a stretch it was not watching is a gap, and
+Secret metadata that is not watched is shown as off, never as calm. System says which of the two are on.
 
 ## Alerting on a CronJob
 
@@ -347,8 +389,9 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
 | `GET /api/v1/runs/{id}` | One run with its pods and entries |
 | `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` (`/events` takes `include=evidence,scaling`) | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
-| `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`), and where it came from (see docs/M2.6-EVIDENCE.md) |
+| `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`; `REFERENCE` for a workload whose Pod template names a ConfigMap or Secret), and where it came from (see docs/M2.6-EVIDENCE.md) |
 | `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
+| `GET /api/v1/workloads/{id}/history?config=none` | A workload's history; with the changes to the ConfigMaps and Secrets its Pod template names unless `config=none`, and the list of what it names (`references`) |
 | `GET /api/v1/explorer`, `/explorer/filters`, `/explorer/records/{id}`, `/explorer/context`, `/explorer/state`, `GET`+`POST /explorer/export`, `POST /explorer/lookup` | The Operational Evidence Explorer: one timeline of everything recorded with provenance, coverage and relationship classifications, a drilldown per record, state at a past time, and bounded JSON export (see docs/M2.8-EXPLORER.md) |
 | `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Explorer's Owner list) |

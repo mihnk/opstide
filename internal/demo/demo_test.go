@@ -42,13 +42,18 @@ func TestSeedTellsTheWholeStory(t *testing.T) {
 			types["kubernetes.event"]++
 		}
 	}
-	for _, want := range []string{"job.succeeded", "job.failed", "collection.gap", "release.observed", "release.health.degraded", "statefulset.update_partitioned", "daemonset.update_completed", "node.condition_changed", "node.deleted", "node.observed", "pod.restarted", "kubernetes.event", "deployment.spec_written", "statefulset.spec_written"} {
+	for _, want := range []string{"job.succeeded", "job.failed", "collection.gap", "release.observed", "release.health.degraded", "statefulset.update_partitioned", "daemonset.update_completed", "node.condition_changed", "node.deleted", "node.observed", "pod.restarted", "kubernetes.event", "deployment.spec_written", "statefulset.spec_written",
+		"configmap.data_written", "configmap.created", "configmap.deleted", "secret.data_written"} {
 		if types[want] == 0 {
 			t.Errorf("the story has no %s", want)
 		}
 	}
 	if derived == 0 {
 		t.Error("nothing is derived")
+	}
+	// The api's ConfigMap is named by the api and by web.
+	if refs, err := db.ConfigReferrers(ctx, "shop", store.KindConfigMap, "api-config", time.Time{}); err != nil || len(refs) != 2 {
+		t.Errorf("%+v %v", refs, err)
 	}
 	// A gave-up gap names its object.
 	var named bool

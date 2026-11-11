@@ -40,6 +40,7 @@ var explorerGroupPrefixes = []struct {
 	{"pods", "Pod lifecycle", []string{"pod."}},
 	{"nodes", "Node conditions", []string{"node."}},
 	{"scaling", "Scaling", []string{"hpa.", "workload."}},
+	{"config", "ConfigMaps and Secrets", []string{"configmap.", "secret."}},
 	{"observation", "Observation", []string{"collection."}},
 }
 

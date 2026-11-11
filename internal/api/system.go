@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/store"
 )
 
 // System is the System screen: what OpsTide can and cannot see.
@@ -33,6 +34,8 @@ type System struct {
 	Evidence EvidenceSystem `json:"evidence"`
 	// Workloads is the state of StatefulSet, DaemonSet and Node observation.
 	Workloads WorkloadsSystem `json:"workloads"`
+	// Config is the state of ConfigMap and Secret observation.
+	Config ConfigSystem `json:"config"`
 	// Dropped counts objects OpsTide gave up recording after repeated failures since it started. Each is a gap in
 	// coverage over the stretch its changes may have been lost, and a Log entry says which.
 	// Demo says the data is made up and nothing is being collected.
@@ -59,6 +62,18 @@ type WorkloadsSystem struct {
 		Note           string     `json:"note"`
 	} `json:"nodes"`
 	// Degraded says what makes StatefulSet, DaemonSet or Node observation incomplete right now.
+	Degraded []string `json:"degraded"`
+}
+
+// ConfigSystem says whether ConfigMaps and Secrets' metadata are watched, how many are recorded, and what is never read.
+type ConfigSystem struct {
+	ConfigMaps     bool   `json:"configMaps"`
+	SecretMetadata bool   `json:"secretMetadata"`
+	ConfigMapCount int    `json:"configMapCount"` // live ConfigMaps recorded
+	SecretCount    int    `json:"secretCount"`    // live Secrets recorded (metadata only)
+	ConfigMapNote  string `json:"configMapNote"`
+	SecretNote     string `json:"secretNote"`
+	// Degraded says what makes ConfigMap or Secret observation incomplete right now.
 	Degraded []string `json:"degraded"`
 }
 
@@ -157,7 +172,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 			out.Scopes = append(out.Scopes, scopeView(scope, []Span{}, p))
 		}
 	}
-	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5, "events": 6, "hpas": 7, "statefulsets": 8, "daemonsets": 9, "controllerrevisions": 10, "workloadpods": 11, "nodes": 12}
+	order := map[string]int{"cronjobs": 0, "jobs": 1, "pods": 2, "deployments": 3, "replicasets": 4, "deploypods": 5, "events": 6, "hpas": 7, "statefulsets": 8, "daemonsets": 9, "controllerrevisions": 10, "workloadpods": 11, "nodes": 12, "configmaps": 13, "secrets": 14}
 	sort.Slice(out.Scopes, func(i, j int) bool {
 		a, b := out.Scopes[i], out.Scopes[j]
 		if a.Kind != b.Kind {
@@ -229,6 +244,29 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		switch sc.Kind {
 		case "statefulsets", "daemonsets", "controllerrevisions", "workloadpods", "nodes":
 			out.Workloads.Degraded = append(out.Workloads.Degraded, fmt.Sprintf("%s cannot be watched (%s): what is shown for them may be missing.", workloadScopes[sc.Kind]+nodesWord(sc.Kind), sc.Problem))
+		}
+	}
+	out.Config = ConfigSystem{ConfigMaps: s.cfg.WatchConfigMaps, SecretMetadata: s.cfg.WatchSecretMetadata, Degraded: []string{}}
+	if cs, err := s.db.ConfigCounts(ctx); err == nil {
+		out.Config.ConfigMapCount, out.Config.SecretCount = cs[store.KindConfigMap], cs[store.KindSecret]
+	}
+	if s.cfg.WatchConfigMaps {
+		out.Config.ConfigMapNote = "Created, written (by which field manager) and deleted are recorded, with a hash of the content and the names of keys; values are never kept."
+	} else {
+		out.Config.ConfigMapNote = "Off (watch.configMaps). Nothing says when ConfigMaps were created, written or deleted."
+	}
+	if s.cfg.WatchSecretMetadata {
+		out.Config.SecretNote = "Metadata only: OpsTide asks the API server for Secrets' metadata, so their data is never sent to it. A data write is told from a metadata write by managedFields."
+	} else {
+		out.Config.SecretNote = "Off (watch.secretMetadata). Secrets are not read at all."
+	}
+	for _, sc := range out.Scopes {
+		if sc.Problem != "" && (sc.Kind == "configmaps" || sc.Kind == "secrets") {
+			what := "ConfigMaps"
+			if sc.Kind == "secrets" {
+				what = "Secret metadata"
+			}
+			out.Config.Degraded = append(out.Config.Degraded, fmt.Sprintf("%s cannot be watched (%s): changes from now on may be missing.", what, sc.Problem))
 		}
 	}
 	st, err := s.db.Stats(ctx)

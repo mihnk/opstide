@@ -124,6 +124,20 @@ export function System({ tz }: { tz: string }) {
         </dl>
       </section>
 
+      <section aria-label={t('ConfigMaps and Secrets')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">{t('ConfigMaps and Secrets')} <span className="note">· {t('who created, wrote or deleted them; never a value')}</span></h2>
+        <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
+          <dt className="label">ConfigMaps</dt>
+          <dd>{data.config.configMaps ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.configMapCount, '{n} ConfigMap recorded', '{n} ConfigMaps recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.config.configMapNote}</span></dd>
+          <dt className="label">{t('Secret metadata')}</dt>
+          <dd>{data.config.secretMetadata ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.secretCount, '{n} Secret recorded', '{n} Secrets recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.config.secretNote}</span></dd>
+          <dt className="label">{t('Completeness')}</dt>
+          <dd>{data.config.degraded.length === 0
+            ? <>{t('Complete as far as OpsTide can tell for the kinds it is set to watch.')}</>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.config.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+        </dl>
+      </section>
+
       <section aria-label={t('Evidence')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h2 className="label section-title">{t('Evidence')} <span className="note">· {t('Kubernetes Events and autoscalers')}</span></h2>
         <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
@@ -151,7 +165,7 @@ export function System({ tz }: { tz: string }) {
           ))}
           <div className="row" style={{ gridTemplateColumns: '22px minmax(0, 1fr) auto' }}>
             <span className="mono muted" aria-hidden="true">–</span>
-            <span>{t('Secrets, logs, exec')}<span className="sub" style={{ fontSize: 12 }}>{t('not requested and not needed')}</span></span>
+            <span>{data.config.secretMetadata ? t('Secret data, logs, exec') : t('Secrets, logs, exec')}<span className="sub" style={{ fontSize: 12 }}>{data.config.secretMetadata ? t('Secrets are read as metadata only; their data is never requested') : t('not requested and not needed')}</span></span>
             <span className="mono muted" style={{ fontSize: 12 }}>{t('not asked')}</span>
           </div>
         </section>

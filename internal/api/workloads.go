@@ -224,15 +224,49 @@ func (s *Server) workloadHistory(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("pods") != "all" {
 		eq.ExcludeTypes = routinePodEntries
 	}
+	out := WorkloadHistory{Entries: Entries{Schema: Schema, Entries: []Entry{}}, References: []ConfigRefView{}}
+	// The ConfigMaps and Secrets its Pod template names: their creation, writes and deletion are part of its history.
+	refs, err := s.db.WorkloadConfigRefs(r.Context(), row.ID)
+	if err != nil {
+		reply(w, r, s.log, nil, err)
+		return
+	}
+	var names []store.ConfigName
+	for _, x := range refs {
+		out.References = append(out.References, ConfigRefView{Kind: x.RefKind, Name: x.RefName, FirstSeenAt: x.FirstSeenAt, EndedAt: tp(x.EndedAt)})
+		names = append(names, store.ConfigName{Kind: x.RefKind, Name: x.RefName})
+	}
+	if r.URL.Query().Get("config") != "none" {
+		if eq.AlsoResourceUIDs, err = s.db.ConfigUIDs(r.Context(), row.Namespace, names); err != nil {
+			reply(w, r, s.log, nil, err)
+			return
+		}
+	}
 	page, err := s.db.Events(r.Context(), eq)
-	out := Entries{Schema: Schema, Entries: []Entry{}, NextCursor: page.NextCursor}
+	out.NextCursor = page.NextCursor
 	for _, e := range page.Events {
-		out.Entries = append(out.Entries, entry(e))
+		out.Entries.Entries = append(out.Entries.Entries, entry(e))
 	}
 	if err != nil && strings.HasPrefix(err.Error(), "bad cursor") {
 		err = badRequest(err.Error())
 	}
 	reply(w, r, s.log, out, err)
+}
+
+// WorkloadHistory is a workload's entries, with those about the ConfigMaps and Secrets its Pod template names.
+type WorkloadHistory struct {
+	Entries
+	// References are the ConfigMaps and Secrets the Pod template names (or named), as OpsTide saw it. A reference is by
+	// name; it says the workload refers to the object, not that a change to it reached or affected the workload.
+	References []ConfigRefView `json:"references"`
+}
+
+// ConfigRefView is one ConfigMap or Secret a workload's Pod template names.
+type ConfigRefView struct {
+	Kind        string     `json:"kind"`
+	Name        string     `json:"name"`
+	FirstSeenAt time.Time  `json:"firstSeenAt"`
+	EndedAt     *time.Time `json:"endedAt"` // when the template stopped naming it; null while it still does
 }
 
 // RevisionView is one revision of a workload. Changes compare it with the revision before it; when that is not

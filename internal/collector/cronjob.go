@@ -132,6 +132,9 @@ func (c *Collector) syncCronJob(ctx context.Context, it item) error {
 	if err := c.recordSpecWrites(ctx, "cronjob", "CronJob", cj.Namespace, cj.Name, string(cj.UID), cj.ManagedFields); err != nil {
 		return err
 	}
+	if err := c.recordConfigRefs(ctx, string(cj.UID), "CronJob", cj.Namespace, cj.Name, configRefsOf(cj.Spec.JobTemplate.Spec.Template)); err != nil {
+		return err
+	}
 	now := c.now()
 	op := operationFrom(cj, now)
 	old, had, err := c.db.Operation(ctx, op.ID)
