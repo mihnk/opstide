@@ -211,4 +211,36 @@ export const schedules: Record<string, string> = {
   "missed in the last 24 h": "son 24 saatte başlamadı",
   "not confirmed in the last 24 h": "son 24 saatte doğrulanmadı",
   "annotations need fixing": "annotation'lar düzeltilmeli",
+
+  // Run time: recent run durations against the baseline (components/Duration.tsx, Schedules, Operation)
+  "Run time": "Çalışma süresi",
+  "Baseline": "Referans dönem",
+  "no succeeded run in 7 days": "7 günde başarılı çalışma yok",
+  "p50 {d} · 7d": "p50 {d} · 7g",
+  "too few runs to compare": "karşılaştırmak için çalışma az",
+  "longer than its baseline ({change})": "referans dönemden uzun ({change})",
+  "baseline p50 {d}": "referans p50 {d}",
+  "not whole": "eksik izlendi",
+  "no succeeded run": "başarılı çalışma yok",
+  "shortened to the history kept": "tutulan geçmiş kadar kısaltıldı",
+  "{d} not watched": "{d} izlenmedi",
+  "The 23 days before": "Önceki 23 gün",
+  "succeeded runs, by when they started": "başarılı çalışmalar, başladıkları zamana göre",
+  "Too few runs to compare: each period needs at least {n} succeeded runs with a known start and end.":
+    "Karşılaştırmak için çalışma az: her dönemde başlangıcı ve bitişi bilinen en az {n} başarılı çalışma gerekir.",
+  "Recent p50 is {change} against the baseline p50: longer than its baseline.":
+    "Son 7 günün p50 değeri referans p50'ye göre {change}: referans dönemden uzun.",
+  "Recent p50 is {change} against the baseline p50.": "Son 7 günün p50 değeri referans p50'ye göre {change}.",
+  "Period": "Dönem",
+  "Runs": "Çalışma",
+  "Coverage": "Kapsam",
+  "Duration of the last {n} succeeded runs, oldest first": "Son {n} başarılı çalışmanın süresi, en eskisi başta",
+  "Duration of the last {n} succeeded runs, oldest first; the last 7 days in colour.":
+    "Son {n} başarılı çalışmanın süresi, en eskisi başta; son 7 gün renkli.",
+  "p50 and p95 are nearest-rank percentiles of the run durations. Failed runs, runs whose outcome is unknown and runs still going are not counted, nor are runs OpsTide did not see while it was not watching. Marked from {ratio}× the baseline p50, with at least {n} runs in each period.":
+    "p50 ve p95, çalışma sürelerinin en yakın sıra yöntemiyle hesaplanan yüzdelikleridir. Başarısız çalışmalar, sonucu bilinmeyenler ve hâlâ sürenler sayılmaz; OpsTide'ın izlemediği sırada görmediği çalışmalar da sayılmaz. Referans p50'nin {ratio} katından itibaren, her dönemde en az {n} çalışmayla işaretlenir.",
+  "Run time is the median (p50) of the succeeded runs of the last 7 days, compared with the 23 days before.":
+    "Çalışma süresi, son 7 gündeki başarılı çalışmaların ortancasıdır (p50) ve önceki 23 günle karşılaştırılır.",
+  "longer than its baseline: a median at least 30% longer, with {n} runs or more in each period":
+    "referans dönemden uzun: ortanca en az %30 daha uzun, her dönemde en az {n} çalışmayla",
 }

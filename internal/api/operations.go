@@ -20,6 +20,8 @@ type OperationRow struct {
 	LastRun   *Run      `json:"lastRun,omitempty"`
 	Next      time.Time `json:"next,omitzero"` // predicted from the schedule
 	Attention []string  `json:"attention,omitempty"`
+	// Duration compares the recent run durations with the baseline (see DurationTrend); no per-run points here.
+	Duration DurationTrend `json:"duration"`
 }
 
 // DayCell sums one day of one operation.
@@ -72,7 +74,13 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 	if err != nil {
 		return out, err
 	}
-	cov, err := loadCoverage(ctx, s.db, from.Add(-24*time.Hour), todayTo, now)
+	recentP, baselineP := s.trendPeriods(now, loc)
+	cov, err := loadCoverage(ctx, s.db, earliest(from.Add(-24*time.Hour), baselineP.From), todayTo, now)
+	if err != nil {
+		return out, err
+	}
+	// One read of every CronJob's succeeded run durations, split at the start of the recent period.
+	durs, err := s.db.DurationsByOperation(ctx, baselineP.From, recentP.From, recentP.To)
 	if err != nil {
 		return out, err
 	}
@@ -98,6 +106,8 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 			row.Next = v.sched.Next(now)
 		}
 		row.Attention = attention(v, slots, row.LastRun, now)
+		d := durs[op.ID]
+		row.Duration = durationTrend(op, d.After, d.Before, recentP, baselineP, cov, nil)
 		out.Operations = append(out.Operations, row)
 	}
 	return out, nil
@@ -205,6 +215,8 @@ type OperationDetail struct {
 	Gaps        []Span    `json:"gaps"`        // when its Jobs were not watched in those days
 	Runs        []Run     `json:"runs"`        // newest first
 	MoreRuns    bool      `json:"moreRuns"`
+	// Duration compares the recent run durations with the baseline, with the latest runs' durations.
+	Duration DurationTrend `json:"duration"`
 	// ClustrailURL opens this CronJob in Clustrail, when a link is configured.
 	ClustrailURL string `json:"clustrailUrl,omitempty"`
 }
@@ -286,7 +298,12 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 	if err != nil {
 		return OperationDetail{}, err
 	}
-	cov, err := loadCoverage(ctx, s.db, from.Add(-24*time.Hour), todayTo, now)
+	recentP, baselineP := s.trendPeriods(now, loc)
+	cov, err := loadCoverage(ctx, s.db, earliest(from.Add(-24*time.Hour), baselineP.From), todayTo, now)
+	if err != nil {
+		return OperationDetail{}, err
+	}
+	durs, err := s.db.SucceededDurations(ctx, op.ID, baselineP.From, recentP.To)
 	if err != nil {
 		return OperationDetail{}, err
 	}
@@ -319,6 +336,8 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 	if op.CreatedAt.After(gapFrom) {
 		gapFrom = op.CreatedAt
 	}
+	rd, bd, pts := splitRuns(durs, recentP, baselineP)
+	out.Duration = durationTrend(op, rd, bd, recentP, baselineP, cov, pts)
 	out.Gaps = cov.jobGaps([]string{op.Namespace}, gapFrom, end)
 	if out.Gaps == nil {
 		out.Gaps = []Span{}
@@ -342,4 +361,11 @@ func nonNilMarks(m []Mark) []Mark {
 		return []Mark{}
 	}
 	return m
+}
+
+func earliest(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }

@@ -147,11 +147,44 @@ export interface Overview {
 
 export type CellState = 'none' | 'suspended' | 'ok' | 'unconfirmed' | 'missed' | 'failed'
 
+/** One period of a CronJob's duration trend: succeeded runs with a known start and end, by when they started. */
+export interface DurationPeriod {
+  from: string
+  to: string
+  runs: number
+  /** Nearest-rank percentiles; null with no runs. */
+  p50Seconds: number | null
+  p95Seconds: number | null
+  /** OpsTide watched Jobs throughout; when false, runs from the stretches not watched may be missing (not counted as absent). */
+  whole: boolean
+  notWatchedSeconds: number
+  shortenedByRetention?: boolean
+}
+
+/** Recent (last 7 days) against baseline (the 23 days before) run durations. Numbers, never a verdict. */
+export interface DurationTrend {
+  provenance: string
+  recent: DurationPeriod
+  baseline: DurationPeriod
+  minRuns: number
+  /** Both periods have at least minRuns runs; without it there is no ratio and no marker. */
+  enough: boolean
+  /** recent p50 / baseline p50; null unless enough. */
+  ratio: number | null
+  longerAt: number
+  /** ratio ≥ longerAt with enough runs: a neutral marker. */
+  longer: boolean
+  basis?: string
+  /** The latest runs' durations, oldest first (detail only). */
+  points?: { runId: string; startedAt: string; seconds: number; recent: boolean }[]
+}
+
 export interface OperationRow extends Operation {
   week: { date: string; state: CellState; runs: number }[]
   lastRun?: Run
   next?: string
   attention?: string[]
+  duration: DurationTrend
 }
 
 export interface Operations {
@@ -175,6 +208,7 @@ export interface OperationDetail {
   gaps: Span[]
   runs: Run[]
   moreRuns: boolean
+  duration: DurationTrend
 }
 
 export interface Entry {

@@ -68,6 +68,10 @@ spec:
               value: {{ .Values.releases.observationMinutes | quote }}
             - name: OPSTIDE_LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
+            {{- with .Values.publicURL }}
+            - name: OPSTIDE_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.clustrail.url }}
             - name: OPSTIDE_CLUSTRAIL_URL
               value: {{ . | quote }}

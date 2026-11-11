@@ -16,6 +16,11 @@ imagePullSecrets: []
 clustrail:
   url: ""
 
+# The address people open OpsTide at, e.g. https://opstide.example.com
+# (http or https, no query). Used for the links in Grafana annotations
+# (GET /api/v1/annotations); empty gives paths without a host.
+publicURL: ""
+
 # Name shown in the UI. Empty shows "cluster".
 clusterName: ""
 

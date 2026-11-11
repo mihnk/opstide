@@ -50,6 +50,8 @@ type Config struct {
 	// ClustrailURL is a link template for "Open in Clustrail"; {cluster},
 	// {namespace} and {name} are replaced, URL-escaped. Empty: no link.
 	ClustrailURL string
+	// PublicURL is where readers open OpsTide (no trailing slash), for links handed to other tools; empty gives paths.
+	PublicURL string
 	// Demo says the data is made up (opstide -demo); the UI shows it on every page.
 	Demo bool
 }
@@ -121,6 +123,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/explorer/export", s.explorerExport)
 	mux.HandleFunc("POST /api/v1/explorer/export", s.explorerExportSelected)
 	mux.HandleFunc("POST /api/v1/explorer/lookup", s.explorerLookup)
+	mux.HandleFunc("GET /api/v1/annotations", heavy(s.annotations)) // Grafana pulls these over a long range
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "no such API endpoint")

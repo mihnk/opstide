@@ -95,3 +95,18 @@ func TestDemoFlag(t *testing.T) {
 		t.Fatal("the demo is off unless asked for")
 	}
 }
+
+func TestPublicURL(t *testing.T) {
+	c, err := Load(nil, env(map[string]string{"OPSTIDE_PUBLIC_URL": " https://opstide.example.com/ops/ "}))
+	if err != nil || c.PublicURL != "https://opstide.example.com/ops" {
+		t.Fatalf("%q %v", c.PublicURL, err)
+	}
+	if c, err := Load([]string{"-public-url", "http://127.0.0.1:8080"}, env(nil)); err != nil || c.PublicURL != "http://127.0.0.1:8080" {
+		t.Fatalf("%q %v", c.PublicURL, err)
+	}
+	for _, bad := range []string{"opstide.example.com", "ftp://x", "https://", "https://x/?a=b", "https://x/#top", "https://u:p@x", "javascript:alert(1)"} {
+		if _, err := Load([]string{"-public-url", bad}, env(nil)); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

@@ -464,6 +464,13 @@ CREATE INDEX config_refs_ended ON config_refs(ended_at) WHERE ended_at IS NOT NU
 	`
 CREATE INDEX IF NOT EXISTS events_name ON events(namespace, kind, resource_name, at) WHERE resource_name <> '';
 `,
+	// 11: the Schedules screen's duration trend reads every succeeded run of the last 30 days, CronJob by CronJob; this
+	// index holds all it needs (which CronJob, when, start and end) in that order, so it is read without visiting the
+	// runs themselves and without sorting.
+	`
+CREATE INDEX IF NOT EXISTS runs_op_durations ON runs(operation_id, created_at, started_at, finished_at)
+	WHERE status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL;
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

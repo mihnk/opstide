@@ -3,6 +3,7 @@ package demo
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -78,6 +79,21 @@ func TestSeedTellsTheWholeStory(t *testing.T) {
 	}
 	if n, err := db.Nodes(ctx, store.NodeQuery{Limit: 10}); err != nil || len(n) != 3 {
 		t.Errorf("%d %v", len(n), err)
+	}
+	// The nightly backup has become slower in the last week; the weekly archive has too few runs to compare.
+	durs, err := db.DurationsByOperation(ctx, now.AddDate(0, 0, -30), now.AddDate(0, 0, -7), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	median := func(ds []time.Duration) time.Duration {
+		sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
+		return ds[(len(ds)-1)/2]
+	}
+	if b := durs["cj-backup"]; len(b.After) < 5 || len(b.Before) < 5 || median(b.After) < median(b.Before)*13/10 {
+		t.Errorf("backup %d %d", len(b.After), len(b.Before))
+	}
+	if a := durs["cj-archive"]; len(a.After) == 0 || len(a.After) >= 5 {
+		t.Errorf("archive %d", len(a.After))
 	}
 	wls, err := db.Workloads(ctx, store.WorkloadQuery{Limit: 20})
 	if err != nil || len(wls.Rows) != 4 {

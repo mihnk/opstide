@@ -213,6 +213,12 @@ table.data tr.clickable:hover td { background: var(--sel); }
 .week i.missed { border: 2px solid var(--fail); }
 .week i.unconfirmed { background: repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 4px); border-color: var(--hatch); }
 .week i.suspended { border-style: dotted; }
+/* A run time longer than its baseline: the colour of "longer than expected", as a marker, not an alarm. */
+.longer-mark { display: inline-block; width: 10px; height: 3px; margin: 0 6px 3px 0; vertical-align: middle; background: var(--slow); }
+/* The latest runs' durations on the Operation page; the last 7 days in the colour of a succeeded run. */
+.spark { display: flex; align-items: flex-end; gap: 1px; height: 40px; max-width: 520px; border-bottom: 1px solid var(--line); }
+.spark i { flex: 1 1 0; min-width: 2px; background: var(--hatch); opacity: .55; }
+.spark i.recent { background: var(--run); opacity: 1; }
 
 .tabs { display: flex; gap: 18px; padding-bottom: 8px; }
 .tabs a { color: var(--muted); text-decoration: none; }

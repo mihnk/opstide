@@ -87,7 +87,11 @@ func (s *seeder) log(typ, kind, uid, name, ns string, at time.Time, conf store.C
 func coverage(s *seeder) error {
 	start := s.ago(4 * 24 * time.Hour)
 	for _, sc := range scopes {
-		if err := s.w.OpenInterval(s.ctx, sc, store.Healthy, start); err != nil {
+		at := start
+		if sc == "cronjobs" || sc == "jobs" {
+			at = s.ago(jobsWatched) // CronJobs and Jobs were watched first; the other watches came with an upgrade four days ago
+		}
+		if err := s.w.OpenInterval(s.ctx, sc, store.Healthy, at); err != nil {
 			return err
 		}
 	}
@@ -129,6 +133,10 @@ func coverage(s *seeder) error {
 	return s.w.CloseInterval(s.ctx, "nodes", s.ago(2*time.Hour), "observation switched off")
 }
 
+// jobsWatched is how long ago OpsTide began watching CronJobs and Jobs in the demo: three weeks, so a duration trend
+// has a baseline to compare with.
+const jobsWatched = 21 * 24 * time.Hour
+
 func cronJobs(s *seeder) error {
 	type job struct {
 		id, ns, name, display, owner, crit, desc string
@@ -137,21 +145,32 @@ func cronJobs(s *seeder) error {
 		schedule                                 string
 		dur                                      time.Duration
 		failAt                                   []time.Duration // how long ago a run failed
+		// slower is how much longer runs took from slowerSince ago on (0: never): a real change in duration, for the
+		// Schedules screen's trend to show with its numbers.
+		slower      float64
+		slowerSince time.Duration
 	}
 	jobs := []job{
-		{"cj-ledger", "payments", "reconcile-ledger", "Reconcile ledger", "payments-team", "high", "Matches settled payments with the bank's file.", 2 * time.Hour, 0, "0 */2 * * *", 4 * time.Minute, []time.Duration{5 * time.Hour}},
-		{"cj-report", "data", "sales-report", "Sales report", "data-platform", "medium", "Builds the sales report.", 6 * time.Hour, 0, "0 */6 * * *", 90 * time.Second, nil},
-		{"cj-backup", "data", "nightly-backup", "Nightly backup", "data-platform", "high", "Backs up the orders database.", 24 * time.Hour, 3*time.Hour + 15*time.Minute, "15 3 * * *", 22 * time.Minute, []time.Duration{20 * time.Hour}},
+		{"cj-ledger", "payments", "reconcile-ledger", "Reconcile ledger", "payments-team", "high", "Matches settled payments with the bank's file.", 2 * time.Hour, 0, "0 */2 * * *", 4 * time.Minute, []time.Duration{5 * time.Hour}, 0, 0},
+		{"cj-report", "data", "sales-report", "Sales report", "data-platform", "medium", "Builds the sales report.", 6 * time.Hour, 0, "0 */6 * * *", 90 * time.Second, nil, 0, 0},
+		// The orders database has grown: the backup has taken about 40% longer for the last five nights.
+		{"cj-backup", "data", "nightly-backup", "Nightly backup", "data-platform", "high", "Backs up the orders database.", 24 * time.Hour, 3*time.Hour + 15*time.Minute, "15 3 * * *", 22 * time.Minute, []time.Duration{20 * time.Hour}, 1.4, 5 * 24 * time.Hour},
+		// Weekly: too few runs in seven days for its durations to be compared.
+		{"cj-archive", "data", "archive-orders", "Archive old orders", "data-platform", "low", "Moves orders older than a year to cold storage.", 7 * 24 * time.Hour, 4*time.Hour + 30*time.Minute, "30 4 * * 1", 12 * time.Minute, nil, 0, 0},
 	}
 	for _, j := range jobs {
 		exp := j.dur + j.dur/2
 		if err := s.w.UpsertOperation(s.ctx, store.Operation{ID: j.id, Namespace: j.ns, Name: j.name, DisplayName: j.display, Description: j.desc, Owner: j.owner, Criticality: j.crit,
 			ExpectedDuration: &exp, Schedule: j.schedule, ConcurrencyPolicy: "Forbid", SuccessfulHistory: 3, FailedHistory: 1,
-			CreatedAt: s.ago(60 * 24 * time.Hour), FirstSeenAt: s.ago(4 * 24 * time.Hour), LastSeenAt: s.now}); err != nil {
+			CreatedAt: s.ago(60 * 24 * time.Hour), FirstSeenAt: s.ago(jobsWatched), LastSeenAt: s.now}); err != nil {
 			return err
 		}
-		// Scheduled times: every `every`, aligned to the schedule, over the last three days, skipping the Jobs gap and the future.
-		first := s.now.Add(-3 * 24 * time.Hour).Truncate(j.every).Add(j.offset)
+		// Scheduled times: every `every`, aligned to the schedule, since Jobs were first watched, skipping the Jobs gap and the future.
+		// (Truncate counts from year 1, so a week lands on a Monday 00:00 UTC, the weekly schedule's day.)
+		first := s.ago(jobsWatched).Truncate(j.every).Add(j.offset)
+		if first.Before(s.ago(jobsWatched)) {
+			first = first.Add(j.every)
+		}
 		for at := first; at.Before(s.now.Add(-time.Minute)); at = at.Add(j.every) {
 			if at.After(s.ago(26*time.Hour)) && at.Before(s.ago(25*time.Hour)) {
 				continue // OpsTide was not watching Jobs: no run was seen, so none is invented
@@ -163,7 +182,12 @@ func cronJobs(s *seeder) error {
 				}
 			}
 			id := fmt.Sprintf("%s-%d", j.id, at.Unix())
-			status, reason, finished := store.RunSucceeded, "", at.Add(j.dur)
+			// Durations vary a little from run to run (±6%, fixed by the time), and change where the story says so.
+			dur := j.dur + j.dur*time.Duration(at.Unix()/60%7-3)/50
+			if j.slower > 0 && s.now.Sub(at) < j.slowerSince {
+				dur = time.Duration(float64(dur) * j.slower).Round(time.Second)
+			}
+			status, reason, finished := store.RunSucceeded, "", at.Add(5*time.Second+dur)
 			if failed {
 				status, reason = store.RunFailed, "BackoffLimitExceeded"
 			}
@@ -194,7 +218,7 @@ func cronJobs(s *seeder) error {
 					}
 				}
 				if err := s.log(typ, "Job", id, run.JobName, j.ns, finished, store.Derived, sev,
-					fmt.Sprintf("%s %s", j.display, word), map[string]string{"seconds": fmt.Sprint(int(j.dur.Seconds())), "scheduledAt": at.Format(time.RFC3339), "scheduledBasis": "annotation", "attempts": fmt.Sprint(run.Attempts)},
+					fmt.Sprintf("%s %s", j.display, word), map[string]string{"seconds": fmt.Sprint(int(dur.Seconds())), "scheduledAt": at.Format(time.RFC3339), "scheduledBasis": "annotation", "attempts": fmt.Sprint(run.Attempts)},
 					func(e *store.Event) { e.RunID, e.OperationID = id, j.id }); err != nil {
 					return err
 				}

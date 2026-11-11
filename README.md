@@ -109,6 +109,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `retention.days`, `retention.maxEntries`, `retention.maxRoutineEntries` | How much history to keep (30 days, 2,000,000 entries). Routine-volume entries (Pod lifecycle, Event entries, autoscaler entries, Helm's release records, folded ConfigMap and Secret writes) have their own budget (half by default), so a burst of them cannot push out older Job and release history; when a budget rather than age removes records, System and the Explorer say so |
 | `persistence.size`, `persistence.storageClass`, `persistence.existingClaim` | Where the record lives |
 | `auth.enabled`, `auth.existingSecret` | The token that protects the API and the UI (on by default; see below) |
+| `publicURL` | The address people open OpsTide at (`https://opstide.example.com`), so the links in [Grafana annotations](#grafana-annotations) open it; empty gives paths |
 | `clustrail.url` | Adds "Open in Clustrail" to each CronJob: a URL template with `{cluster}`, `{namespace}`, `{name}` (http, https or `clustrail://`) |
 | `serviceMonitor.enabled` | A Prometheus Operator ServiceMonitor for `/metrics` |
 | `networkPolicy.enabled` | Only the UI port in; out only DNS and the Kubernetes API's ports. Set `networkPolicy.apiServer.cidrs` to your API server's address to limit the destination too. Not for Cilium with a self-managed control plane (see values.yaml) |
@@ -207,11 +208,22 @@ Six pages, all reading the API below and updating live:
   Watches are checked in the namespace of what depends on them, and one turned off is reported off. A ConfigMap or
   Secret counts only while the Pod template named it, and an autoscaler's change is listed as the autoscaler's. Earlier is not a cause: the list
   says what happened before, never why. A failed run on its CronJob's page and a troubled release link to it.
-- **Schedules**: every CronJob with its last 7 days, last run, next
-  expected run, owner and criticality.
+- **Schedules**: every CronJob with its last 7 days, last run, run time
+  (`p50 3m 10s · 7d`), next expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
-  its last 7 days on one timeline each, recent runs, and a run's Job and
-  pods.
+  its last 7 days on one timeline each, its run time against its baseline,
+  recent runs, and a run's Job and pods.
+
+**Run time** compares a CronJob's recent runs with its earlier ones, as numbers, never a verdict. *Recent* is the last
+7 days in your time zone (today and the six days before), *baseline* the 23 days before that (shorter when the kept
+history is). Only succeeded runs with a recorded start and end count, in the period their start falls in; failed runs,
+runs whose outcome is unknown and runs still going do not. For each period OpsTide gives the number of runs and the
+p50 and p95 durations (nearest-rank: the duration of the run at rank ⌈p × n⌉, so always one a run actually took), and
+the ratio of recent p50 to baseline p50 when both periods have at least 5 runs; otherwise it says there are too few.
+A ratio of 1.3 or more (30% longer) with enough runs is marked *longer than its baseline*, with the numbers beside it.
+A period in which OpsTide was not watching Jobs (or that the kept history cuts short) is marked *not whole*: the runs
+it did not see are not counted, and not counted as absent either. The Operation page adds the durations of the latest
+60 succeeded runs as small bars.
 - **System**: when each watch was watching today, failing watches,
   storage and retention.
 
@@ -302,10 +314,81 @@ the ConfigMaps and Secrets it names (`/workloads/{id}/history?config=none` leave
 Each watch is a coverage scope (`configmaps`, `secrets`) like the others: a stretch it was not watching is a gap, and
 Secret metadata that is not watched is shown as off, never as calm. System says which of the two are on.
 
+## Grafana annotations
+
+Grafana can draw what OpsTide recorded on any dashboard: changes (a spec written, a schedule changed, a ConfigMap
+written, a replica target changed: the Explorer's *Changes only* set), failures (failed runs, OOMKilled and restarted
+Pods, stalled or failed releases, Warning Kubernetes Events) and the stretches OpsTide was **not watching**, as
+regions, so a quiet part of a graph is not read as a calm one. Grafana pulls them from
+`GET /api/v1/annotations`; OpsTide sends nothing out. An annotation marks when something was recorded, not why a
+graph moved.
+
+It needs a JSON data source, not an OpsTide plugin. With the **Infinity** data source
+(`yesoreyeram-infinity-datasource`, Grafana 10, 11 and 12; the old SimpleJSON plugin is not needed):
+
+1. Install Infinity (`grafana cli plugins install yesoreyeram-infinity-datasource`, or the Grafana chart's
+   `plugins: [yesoreyeram-infinity-datasource]`).
+2. **Connections → Data sources → Add → Infinity**, named `OpsTide`. Under **Authentication** pick **Bearer Token**
+   and paste OpsTide's token (the one from `opstide-auth`, as above); under **Allowed hosts** add
+   `http://opstide.opstide.svc` (Infinity sends the token only there). Save.
+3. On a dashboard: **Settings → Annotations → New annotation query**, data source `OpsTide`, then in the query:
+   - Type **JSON**, Parser **Backend**, Source **URL**, Format **Table**, Method **GET**
+   - URL `http://opstide.opstide.svc/api/v1/annotations?from=${__from}&to=${__to}&kinds=changes,failures,gaps`
+     (`${__from}` and `${__to}` are the dashboard's range in epoch milliseconds)
+   - Rows/Root: empty (the answer is a plain array)
+   - Columns: `time` as *Timestamp (epoch ms)*, `timeEnd` as *Timestamp (epoch ms)*, `title`, `text` and `tagList`
+     (as `tags`) as *String*
+4. Under **Field mappings** map Time → `time`, End time → `timeEnd`, Title → `title`, Text → `text`, Tags → `tags`.
+   Save the dashboard.
+
+One query per kind (`kinds=failures`, `kinds=changes`, `kinds=gaps`) gives each its own colour and switch. Add
+`&namespace=payments`, or `&workload=<workload id>` (the id in a Workloads page's address), to narrow changes and
+failures. Grafana outside the cluster uses OpsTide's ingress address instead; with `networkPolicy.enabled`, list
+Grafana's namespace in `networkPolicy.ingressFrom`. Set `publicURL` so each annotation's link opens OpsTide.
+
+The same annotation as dashboard JSON (replace the data source uid with yours):
+
+```json
+{
+  "name": "OpsTide failures", "enable": true, "iconColor": "red",
+  "datasource": { "type": "yesoreyeram-infinity-datasource", "uid": "opstide" },
+  "target": {
+    "refId": "A", "type": "json", "parser": "backend", "source": "url", "format": "table",
+    "url": "http://opstide.opstide.svc/api/v1/annotations?from=${__from}&to=${__to}&kinds=failures,gaps",
+    "url_options": { "method": "GET" }, "root_selector": "",
+    "columns": [
+      { "selector": "time", "text": "time", "type": "timestamp_epoch" },
+      { "selector": "timeEnd", "text": "timeEnd", "type": "timestamp_epoch" },
+      { "selector": "title", "text": "title", "type": "string" },
+      { "selector": "text", "text": "text", "type": "string" },
+      { "selector": "tagList", "text": "tags", "type": "string" }
+    ]
+  },
+  "mappings": {
+    "time": { "source": "field", "value": "time" }, "timeEnd": { "source": "field", "value": "timeEnd" },
+    "title": { "source": "field", "value": "title" }, "text": { "source": "field", "value": "text" },
+    "tags": { "source": "field", "value": "tags" }
+  }
+}
+```
+
+Each element of the answer is `{time, timeEnd, title, text, tags, tagList, kind, recordId, provenance, namespace, url}`,
+sorted by time: `time` and `timeEnd` are epoch milliseconds, `timeEnd` only on regions; `kind` is `change`, `failure`,
+`gap` or `notice`; `recordId` and `provenance` (`OBSERVED`, `DERIVED`, `UNKNOWN`) are the Explorer record's; `url`
+opens the record (or the stretch) in the Explorer. `from` and `to` take epoch milliseconds or RFC 3339 (the last 24
+hours when both are left out) and span at most 31 days. `limit` (default 500, at most 1,000) keeps the newest changes
+and failures; when there were more, a `notice` region covers the part of the range whose records were left out.
+Gaps are the watches the drawn records come from (every watch with `kinds=gaps` alone) that were not watched, merged
+into one region per stretch with the watches named, plus the parts of the range before OpsTide first watched or
+older than it keeps. A watch that is turned off (Nodes, Secret metadata) is a setting, shown on System, and is not
+drawn. The request needs the token like the rest of the API.
+
 ## Upgrading
 
 - **ConfigMaps are watched from the upgrade on.** The `configmaps` watch (on by default) begins when the upgraded pod
   starts, so any time before that shows as *not watched* for ConfigMaps, and ConfigMaps already there are a baseline.
+- **The run-time trend adds an index on runs** (schema 11) when the upgraded pod first starts; like any migration it
+  first copies the database to `opstide.db.pre-v10`.
 - **`rbac.create=false`**: add `list` and `watch` on `configmaps` to the role you manage, or set `watch.configMaps=false`;
   otherwise System shows the ConfigMap watch as unavailable (and coverage shows the gap) until you do.
 
@@ -327,7 +410,8 @@ have missed runs, and the UI shows the gap.
 ## Try it
 
 `make demo-local` (or `go run ./cmd/opstide -demo`) serves a made-up history from a temporary database: CronJobs
-with a failed run and an unwatched hour, a Deployment's three releases, a StatefulSet held at its partition,
+with a failed run and an unwatched hour, a nightly backup that has taken about 40% longer for five nights and a weekly
+one with too few runs to compare, a Deployment's three releases, a StatefulSet held at its partition,
 a DaemonSet, a Node that was recreated under the same name, an api Pod that restarted shortly after its Deployment's spec and its ConfigMap were written, Kubernetes Events, a collection gap and an object
 OpsTide gave up on. It needs no cluster, kubeconfig or Docker, collects nothing, and says so on every page. It is
 a snapshot, not a live view; to see real watching use kind below.
@@ -370,6 +454,9 @@ go run ./cmd/opstide -demo -listen 127.0.0.1:18400 &
 cd web && node scripts/record-ui-fixtures.cjs http://127.0.0.1:18400 src/test/demo-api.json
 ```
 
+`-public-url` (`OPSTIDE_PUBLIC_URL`) is the address people open OpsTide at, for the links in Grafana annotations;
+empty gives paths.
+
 Probes: `/healthz` (process), `/readyz` (watches synced and storage
 writable). They, the page and its scripts need no token; everything else does
 when one is set (`-token-file`, or `OPSTIDE_TOKEN` for a quick try). Listening
@@ -410,7 +497,7 @@ answer, then asking for the same URL again:
 | Overview, last 5 days | 1.0 s | 2 ms |
 | Overview, last 7 days | 1.4 s | 2 ms |
 | Overview strip, 24 h / 7 d / 30 d | 13 / 62 / 312 ms | 1 ms |
-| Schedules | 1.2 s | 1 ms |
+| Schedules (with the run-time trend over 30 days) | 1.4 s | 1 ms |
 | One CronJob | 53 ms | 47 ms |
 | Log page (any filter) | 2-17 ms | 2-15 ms |
 | System | 95 ms | 68 ms |
@@ -443,8 +530,8 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/range?within=3h&tz=Europe/Istanbul` | One window of 5 minutes to 7 days: counts, a lane per CronJob, gaps, grouped exceptions, what is still to come. The window is `within=3h` (ending now; also `90m`, `5d`), `date=2026-11-04` (a calendar day in `tz`), or `from=` and `to=`; with none, today. A lane with more than 120 marks comes as runs per hour. `day` is the same endpoint |
 | `GET /api/v1/overview?span=5d&tz=` | The strip above the Overview: runs per hour (per 6 h for 30 days) and failures, when Jobs were not watched, and when OpsTide first watched. `span` is `24h`, `5d`, `7d` or `30d` |
 | `GET /api/v1/events?within=48h&from=&to=&namespace=&show=runs,starts,schedules,rollouts,kubernetes,scaling,collection&kind=&reason=&workload=&severity=warning,error&outcome=failed&owner=&q=&cursor=` | The log, newest first, by stable cursor. `severity` is `info`, `warning`, `error`; `outcome` narrows the run entries to `failed`, `succeeded` or `unknown` (with `show`, it must include `runs`; without `show` all groups are returned); `owner` is an exact owner annotation |
-| `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run and next expected run |
-| `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs |
+| `GET /api/v1/operations?tz=` | Every CronJob with its last 7 days, last run, next expected run and run-time trend (`duration`, below) |
+| `GET /api/v1/operations/{id}?tz=&runs=50&before=` | One CronJob: description, schedule, 7 days, recent runs, and the run-time trend with the durations of its latest 60 succeeded runs (`duration.points`) |
 | `GET /api/v1/runs/{id}` | One run with its pods and entries |
 | `GET /api/v1/releases`, `/releases/{id}`, `/releases/{id}/events`, `/releases/{id}/pods`, `/releases/{id}/changes` (`/events` takes `include=evidence,scaling`) | Deployment releases, their assessment, timeline, Pods and the comparison with the previous revision (see docs/M2.5-WORKLOAD-RELEASES.md) |
 | `GET /api/v1/evidence?within=48h&namespace=&reason=&type=Warning&kind=&uid=&workload=&replicaset=&run=&hpa=&q=&cursor=`, `/evidence/{id}` | Kubernetes Events as recorded evidence: what Kubernetes reported, which API, the times and count it gave (null when it gave none), how each record is linked to resources OpsTide saw (`DIRECT`, `OWNERSHIP`, `SAME_RESOURCE_CONTEXT`, `UNRESOLVED`; `REFERENCE` for a workload whose Pod template names a ConfigMap or Secret), and where it came from (see docs/M2.6-EVIDENCE.md) |
@@ -455,6 +542,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Explorer's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |
+| `GET /api/v1/annotations?from=&to=&kinds=changes,failures,gaps&namespace=&workload=&limit=` | Changes, failures and the stretches OpsTide was not watching, as a flat array for Grafana annotations (see [Grafana annotations](#grafana-annotations)). `from`/`to` in epoch ms or RFC 3339, at most 31 days; `limit` at most 1,000 |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |
 
 ## License

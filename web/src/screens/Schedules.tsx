@@ -1,5 +1,6 @@
 import { query, type OperationRow, type Operations } from '../api'
 import { t, tn } from '../i18n'
+import { DurationCell, LongerMark } from '../components/Duration'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
@@ -53,10 +54,10 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
         <div className="empty">{data.operations.length === 0 ? t('OpsTide has not seen a CronJob yet. If it only watches some namespaces, System lists them; a watch that lacks permission is shown there too.') : t('None in this group.')}</div>
       ) : (
         <div className="table-wrap">
-          <table className="data compact" style={{ minWidth: 940 }}>
+          <table className="data compact" style={{ minWidth: 1080 }}>
             <thead>
               <tr>
-                {['Operation', 'Schedule', 'Last 7 days', 'Last run', 'Next, expected', 'Owner', 'Criticality'].map((h) => (
+                {['Operation', 'Schedule', 'Last 7 days', 'Last run', 'Run time', 'Next, expected', 'Owner', 'Criticality'].map((h) => (
                   <th key={h} scope="col" className="label">{t(h)}</th>
                 ))}
               </tr>
@@ -100,6 +101,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                         <span className="muted">{t('none seen')}</span>
                       )}
                     </td>
+                    <td><DurationCell d={o.duration} /></td>
                     <td className="mono" style={{ fontSize: 13, color: o.next ? undefined : 'var(--muted)' }}>
                       {o.next ? relativeTime(o.next, data.now, tz) : o.suspended ? `— ${t('suspended')}` : '—'}
                     </td>
@@ -119,6 +121,8 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
         <span><span className="week"><i className="missed" /></span>{t('did not start')}</span>
         <span><span className="week"><i className="unconfirmed" /></span>{t('not confirmed')}</span>
         <span><span className="week"><i /></span>{t('nothing due, or before OpsTide was watching')}</span>
+        <span>{t('Run time is the median (p50) of the succeeded runs of the last 7 days, compared with the 23 days before.')}</span>
+        <span><LongerMark />{t('longer than its baseline: a median at least 30% longer, with {n} runs or more in each period', { n: 5 })}</span>
         <span>{t('Next runs are computed from the schedule and its time zone; Kubernetes may start them late or skip them.')}</span>
       </div>
     </div>

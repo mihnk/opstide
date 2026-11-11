@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -373,4 +376,105 @@ func (s *Store) LiveOperationCount(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE deleted_at IS NULL`).Scan(&n)
 	return n, err
+}
+
+// RunDuration is a succeeded run reduced to what a duration statistic needs.
+type RunDuration struct {
+	RunID       string
+	OperationID string
+	StartedAt   time.Time
+	Duration    time.Duration
+}
+
+// succeededWithTimes is what makes a run's duration usable: it succeeded, and both its start and its end were
+// recorded, the end after the start. It matches runs_op_durations' condition, so that index can answer.
+const succeededWithTimes = `status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL AND finished_at > started_at`
+
+// SucceededDurations returns one CronJob's succeeded runs with a usable duration that started in [from, to), oldest
+// start first.
+func (s *Store) SucceededDurations(ctx context.Context, operationID string, from, to time.Time) ([]RunDuration, error) {
+	if !from.Before(to) {
+		return nil, nil
+	}
+	// A run is created before it starts: created_at bounds the index range, started_at decides.
+	rows, err := s.db.QueryContext(ctx, `SELECT id, operation_id, started_at, finished_at FROM runs
+WHERE operation_id = ? AND created_at >= ? AND created_at < ? AND started_at >= ? AND started_at < ? AND `+succeededWithTimes+`
+ORDER BY started_at, id`, operationID, ms(from.Add(-24*time.Hour)).Int64, ms(to).Int64, ms(from).Int64, ms(to).Int64)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunDuration
+	for rows.Next() {
+		var d RunDuration
+		var start, end int64
+		if err := rows.Scan(&d.RunID, &d.OperationID, &start, &end); err != nil {
+			return nil, err
+		}
+		d.StartedAt, d.Duration = time.UnixMilli(start).UTC(), time.Duration(end-start)*time.Millisecond
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SplitDurations are one CronJob's run durations on either side of a time.
+type SplitDurations struct {
+	Before, After []time.Duration
+}
+
+// DurationsByOperation returns, for every CronJob, the durations of its succeeded runs with a usable duration that
+// started in [from, to), split at split: started before it, or at it and after. It is the Schedules screen's read of
+// 30 days of runs, so it is shaped for that: one pass over runs_op_durations, CronJob by CronJob, with SQLite joining
+// each CronJob's durations into one text (a row per run costs more to hand over than to compute).
+func (s *Store) DurationsByOperation(ctx context.Context, from, split, to time.Time) (map[string]SplitDurations, error) {
+	out := map[string]SplitDurations{}
+	if !from.Before(to) {
+		return out, nil
+	}
+	sp := ms(split).Int64
+	rows, err := s.db.QueryContext(ctx, `SELECT operation_id,
+	group_concat(CASE WHEN started_at < ? THEN finished_at - started_at END),
+	group_concat(CASE WHEN started_at >= ? THEN finished_at - started_at END)
+FROM runs INDEXED BY runs_op_durations
+WHERE operation_id <> '' AND created_at >= ? AND created_at < ? AND started_at >= ? AND started_at < ? AND `+succeededWithTimes+`
+GROUP BY operation_id`, sp, sp, ms(from.Add(-24*time.Hour)).Int64, ms(to).Int64, ms(from).Int64, ms(to).Int64)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var before, after sql.NullString
+		if err := rows.Scan(&id, &before, &after); err != nil {
+			return nil, err
+		}
+		b, err := parseMillisList(before.String)
+		if err != nil {
+			return nil, err
+		}
+		a, err := parseMillisList(after.String)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = SplitDurations{Before: b, After: a}
+	}
+	return out, rows.Err()
+}
+
+// parseMillisList reads group_concat's comma-separated milliseconds.
+func parseMillisList(s string) ([]time.Duration, error) {
+	if s == "" {
+		return nil, nil
+	}
+	out := make([]time.Duration, 0, strings.Count(s, ",")+1)
+	for s != "" {
+		var v string
+		v, s, _ = strings.Cut(s, ",")
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("run durations: %w", err)
+		}
+		out = append(out, time.Duration(n)*time.Millisecond)
+	}
+	return out, nil
 }

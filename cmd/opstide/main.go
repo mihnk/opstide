@@ -132,7 +132,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	guard.Register(mux)
 	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
-		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
+		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, PublicURL: cfg.PublicURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
 		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
 	}, log).Register(mux)

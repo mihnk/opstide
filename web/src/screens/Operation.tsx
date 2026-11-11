@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
+import { DurationSection } from '../components/Duration'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { t } from '../i18n'
@@ -114,6 +115,8 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           markHref={(m) => (m.runId ? withParams(params, { run: m.runId }) : undefined)} />
         <Legend items={['succeeded', 'failed', 'running', 'expected', 'missed', 'gap', 'slow']} note={t("Bar width is the run's duration.")} />
       </section>
+
+      {data.duration && <DurationSection d={data.duration} tz={tz} />}
 
       <div className="split">
         <section aria-label={t('Recent runs')} className="main">

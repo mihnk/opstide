@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Range } from './api'
+import { changeText } from './components/Duration'
+import { setLangForTest } from './i18n'
 import { exceptionText, joinAnd, rangeSentence } from './narrative'
 import { pickStep, place, tickList } from './geometry'
 import { duration, hhmm, isoDate, longDay, offset, relativeTime, shiftDate, utcToZoned, zonedToUtc } from './time'
@@ -177,5 +179,16 @@ describe('window', () => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(params(sel))) if (v) p.set(k, v)
     expect(selection(p)).toEqual(sel)
+  })
+})
+
+describe('run time against its baseline', () => {
+  it('writes the change of the median with its sign, in the reader language', () => {
+    expect(changeText(1.34)).toBe('+34%')
+    expect(changeText(0.8)).toBe('−20%')
+    expect(changeText(1)).toBe('±0%')
+    setLangForTest('tr')
+    expect(changeText(1.34)).toBe('+%34')
+    setLangForTest('en')
   })
 })

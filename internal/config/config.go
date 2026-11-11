@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -45,6 +46,9 @@ type Config struct {
 	// ClustrailURL is a link template for opening a CronJob in Clustrail:
 	// {cluster}, {namespace} and {name} are replaced. Empty shows no link.
 	ClustrailURL string
+	// PublicURL is the address readers open OpsTide at (http or https, no query), used for links OpsTide hands out to
+	// other tools (Grafana annotations). Empty: those links are paths, relative to wherever OpsTide is reached.
+	PublicURL string
 	// ReleaseWindowMinutes is how long after a rollout completes a release is
 	// observed before it can be called healthy: 5, 10, 15 or 30.
 	ReleaseWindowMinutes int
@@ -117,6 +121,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.BoolVar(&c.WatchSecretMetadata, "watch-secret-metadata", env("WATCH_SECRET_METADATA", "") == "true", "record Secrets being created, deleted and written, reading metadata only (never their data); needs list and watch on secrets (OPSTIDE_WATCH_SECRET_METADATA=true)")
 	fs.BoolVar(&c.Demo, "demo", false, "serve a made-up history from a temporary database, with no cluster needed; nothing is collected")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
+	fs.StringVar(&c.PublicURL, "public-url", env("PUBLIC_URL", ""), "the address readers open OpsTide at, e.g. https://opstide.example.com, for links in Grafana annotations; empty gives paths (OPSTIDE_PUBLIC_URL)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -133,6 +138,13 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	}
 	if err := c.LogLevel.UnmarshalText([]byte(level)); err != nil {
 		return Config{}, fmt.Errorf("log level %q: use debug, info, warn or error", level)
+	}
+	c.PublicURL = strings.TrimRight(strings.TrimSpace(c.PublicURL), "/")
+	if c.PublicURL != "" {
+		u, err := url.Parse(c.PublicURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return Config{}, fmt.Errorf("public url %q must be an http:// or https:// address with a host and no query, fragment or user", c.PublicURL)
+		}
 	}
 	switch {
 	case c.ReleaseWindowMinutes != 5 && c.ReleaseWindowMinutes != 10 && c.ReleaseWindowMinutes != 15 && c.ReleaseWindowMinutes != 30:
