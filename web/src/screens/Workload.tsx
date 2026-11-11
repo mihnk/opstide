@@ -10,6 +10,8 @@ import { EntryRow } from './Release'
 import { ScalingContext, relationWords } from './ReleaseEvidence'
 import { rolloutLabel } from './Workloads'
 import { Note } from '../components/Note'
+import { tParts } from '../components/status'
+import { t } from '../i18n'
 
 const tabs = [['overview', 'Overview'], ['history', 'History'], ['revisions', 'Revisions'], ['pods', 'Pods'], ['evidence', 'Evidence']] as const
 
@@ -27,42 +29,51 @@ function Facts({ title, rows }: { title: string; rows: [string, React.ReactNode]
 export function Workload({ id, params, tz }: { id: string; params: URLSearchParams; tz: string }) {
   const tab = tabs.find(([k]) => k === params.get('tab'))?.[0] ?? 'overview'
   const { data: d, error } = useApi<WorkloadDetail>(`/api/v1/workloads/${encodeURIComponent(id)}`, { keep: true })
-  if (error && !d) return <div className="page"><Failed error={error} /><Link href="/workloads">← Workloads</Link></div>
+  if (error && !d) return <div className="page"><Failed error={error} /><Link href="/workloads">← {t('Workloads')}</Link></div>
   if (!d) return <div className="page"><Loading /></div>
   const w = d.workload
   const st = w.state
   return (
     <div className="page" style={{ gap: 20 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Link href="/workloads" style={{ fontSize: 13 }}>← Workloads</Link>
+        <Link href="/workloads" style={{ fontSize: 13 }}>← {t('Workloads')}</Link>
         <div className="head-row" style={{ gap: '10px 24px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span className="label">{w.kind} · {w.namespace}</span>
             <h1 className="title" style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
               {w.name}
-              {w.origin === 'adopted' && <span className="chip" style={{ fontSize: 12 }} title="It existed before OpsTide started watching.">adopted</span>}
-              {w.status === 'deleted' && <span className="chip" style={{ fontSize: 12 }}>deleted</span>}
+              {w.origin === 'adopted' && <span className="chip" style={{ fontSize: 12 }} title={t('It existed before OpsTide started watching.')}>{t('adopted')}</span>}
+              {w.status === 'deleted' && <span className="chip" style={{ fontSize: 12 }}>{t('deleted')}</span>}
             </h1>
-            <span className="mono muted" style={{ fontSize: 13 }}>{w.namespace}/{w.name}{w.deletedAt ? ` · deleted ${hhmmss(w.deletedAt, tz)}` : ''}</span>
+            <span className="mono muted" style={{ fontSize: 13 }}>{w.namespace}/{w.name}{w.deletedAt ? ` · ${t('deleted {time}', { time: hhmmss(w.deletedAt, tz) })}` : ''}</span>
           </div>
           <span className="grow" />
-          <Link href={explorerLink({ workload: w.id, range: '7d' })} className="button">Records in Explorer</Link>
-          {d.release && <Link href={`/releases/${encodeURIComponent(d.release.id)}`} className="button">Release of revision {d.release.revision}</Link>}
+          <Link href={explorerLink({ workload: w.id, range: '7d' })} className="button">{t('Records in Explorer')}</Link>
+          {d.release && <Link href={`/releases/${encodeURIComponent(d.release.id)}`} className="button">{t('Release of revision {n}', { n: d.release.revision })}</Link>}
         </div>
         {st && (
           <p className="sentence" style={{ fontSize: 16 }}>
-            <b>Revision progress:</b> <span className="mono">{st.updated} of {st.desired}</span> replicas report the update revision; update state <b>{rolloutLabel(w.kind, st.rollout)}</b>
+            <b>{t('Revision progress:')}</b>{' '}
+            {tParts('{progress} replicas report the update revision; update state {state}', {
+              progress: <span className="mono">{t('{a} of {b}', { a: st.updated, b: st.desired })}</span>,
+              state: <b>{rolloutLabel(w.kind, st.rollout)}</b>,
+            })}
             {st.rolloutNote && w.kind !== 'Deployment' ? <span className="muted">. {st.rolloutNote}</span> : null}.{' '}
-            <b>Observed availability:</b> <span className="mono">{st.ready}</span> ready and <span className="mono">{st.available}</span> available of <span className="mono">{st.desired}</span> desired.
+            <b>{t('Observed availability:')}</b>{' '}
+            {tParts('{ready} ready and {available} available of {desired} desired.', {
+              ready: <span className="mono">{st.ready}</span>,
+              available: <span className="mono">{st.available}</span>,
+              desired: <span className="mono">{st.desired}</span>,
+            })}
 
           </p>
         )}
       </div>
-      {d.notes.length > 0 && <div className="banner" role="note"><span className="label">Unknown</span><span>{d.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
+      {d.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{d.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
 
-      <nav aria-label="Workload sections" className="tabs">
+      <nav aria-label={t('Workload sections')} className="tabs">
         {tabs.filter(([k]) => !w.sections || w.sections.includes(k)).map(([k, label]) => (
-          <Link key={k} href={withParams(params, { tab: k === 'overview' ? null : k })} replace aria-current={tab === k ? 'true' : undefined}>{label}</Link>
+          <Link key={k} href={withParams(params, { tab: k === 'overview' ? null : k })} replace aria-current={tab === k ? 'true' : undefined}>{t(label)}</Link>
         ))}
       </nav>
 
@@ -76,7 +87,7 @@ export function Workload({ id, params, tz }: { id: string; params: URLSearchPara
 }
 
 function Conditions({ list }: { list: WorkloadState['conditions'] }) {
-  if (!list || list.length === 0) return <span className="muted">Kubernetes reports no conditions for this workload.</span>
+  if (!list || list.length === 0) return <span className="muted">{t('Kubernetes reports no conditions for this workload.')}</span>
   return (
     <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
       {list.map((c) => <li key={c.type}><span className="mono">{c.type}</span> {c.status}{c.reason ? <> · {c.reason}</> : null}{c.message ? <span className="muted" style={{ overflowWrap: 'anywhere' }}> · {c.message}</span> : null}</li>)}
@@ -91,50 +102,50 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
   return (
     <div className="two">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-        <Facts title="Identity" rows={[
-          ['Kind', w.kind],
-          ['UID', <span className="mono" title={w.id}>{short(w.id)} <span className="muted">(short)</span></span>],
-          ['First recorded', <><span className="mono">{hhmmss(w.firstSeenAt, tz)}</span> <span className="muted">{w.origin === 'adopted' ? 'found already present by OpsTide; it may be much older' : w.origin === 'observed' ? 'created while OpsTide was watching' : ''}</span></>],
-          ['Last observed', <><span className="mono">{hhmmss(w.lastSeenAt, tz)}</span> <span className="muted">the last time OpsTide saw it reported</span></>],
-          ...(w.deletedAt ? [['Deleted', <span className="mono">{hhmmss(w.deletedAt, tz)}</span>] as [string, React.ReactNode]] : []),
+        <Facts title={t('Identity')} rows={[
+          [t('Kind'), w.kind],
+          ['UID', <span className="mono" title={w.id}>{short(w.id)} <span className="muted">{t('(short)')}</span></span>],
+          [t('First recorded'), <><span className="mono">{hhmmss(w.firstSeenAt, tz)}</span> <span className="muted">{w.origin === 'adopted' ? t('found already present by OpsTide; it may be much older') : w.origin === 'observed' ? t('created while OpsTide was watching') : ''}</span></>],
+          [t('Last observed'), <><span className="mono">{hhmmss(w.lastSeenAt, tz)}</span> <span className="muted">{t('the last time OpsTide saw it reported')}</span></>],
+          ...(w.deletedAt ? [[t('Deleted'), <span className="mono">{hhmmss(w.deletedAt, tz)}</span>] as [string, React.ReactNode]] : []),
         ]} />
         {st ? (
-          <Facts title="Revision progress (as Kubernetes reported)" rows={[
-            ['Desired', <span className="mono">{st.desired}</span>],
-            ['Updated', <span className="mono">{st.updated} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired} on the update revision</span></span>],
-            ...(w.kind !== 'Deployment' ? [['Current', <span className="mono">{st.current}{w.kind === 'DaemonSet' ? ' scheduled' : ''}</span>] as [string, React.ReactNode]] : []),
+          <Facts title={t('Revision progress (as Kubernetes reported)')} rows={[
+            [t('Desired'), <span className="mono">{st.desired}</span>],
+            [t('Updated'), <span className="mono">{st.updated} <span className="muted" style={{ fontFamily: 'inherit' }}>{t('of {n} on the update revision', { n: st.desired })}</span></span>],
+            ...(w.kind !== 'Deployment' ? [[t('Current'), <span className="mono">{st.current}{w.kind === 'DaemonSet' ? ` ${t('scheduled')}` : ''}</span>] as [string, React.ReactNode]] : []),
           ]} />
-        ) : <p className="muted">Kubernetes' status for this workload has not been recorded yet.</p>}
+        ) : <p className="muted">{t("Kubernetes' status for this workload has not been recorded yet.")}</p>}
         {st && (
-          <Facts title="Observed availability (as Kubernetes reported)" rows={[
-            ['Ready', <span className="mono">{st.ready} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired}</span></span>],
-            ['Available', <span className="mono">{st.available} <span className="muted" style={{ fontFamily: 'inherit' }}>of {st.desired}</span></span>],
-            ...(w.kind === 'DaemonSet' ? [['Misscheduled', <span className="mono">{st.misscheduled ?? 0}</span>] as [string, React.ReactNode]] : []),
-            ['Generation', <span className="mono">{st.generation} <span className="muted">(observed {st.observedGeneration})</span></span>],
+          <Facts title={t('Observed availability (as Kubernetes reported)')} rows={[
+            [t('Ready'), <span className="mono">{st.ready} <span className="muted" style={{ fontFamily: 'inherit' }}>{t('of {n}', { n: st.desired })}</span></span>],
+            [t('Available'), <span className="mono">{st.available} <span className="muted" style={{ fontFamily: 'inherit' }}>{t('of {n}', { n: st.desired })}</span></span>],
+            ...(w.kind === 'DaemonSet' ? [[t('Misscheduled'), <span className="mono">{st.misscheduled ?? 0}</span>] as [string, React.ReactNode]] : []),
+            [t('Generation'), <span className="mono">{st.generation} <span className="muted">{t('(observed {n})', { n: st.observedGeneration })}</span></span>],
           ]} />
         )}
       </div>
       {st && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-          <Facts title="Revision and update strategy" rows={[
-            ['Revision', <span className="mono">{st.revision || '—'}</span>],
-            ...(st.updateRevision && st.updateRevision !== st.revision ? [['Update revision', <span className="mono">{st.updateRevision}</span>] as [string, React.ReactNode]] : []),
-            ['Strategy', <><span className="mono">{st.strategy || '—'}</span>{st.strategy === 'OnDelete' ? <span className="muted"> · a changed template replaces no Pod until it is deleted</span> : null}</>],
-            ...(st.partition !== null && w.kind === 'StatefulSet' ? [['Partition', <span className="mono">{st.partition}{st.partition > 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}> · Pods with a lower ordinal stay on the previous revision by design</span> : null}</span>] as [string, React.ReactNode]] : []),
+          <Facts title={t('Revision and update strategy')} rows={[
+            [t('Revision'), <span className="mono">{st.revision || '—'}</span>],
+            ...(st.updateRevision && st.updateRevision !== st.revision ? [[t('Update revision'), <span className="mono">{st.updateRevision}</span>] as [string, React.ReactNode]] : []),
+            [t('Strategy'), <><span className="mono">{st.strategy || '—'}</span>{st.strategy === 'OnDelete' ? <span className="muted"> · {t('a changed template replaces no Pod until it is deleted')}</span> : null}</>],
+            ...(st.partition !== null && w.kind === 'StatefulSet' ? [[t('Partition'), <span className="mono">{st.partition}{st.partition > 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}> · {t('Pods with a lower ordinal stay on the previous revision by design')}</span> : null}</span>] as [string, React.ReactNode]] : []),
             ...(st.maxUnavailable ? [['maxUnavailable', <span className="mono">{st.maxUnavailable}</span>] as [string, React.ReactNode]] : []),
             ...(st.maxSurge ? [['maxSurge', <span className="mono">{st.maxSurge}</span>] as [string, React.ReactNode]] : []),
-            ...(st.podManagement ? [['Pod management', <span className="mono">{st.podManagement}</span>] as [string, React.ReactNode]] : []),
+            ...(st.podManagement ? [[t('Pod management'), <span className="mono">{st.podManagement}</span>] as [string, React.ReactNode]] : []),
           ]} />
-          <Facts title="Update state" rows={[
-            ['State', <span><b>{rolloutLabel(w.kind, st.rollout)}</b></span>],
-            ['Derived from', <span className="muted">{w.kind === 'Deployment' ? 'the Deployment’s release (see its page)' : 'Kubernetes’ status fields by a documented rule (docs/M2.7-WORKLOADS.md); it is not a health judgement'}</span>],
-            ...(st.rolloutNote && w.kind !== 'Deployment' ? [['Values used', <span style={{ overflowWrap: 'anywhere' }}>{st.rolloutNote}</span>] as [string, React.ReactNode]] : []),
-            ['Last meaningful change', <>
+          <Facts title={t('Update state')} rows={[
+            [t('State'), <span><b>{rolloutLabel(w.kind, st.rollout)}</b></span>],
+            [t('Derived from'), <span className="muted">{w.kind === 'Deployment' ? t('the Deployment’s release (see its page)') : t('Kubernetes’ status fields by a documented rule (docs/M2.7-WORKLOADS.md); it is not a health judgement')}</span>],
+            ...(st.rolloutNote && w.kind !== 'Deployment' ? [[t('Values used'), <span style={{ overflowWrap: 'anywhere' }}>{st.rolloutNote}</span>] as [string, React.ReactNode]] : []),
+            [t('Last meaningful change'), <>
               <span className="mono">{hhmmss(st.lastChangeAt, tz)}</span>{' '}
-              <span className="muted">{st.changeBasis === 'baseline' ? 'a baseline: the newest time the records or the source give for something already there, not a change OpsTide saw' : 'the last time OpsTide saw this state change'}</span>
+              <span className="muted">{st.changeBasis === 'baseline' ? t('a baseline: the newest time the records or the source give for something already there, not a change OpsTide saw') : t('the last time OpsTide saw this state change')}</span>
             </>],
           ]} />
-          <Facts title="Conditions Kubernetes reports" rows={[['Conditions', <Conditions list={st.conditions} />]]} />
+          <Facts title={t('Conditions Kubernetes reports')} rows={[[t('Conditions'), <Conditions list={st.conditions} />]]} />
         </div>
       )}
       {w.kind === 'Deployment' && <div style={{ gridColumn: '1 / -1' }}><ScalingContext workloadId={w.id} tz={tz} windowEntries={0} /></div>}
@@ -165,11 +176,11 @@ function History({ id, tz }: { id: string; tz: string }) {
   }
   return (
     <div className="daygroup" style={{ gap: 0 }}>
-      <label style={{ marginBottom: 10, fontSize: 13 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Include routine Pod entries (created, ready, terminated)</label>
-      {entries.length === 0 && <div className="empty">Nothing has been recorded for this workload yet.</div>}
+      <label style={{ marginBottom: 10, fontSize: 13 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t('Include routine Pod entries (created, ready, terminated)')}</label>
+      {entries.length === 0 && <div className="empty">{t('Nothing has been recorded for this workload yet.')}</div>}
       {entries.map((e) => <EntryRow key={e.id} e={e} tz={tz} />)}
-      {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? 'Loading…' : 'Older entries'}</button>}
-      <p className="muted" style={{ fontSize: 12 }}>What Kubernetes reported about this workload, in order. <Link href={explorerLink({ workload: id, routine: '1', range: '7d' })}>Open these in the Explorer</Link></p>
+      {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? t('Loading…') : t('Older entries')}</button>}
+      <p className="muted" style={{ fontSize: 12 }}>{t('What Kubernetes reported about this workload, in order.')} <Link href={explorerLink({ workload: id, routine: '1', range: '7d' })}>{t('Open these in the Explorer')}</Link></p>
     </div>
   )
 }
@@ -178,12 +189,12 @@ function Revisions({ id, tz }: { id: string; tz: string }) {
   const { data, error } = useApi<WorkloadRevisions>(`/api/v1/workloads/${encodeURIComponent(id)}/revisions`)
   if (error && !data) return <Failed error={error} />
   if (!data) return <Loading />
-  if (data.revisions.length === 0) return <div className="empty">No revision has been recorded for this workload.</div>
+  if (data.revisions.length === 0) return <div className="empty">{t('No revision has been recorded for this workload.')}</div>
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {data.notes.map((n, i) => <p key={i} className="muted" style={{ margin: 0, maxWidth: 780 }}>{n}</p>)}
       {data.revisions.map((r) => <Revision key={r.id} r={r} tz={tz} />)}
-      <Note block more="Only an allow-list of the Pod template is compared: container names and images, resources, probes, the names (never the values) of environment variables, ConfigMaps and Secrets, and the service account. A revision number means something only within its own workload.">What is compared</Note>
+      <Note block more={t('Only an allow-list of the Pod template is compared: container names and images, resources, probes, the names (never the values) of environment variables, ConfigMaps and Secrets, and the service account. A revision number means something only within its own workload.')}>{t('What is compared')}</Note>
     </div>
   )
 }
@@ -194,16 +205,16 @@ function Revision({ r, tz }: { r: RevisionView; tz: string }) {
       <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
         <b className="mono">{r.name}</b>
         <span className="muted mono">#{r.number}</span>
-        {r.isCurrent && <span className="chip">current</span>}
-        {r.isUpdate && !r.isCurrent && <span className="chip">update revision</span>}
-        {r.origin === 'adopted' && <span className="chip" title="Already there when OpsTide began watching; its template is complete either way.">adopted</span>}
-        <span className="muted" style={{ fontSize: 12 }}>{r.createdAt ? `created ${hhmmss(r.createdAt, tz)} · ` : ''}first seen by OpsTide {hhmmss(r.observedAt, tz)}</span>
-        {r.releaseId && <Link href={`/releases/${encodeURIComponent(r.releaseId)}`} style={{ fontSize: 13 }}>Open the release</Link>}
+        {r.isCurrent && <span className="chip">{t('current')}</span>}
+        {r.isUpdate && !r.isCurrent && <span className="chip">{t('update revision')}</span>}
+        {r.origin === 'adopted' && <span className="chip" title={t('Already there when OpsTide began watching; its template is complete either way.')}>{t('adopted')}</span>}
+        <span className="muted" style={{ fontSize: 12 }}>{r.createdAt ? t('created {created} · first seen by OpsTide {seen}', { created: hhmmss(r.createdAt, tz), seen: hhmmss(r.observedAt, tz) }) : t('first seen by OpsTide {seen}', { seen: hhmmss(r.observedAt, tz) })}</span>
+        {r.releaseId && <Link href={`/releases/${encodeURIComponent(r.releaseId)}`} style={{ fontSize: 13 }}>{t('Open the release')}</Link>}
       </div>
-      <span className="mono" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{r.images.join(' · ') || 'no image recorded'}</span>
+      <span className="mono" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{r.images.join(' · ') || t('no image recorded')}</span>
       {r.comparison.available
         ? r.comparison.changes.length === 0
-          ? <span className="muted">No captured difference from the revision before it.</span>
+          ? <span className="muted">{t('No captured difference from the revision before it.')}</span>
           : <ul style={{ margin: 0, paddingLeft: 18 }}>{r.comparison.changes.map((c, i) => <li key={i} className="mono" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{[c.container, c.field].filter(Boolean).join(' ')}: {c.before || '—'} → {c.after || '—'}</li>)}</ul>
         : <span className="muted">{r.comparison.reason}</span>}
     </section>
@@ -217,17 +228,17 @@ function Pods({ id, tz, kind }: { id: string; tz: string; kind: string }) {
   const ordinal = kind === 'StatefulSet'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {data.pods.length === 0 ? <div className="empty">No Pod of this workload has been observed.</div> : (
+      {data.pods.length === 0 ? <div className="empty">{t('No Pod of this workload has been observed.')}</div> : (
         <div className="table-wrap">
           <table className="data compact" style={{ minWidth: 820 }}>
-            <thead><tr>{ordinal && <th>Ordinal</th>}<th>Pod</th><th>Node</th><th>Revision</th><th>State</th><th>Restarts</th><th>Created</th><th>Ended</th></tr></thead>
+            <thead><tr>{ordinal && <th>{t('Ordinal')}</th>}<th>Pod</th><th>Node</th><th>{t('Revision')}</th><th>{t('State')}</th><th>{t('Restarts')}</th><th>{t('Created')}</th><th>{t('Ended')}</th></tr></thead>
             <tbody>
               {data.pods.map((p) => (
                 <tr key={p.uid}>
                   {ordinal && <td className="mono">{p.ordinal ?? <span className="muted">—</span>}</td>}
                   <td className="mono" style={{ overflowWrap: 'anywhere' }}>{p.name}</td>
-                  <td className="mono">{p.node ? (p.nodeId ? <Link href={`/nodes/${encodeURIComponent(p.nodeId)}`}>{p.node}</Link> : p.node) : <span className="muted">not scheduled when seen</span>}</td>
-                  <td className="mono" style={{ overflowWrap: 'anywhere' }}>{p.revision || '—'}{p.revisionRole === 'update' ? <span className="chip" style={{ marginLeft: 6 }}>update</span> : p.revisionRole === 'current' ? <span className="chip" style={{ marginLeft: 6 }}>older</span> : null}</td>
+                  <td className="mono">{p.node ? (p.nodeId ? <Link href={`/nodes/${encodeURIComponent(p.nodeId)}`}>{p.node}</Link> : p.node) : <span className="muted">{t('not scheduled when seen')}</span>}</td>
+                  <td className="mono" style={{ overflowWrap: 'anywhere' }}>{p.revision || '—'}{p.revisionRole === 'update' ? <span className="chip" style={{ marginLeft: 6 }}>{t('update')}</span> : p.revisionRole === 'current' ? <span className="chip" style={{ marginLeft: 6 }}>{t('older')}</span> : null}</td>
                   <td>{p.state}{p.termReason ? <span className="muted"> · {p.termReason}</span> : null}</td>
                   <td className="mono">{p.restarts}</td>
                   <td className="mono">{hhmmss(p.createdAt, tz)}</td>
@@ -238,15 +249,15 @@ function Pods({ id, tz, kind }: { id: string; tz: string; kind: string }) {
           </table>
         </div>
       )}
-      {data.truncated && <p className="muted" style={{ margin: 0, fontSize: 12 }}>More Pods were observed than are listed.</p>}
+      {data.truncated && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{t('More Pods were observed than are listed.')}</p>}
       {data.nodesWithoutPod && data.nodesWithoutPod.length > 0 && (
-        <section aria-label="Nodes without a recorded Pod" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <h2 className="label section-title">Nodes with no Pod of this DaemonSet recorded</h2>
+        <section aria-label={t('Nodes without a recorded Pod')} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <h2 className="label section-title">{t('Nodes with no Pod of this DaemonSet recorded')}</h2>
           <span className="mono">{data.nodesWithoutPod.map((n, i) => <span key={n.nodeId}>{i > 0 ? ', ' : ''}<Link href={`/nodes/${encodeURIComponent(n.nodeId)}`}>{n.name}</Link></span>)}</span>
         </section>
       )}
       {data.notes.map((n, i) => <p key={i} className="muted" style={{ margin: 0, fontSize: 13, maxWidth: 780 }}>{n}</p>)}
-      <Note block more="The Node is where each Pod reported it ran: placement context, not ownership. Pods OpsTide did not observe are not listed.">Where each Pod reported it ran</Note>
+      <Note block more={t('The Node is where each Pod reported it ran: placement context, not ownership. Pods OpsTide did not observe are not listed.')}>{t('Where each Pod reported it ran')}</Note>
     </div>
   )
 }
@@ -257,29 +268,29 @@ function EvidenceTab({ id, tz }: { id: string; tz: string }) {
   if (!data) return <Loading />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {data.provenance.notes.length > 0 && <div className="banner" role="note"><span className="label">Unknown</span><span>{data.provenance.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
-      <section aria-label="Conditions" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h2 className="label section-title">Conditions Kubernetes reports</h2>
+      {data.provenance.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{data.provenance.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
+      <section aria-label={t('Conditions')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">{t('Conditions Kubernetes reports')}</h2>
         <Conditions list={data.conditions} />
       </section>
-      <section aria-label="Kubernetes Events" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h2 className="label section-title">Kubernetes Events <span className="note">· about this workload or the Pods it owns</span></h2>
-        {data.records.length === 0 ? <div className="empty">No Kubernetes Event is recorded for this workload.</div> : (
+      <section aria-label={t('Kubernetes Events')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">{t('Kubernetes Events')} <span className="note">· {t('about this workload or the Pods it owns')}</span></h2>
+        {data.records.length === 0 ? <div className="empty">{t('No Kubernetes Event is recorded for this workload.')}</div> : (
           <div className="table-wrap">
             <table className="data compact" style={{ minWidth: 860 }}>
-              <thead><tr><th>Kubernetes reported</th><th>Related resource</th><th>Message</th><th>Count</th><th>Link</th><th>Source</th><th><span className="sr">Workspace</span></th></tr></thead>
+              <thead><tr><th>{t('Kubernetes reported')}</th><th>{t('Related resource')}</th><th>{t('Message')}</th><th>{t('Count')}</th><th>{t('Link')}</th><th>{t('Source')}</th><th><span className="sr">{t('Workspace')}</span></th></tr></thead>
               <tbody>
                 {data.records.map((e) => {
                   const when = e.occurredAt.last ?? e.occurredAt.first
                   const link = e.links.find((l) => l.kind === 'Workload') ?? e.links[0]
                   return (
                     <tr key={e.id}>
-                      <td><b>{e.reason || <span className="muted">none</span>}</b><span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{e.eventType} · {when ? hhmmss(when, tz) : 'no time reported'}</span></td>
+                      <td><b>{e.reason || <span className="muted">{t('none')}</span>}</b><span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{e.eventType} · {when ? hhmmss(when, tz) : t('no time reported')}</span></td>
                       <td><span className="label">{e.resource.kind}</span><span className="mono" style={{ display: 'block', overflowWrap: 'anywhere' }}>{e.resource.name || '—'}</span></td>
-                      <td style={{ maxWidth: 340, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.message ? (e.message.length > 200 ? `${e.message.slice(0, 200)}…` : e.message) : <span className="muted">no message reported</span>}</td>
-                      <td className="mono">{e.count ? e.count.value : <span className="muted" style={{ fontFamily: 'inherit' }}>not reported</span>}</td>
-                      <td>{link ? <span title={`${relationWords[link.relationship][1]}${link.via ? ` (${link.via})` : ''}`}><span className="label">{relationWords[link.relationship][0]}</span></span> : null}</td>
-                      <td style={{ fontSize: 12 }}><span className="mono">{e.source}</span>{e.origin === 'adopted' && <span className="chip" style={{ marginLeft: 6 }}>adopted</span>}<span className="muted" style={{ display: 'block' }}>first seen {relativeTime(e.observedAt, new Date().toISOString(), tz)}</span></td>
+                      <td style={{ maxWidth: 340, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.message ? (e.message.length > 200 ? `${e.message.slice(0, 200)}…` : e.message) : <span className="muted">{t('no message reported')}</span>}</td>
+                      <td className="mono">{e.count ? e.count.value : <span className="muted" style={{ fontFamily: 'inherit' }}>{t('not reported')}</span>}</td>
+                      <td>{link ? <span title={`${t(relationWords[link.relationship][1])}${link.via ? ` (${link.via})` : ''}`}><span className="label">{t(relationWords[link.relationship][0])}</span></span> : null}</td>
+                      <td style={{ fontSize: 12 }}><span className="mono">{e.source}</span>{e.origin === 'adopted' && <span className="chip" style={{ marginLeft: 6 }}>{t('adopted')}</span>}<span className="muted" style={{ display: 'block' }}>{t('first seen {when}', { when: relativeTime(e.observedAt, new Date().toISOString(), tz) })}</span></td>
                       <td><WorkspaceToggle id={e.recordId} compact /></td>
                     </tr>
                   )

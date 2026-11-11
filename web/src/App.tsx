@@ -15,6 +15,8 @@ import { Releases } from './screens/Releases'
 import { Workload } from './screens/Workload'
 import { Workloads } from './screens/Workloads'
 import { Workspace } from './screens/Workspace'
+import { Onboarding, onboarded } from './screens/Onboarding'
+import { LANG_EVENT, t } from './i18n'
 
 /** The Log became the Explorer; an old link or bookmark lands on the same records there. */
 function LogMoved({ params }: { params: URLSearchParams }) {
@@ -27,6 +29,12 @@ export function App() {
   const [tz, setTzState] = useState(savedZone)
   const [cluster, setCluster] = useState<string>()
   const [demo, setDemo] = useState(false)
+  const [, redraw] = useState(0)
+  useEffect(() => {
+    const on = () => redraw((n) => n + 1)
+    window.addEventListener(LANG_EVENT, on)
+    return () => window.removeEventListener(LANG_EVENT, on)
+  }, [])
   const setTz = (z: string) => {
     saveZone(z)
     setTzState(z)
@@ -38,14 +46,19 @@ export function App() {
 
   useEffect(() => {
     const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/schedules': 'Schedules', '/system': 'System' }
-    document.title = `${names[path] ?? 'Operation'} · OpsTide${cluster ? ` · ${cluster}` : ''}`
-  }, [path, cluster])
+    const intro = path === '/welcome' || (path === '/' && !onboarded() && params.toString() === '')
+    document.title = `${t(intro ? 'Welcome' : names[path] ?? 'Operation')} · OpsTide${cluster ? ` · ${cluster}` : ''}`
+  }, [path, params, cluster])
 
   let screen
   const op = /^\/operations\/([^/]+)$/.exec(path)
   const rel = /^\/releases\/([^/]+)$/.exec(path)
   const wl = /^\/workloads\/([^/]+)$/.exec(path)
   const node = /^\/nodes\/([^/]+)$/.exec(path)
+  // The first visit in a browser starts with the introduction; it is one click away afterwards, from System. A link
+  // that names a window (/?date=…) is someone sharing what they saw: it opens that, not the introduction.
+  const intro = path === '/welcome' || (path === '/' && params.toString() === '' && !onboarded())
+  if (intro) return <Onboarding />
   if (path === '/') screen = <Overview params={params} tz={tz} setTz={setTz} />
   else if (path === '/explorer') screen = <Explorer params={params} tz={tz} setTz={setTz} />
   else if (path === '/workspace') screen = <Workspace tz={tz} setTz={setTz} />
@@ -58,7 +71,7 @@ export function App() {
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />
   else if (op) screen = <Operation key={op[1]} id={decodeURIComponent(op[1])} params={params} tz={tz} />
   else if (path === '/system') screen = <SystemScreen tz={tz} />
-  else screen = <div className="page"><div className="empty">There is no page here. <a href="/">Go to the Overview</a></div></div>
+  else screen = <div className="page"><div className="empty">{t('There is no page here.')} <a href="/">{t('Go to the Overview')}</a></div></div>
 
   return <Shell path={path} cluster={cluster} demo={demo}>{screen}</Shell>
 }

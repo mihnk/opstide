@@ -1,12 +1,14 @@
 // Formatting in a chosen IANA time zone. Everything the API sends is UTC.
 
+import { locale, t as tr } from './i18n'
+
 const cache = new Map<string, Intl.DateTimeFormat>()
 
 function fmt(tz: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = tz + JSON.stringify(opts)
+  const key = locale() + tz + JSON.stringify(opts)
   let f = cache.get(key)
   if (!f) {
-    f = new Intl.DateTimeFormat('en-GB', { timeZone: tz, ...opts })
+    f = new Intl.DateTimeFormat(locale(), { timeZone: tz, ...opts })
     cache.set(key, f)
   }
   return f
@@ -44,7 +46,7 @@ export function isoDate(t: string | number | Date, tz: string): string {
 /** "today 08:00", "Mon 14:30", or "4 Nov 08:00" when more than a week away. */
 export function relativeTime(t: string, now: string, tz: string): string {
   const d = isoDate(t, tz)
-  if (d === isoDate(now, tz)) return `today ${hhmm(t, tz)}`
+  if (d === isoDate(now, tz)) return tr('today {time}', { time: hhmm(t, tz) })
   const diff = Math.abs(new Date(t).getTime() - new Date(now).getTime())
   if (diff < 6 * 86400e3) return `${fmt(tz, { weekday: 'short' }).format(new Date(t))} ${hhmm(t, tz)}`
   return `${fmt(tz, { day: 'numeric', month: 'short' }).format(new Date(t))} ${hhmm(t, tz)}`
@@ -53,21 +55,21 @@ export function relativeTime(t: string, now: string, tz: string): string {
 /** 15m 37s, 2h 05m, 40 s */
 export function duration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
-  if (s < 60) return `${s} s`
+  if (s < 60) return tr('{n} s', { n: s })
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  if (m < 60) return tr('{m}m {s}s', { m, s: String(s % 60).padStart(2, '0') })
   const h = Math.floor(m / 60)
-  if (h < 48) return `${h}h ${String(m % 60).padStart(2, '0')}m`
-  return `${Math.floor(h / 24)} d ${h % 24} h`
+  if (h < 48) return tr('{h}h {m}m', { h, m: String(m % 60).padStart(2, '0') })
+  return tr('{d} d {h} h', { d: Math.floor(h / 24), h: h % 24 })
 }
 
 /** "4 s ago", "3 min ago", "2 h ago". */
 export function ago(t: string, nowMs: number): string {
   const s = Math.max(0, Math.round((nowMs - new Date(t).getTime()) / 1000))
-  if (s < 90) return `${s} s ago`
-  if (s < 5400) return `${Math.round(s / 60)} min ago`
-  if (s < 172800) return `${Math.round(s / 3600)} h ago`
-  return `${Math.round(s / 86400)} d ago`
+  if (s < 90) return tr('{n} s ago', { n: s })
+  if (s < 5400) return tr('{n} min ago', { n: Math.round(s / 60) })
+  if (s < 172800) return tr('{n} h ago', { n: Math.round(s / 3600) })
+  return tr('{n} d ago', { n: Math.round(s / 86400) })
 }
 
 /** UTC offset of tz at t, as "UTC+03". */

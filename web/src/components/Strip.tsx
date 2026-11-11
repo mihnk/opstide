@@ -1,14 +1,16 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { query, type Overview } from '../api'
+import { t } from '../i18n'
 import { useApi } from '../live'
 import { hhmm, shortDay } from '../time'
 import { centreWindow, DAY, HOUR, MINUTE, moveWindow, resizeWindow, selectionFor, type Selection, type Win } from '../window'
 
+// The label is a template and its number, drawn through t().
 const spans = [
-  ['24h', '24 h'],
-  ['5d', '5 days'],
-  ['7d', '7 days'],
-  ['30d', '30 days'],
+  ['24h', '{n} h', 24],
+  ['5d', '{n} days', 5],
+  ['7d', '{n} days', 7],
+  ['30d', '{n} days', 30],
 ] as const
 
 type Drag = { mode: 'move' | 'from' | 'to' | 'click'; startX: number; start: Win; win: Win; moved: boolean }
@@ -37,7 +39,7 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
     dragRef.current = d
     setDragState(d)
   }
-  if (!data) return <div className="empty" aria-busy="true">Loading the overview…</div>
+  if (!data) return <div className="empty" aria-busy="true">{t('Loading the overview…')}</div>
 
   const lo = Date.parse(data.from)
   const hi = Date.parse(data.to)
@@ -109,17 +111,19 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
   }
 
   return (
-    <section aria-label="Overview" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <section aria-label={t('Overview')} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px' }}>
-        <span className="label">Overview</span>
-        <div className="seg small" role="group" aria-label="Overview range">
-          {spans.map(([k, label]) => (
-            <button key={k} type="button" aria-pressed={span === k} onClick={() => setSpan(k)}>{label}</button>
+        <span className="label">{t('Overview')}</span>
+        <div className="seg small" role="group" aria-label={t('Overview range')}>
+          {spans.map(([k, label, n]) => (
+            <button key={k} type="button" aria-pressed={span === k} onClick={() => setSpan(k)}>{t(label, { n })}</button>
           ))}
         </div>
         <span className="muted" style={{ fontSize: 12 }}>
-          Runs per {data.bucketSeconds >= 3 * 3600 ? `${data.bucketSeconds / 3600} hours` : 'hour'}, failures in red. Kept for {data.retentionDays} days
-          {data.watchedSince && Date.parse(data.watchedSince) > lo ? `; before ${shortDay(data.watchedSince, tz)} ${hhmm(data.watchedSince, tz)} OpsTide was not watching.` : '.'}
+          {data.bucketSeconds >= 3 * 3600 ? t('Runs per {n} hours, failures in red.', { n: data.bucketSeconds / 3600 }) : t('Runs per hour, failures in red.')}{' '}
+          {data.watchedSince && Date.parse(data.watchedSince) > lo
+            ? t('Kept for {n} days; before {day} {time} OpsTide was not watching.', { n: data.retentionDays, day: shortDay(data.watchedSince, tz), time: hhmm(data.watchedSince, tz) })
+            : t('Kept for {n} days.', { n: data.retentionDays })}
         </span>
       </div>
       <div style={{ position: 'relative' }}>
@@ -131,7 +135,7 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
         <div className="strip" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => setDrag(null)}>
           {watched > lo && <div className="before" data-bg="1" style={{ width: widthPct(lo, watched) }} />}
           {data.gaps.map((g) => (
-            <div key={g.from} className="gapband" data-bg="1" title={`Not watching ${shortDay(g.from, tz)} ${hhmm(g.from, tz)}–${hhmm(g.to, tz)}`}
+            <div key={g.from} className="gapband" data-bg="1" title={t('Not watching {day} {from}–{to}', { day: shortDay(g.from, tz), from: hhmm(g.from, tz), to: hhmm(g.to, tz) })}
               style={{ left: pct(Date.parse(g.from)), width: widthPct(Date.parse(g.from), Date.parse(g.to)) }} />
           ))}
           {labels.length > 1 && hi - lo > DAY + HOUR && labels.map((l) => <div key={l.at} className="rule" data-bg="1" style={{ left: pct(l.at) }} />)}
@@ -139,7 +143,7 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
             const start = Date.parse(b.start)
             const h = (b.runs / max) * 64
             const f = ((b.failed ?? 0) / max) * 64
-            const title = `${shortDay(b.start, tz)} ${hhmm(b.start, tz)} · ${b.runs} runs${b.failed ? `, ${b.failed} failed` : ''}`
+            const title = `${shortDay(b.start, tz)} ${hhmm(b.start, tz)} · ${t('{n} runs', { n: b.runs })}${b.failed ? `, ${t('{n} failed', { n: b.failed })}` : ''}`
             const style = { left: pct(start), width: `calc(${widthPct(start, start + bucketMs)} - 0.5px)` }
             return (
               <span key={b.start} data-bg="1">
@@ -150,7 +154,7 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
           })}
           {nowMs >= lo && nowMs <= hi && <div className="nowline" data-bg="1" style={{ left: pct(nowMs) }} />}
           {!outside && (
-          <div role="slider" tabIndex={0} aria-label="Visible window" aria-valuetext={`${shortDay(shown.from, tz)} ${hhmm(shown.from, tz)} to ${shortDay(shown.to, tz)} ${hhmm(shown.to, tz)}`}
+          <div role="slider" tabIndex={0} aria-label={t('Visible window')} aria-valuetext={t('{fromDay} {from} to {toDay} {to}', { fromDay: shortDay(shown.from, tz), from: hhmm(shown.from, tz), toDay: shortDay(shown.to, tz), to: hhmm(shown.to, tz) })}
             aria-valuemin={lo} aria-valuemax={hi} aria-valuenow={shown.from} onKeyDown={key} className="win" data-mode="move"
             style={{ left: pct(shown.from), width: widthPct(shown.from, shown.to) }} onPointerDown={begin}>
             <i className="l" data-mode="from" onPointerDown={begin} />
@@ -159,7 +163,7 @@ export function Strip({ tz, span, setSpan, win, nowMs, onChange }: Props) {
           )}
         </div>
       </div>
-      {outside && <span className="muted" style={{ fontSize: 12 }}>The window you are looking at is {win.to <= lo ? 'before' : 'after'} this strip. Click the strip to bring it here, or pick a longer span.</span>}
+      {outside && <span className="muted" style={{ fontSize: 12 }}>{win.to <= lo ? t('The window you are looking at is before this strip. Click the strip to bring it here, or pick a longer span.') : t('The window you are looking at is after this strip. Click the strip to bring it here, or pick a longer span.')}</span>}
     </section>
   )
 }

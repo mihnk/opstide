@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Bucket, Mark, Span } from '../api'
 import { markLabel, place, tickList } from '../geometry'
+import { t } from '../i18n'
 import { Link } from '../router'
 import { duration, hhmm } from '../time'
 
@@ -100,7 +101,7 @@ export function Timeline({ label, from, to, tz, now, gaps, lanes, markHref, comp
         {!nowPerLane && watchedSince && Date.parse(watchedSince) > Date.parse(from) && (() => {
           const p = place(from, watchedSince, from, to)
           return p && (
-            <span className="tl-before" title={`OpsTide was not watching yet; it started at ${hhmm(watchedSince, tz)}`}
+            <span className="tl-before" title={t('OpsTide was not watching yet; it started at {time}', { time: hhmm(watchedSince, tz) })}
               style={{ left: 'var(--label)', width: `calc((100% - var(--label)) * ${p.width / 100})` }} />
           )
         })()}
@@ -109,9 +110,9 @@ export function Timeline({ label, from, to, tz, now, gaps, lanes, markHref, comp
             const p = place(g.from, g.to, from, to)
             return (
               p && (
-                <span key={g.from} className="tl-gap" title={`Not watching ${hhmm(g.from, tz)}–${hhmm(g.to, tz)}`}
+                <span key={g.from} className="tl-gap" title={t('Not watching {from}–{to}', { from: hhmm(g.from, tz), to: hhmm(g.to, tz) })}
                   style={{ left: `calc(var(--label) + (100% - var(--label)) * ${p.left / 100})`, width: `max(4px, calc((100% - var(--label)) * ${p.width / 100}))` }}>
-                  <span className="tl-gaplabel mono">not watching</span>
+                  <span className="tl-gaplabel mono">{t('not watching')}</span>
                 </span>
               )
             )
@@ -120,7 +121,7 @@ export function Timeline({ label, from, to, tz, now, gaps, lanes, markHref, comp
           <>
             <span className="tl-now" style={{ left: `calc(var(--label) + (100% - var(--label)) * ${nowPos.left / 100})` }} />
             <span className="tl-nowlabel mono" style={{ left: `calc(var(--label) + (100% - var(--label)) * ${nowPos.left / 100})` }}>
-              now {hhmm(now!, tz)}
+              {t('now {time}', { time: hhmm(now!, tz) })}
             </span>
           </>
         )}
@@ -147,11 +148,11 @@ function HourBars({ lane, from, to, tz }: { lane: TimelineLane; from: string; to
         const missed = px(b.missed ?? 0)
         const skipped = px(b.skipped ?? 0)
         const title = [
-          `${hhmm(b.start, tz)} · ${b.runs} runs`,
-          b.failed ? `${b.failed} failed` : '',
-          b.unknown ? `${b.unknown} outcome unknown` : '',
-          b.missed ? `${b.missed} did not start` : '',
-          b.skipped ? `${b.skipped} skipped` : '',
+          `${hhmm(b.start, tz)} · ${t('{n} runs', { n: b.runs })}`,
+          b.failed ? t('{n} failed', { n: b.failed }) : '',
+          b.unknown ? t('{n} outcome unknown', { n: b.unknown }) : '',
+          b.missed ? t('{n} did not start', { n: b.missed }) : '',
+          b.skipped ? t('{n} skipped', { n: b.skipped }) : '',
         ].filter(Boolean).join(', ')
         const style = { left: `${p.left}%`, width: `calc(${p.width}% - 1px)` }
         return (
@@ -178,6 +179,7 @@ function LaneName({ lane }: { lane: TimelineLane }) {
 
 export function Legend({ note, items, before }: { note?: string; items?: ('succeeded' | 'failed' | 'running' | 'expected' | 'missed' | 'gap' | 'slow')[]; before?: boolean }) {
   const all = items ?? ['succeeded', 'failed', 'running', 'expected', 'missed', 'gap']
+  // English keys; drawn through t().
   const text: Record<string, string> = {
     succeeded: 'succeeded', failed: 'failed', running: 'running', expected: 'expected, from the schedule',
     missed: 'did not start', gap: 'not watching: nothing is claimed about this time', slow: 'longer than expected',
@@ -193,12 +195,12 @@ export function Legend({ note, items, before }: { note?: string; items?: ('succe
           ) : (
             <i className={`mark ${k}`} />
           )}
-          {text[k]}
+          {t(text[k])}
         </span>
       ))}
       {before && (
         <span>
-          <i style={{ background: 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 6px)' }} />OpsTide was not watching yet
+          <i style={{ background: 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 6px)' }} />{t('OpsTide was not watching yet')}
         </span>
       )}
       {note && <span>{note}</span>}

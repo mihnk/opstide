@@ -1,4 +1,5 @@
 import type { Mark, Span } from './api'
+import { t as tr } from './i18n'
 import { hhmm, offsetMs, shortDay } from './time'
 
 /** Position of [start, end) on a timeline from..to, in percent. */
@@ -44,31 +45,31 @@ export function tickList(from: string, to: string, tz: string): Tick[] {
 export function markLabel(m: Mark, time: (t: string) => string, dur: (s: number) => string): string {
   const at = time(m.start)
   const took = m.end ? dur((Date.parse(m.end) - Date.parse(m.start)) / 1000) : ''
-  const slow = m.slow ? ', longer than expected' : ''
-  const manual = m.manual ? ' (started by hand)' : ''
+  const slow = m.slow ? tr(', longer than expected') : ''
+  const manual = m.manual ? tr(' (started by hand)') : ''
   switch (m.state) {
     case 'succeeded':
-      return `${at} succeeded${took ? `, ${took}` : ''}${slow}${manual}`
+      return `${took ? tr('{at} succeeded, {took}', { at, took }) : tr('{at} succeeded', { at })}${slow}${manual}`
     case 'failed':
-      return `${at} failed${took ? ` after ${took}` : ''}${slow}${manual}`
+      return `${took ? tr('{at} failed after {took}', { at, took }) : tr('{at} failed', { at })}${slow}${manual}`
     case 'running':
-      return `${at} running${took ? `, ${took} so far` : ''}${slow}${manual}`
+      return `${took ? tr('{at} running, {took} so far', { at, took }) : tr('{at} running', { at })}${slow}${manual}`
     case 'pending':
-      return `${at} created, not started yet${manual}`
+      return `${tr('{at} created, not started yet', { at })}${manual}`
     case 'unknown':
-      return `${at} outcome unknown: removed before it finished`
+      return tr('{at} outcome unknown: removed before it finished', { at })
     case 'expected':
-      return m.count && m.count > 1 ? `${m.count} runs expected from ${at}` : `${at} expected`
+      return m.count && m.count > 1 ? tr('{n} runs expected from {at}', { n: m.count, at }) : tr('{at} expected', { at })
     case 'due':
-      return `${at} due, not seen yet`
+      return tr('{at} due, not seen yet', { at })
     case 'missed':
-      return `${at} did not start`
+      return tr('{at} did not start', { at })
     case 'unconfirmed':
-      return `${at} not confirmed: collection gap`
+      return tr('{at} not confirmed: collection gap', { at })
     case 'skipped':
-      return `${at} skipped: previous run still active`
+      return tr('{at} skipped: previous run still active', { at })
     case 'suspended':
-      return `${at} suspended`
+      return tr('{at} suspended', { at })
   }
 }
 

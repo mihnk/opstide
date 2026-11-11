@@ -1,5 +1,6 @@
 import type { ExplorerContext, CoverageScope } from '../explorer'
 import { hhmm, hhmmss, isoDate } from '../time'
+import { t } from '../i18n'
 
 // What OpsTide was and was not watching over the range, so a quiet stretch is never mistaken for a calm one.
 
@@ -21,45 +22,45 @@ export function Coverage({ ctx, tz }: { ctx: ExplorerContext; tz: string }) {
   return (
     <section aria-label="Coverage" className="cov">
       <div className="cov-bands" role="img"
-        aria-label={ctx.bands.map((x) => `${x.kind.replace(/_/g, ' ')} ${hhmm(x.from, tz)} to ${hhmm(x.to, tz)}`).join('; ')}>
+        aria-label={ctx.bands.map((x) => t('{kind} {from} to {to}', { kind: t(x.kind.replace(/_/g, ' ')), from: hhmm(x.from, tz), to: hhmm(x.to, tz) })).join('; ')}>
         {ctx.bands.map((x, i) => (
           <i key={i} className={`band ${x.kind}`} style={{ left: pct(x.from), width: width(x.from, x.to) }}
-            title={x.kind === 'observable' ? 'Within the history OpsTide keeps and after it first observed the cluster' : x.kind === 'outside_retention' ? 'Older than the history OpsTide keeps' : 'Before OpsTide first observed the cluster'} />
+            title={x.kind === 'observable' ? t('Within the history OpsTide keeps and after it first observed the cluster') : x.kind === 'outside_retention' ? t('Older than the history OpsTide keeps') : t('Before OpsTide first observed the cluster')} />
         ))}
       </div>
       <p className="muted cov-line">
-        {ctx.firstObservedAt ? <>First observed <span className="mono">{when(ctx.firstObservedAt, tz, ctx.from, ctx.to)}</span> · </> : 'OpsTide has not observed this cluster yet · '}
-        history kept {ctx.retention.days > 0 ? `${ctx.retention.days} days` : 'without an age limit'}
-        {trouble.length > 0 ? <> · <b>{trouble.length} of {ctx.scopes.length}</b> watches not whole in this range</> : ctx.scopes.length > 0 ? ' · every watch whole in this range' : ''}
+        {ctx.firstObservedAt ? <>{t('First observed')} <span className="mono">{when(ctx.firstObservedAt, tz, ctx.from, ctx.to)}</span> · </> : `${t('OpsTide has not observed this cluster yet')} · `}
+        {ctx.retention.days > 0 ? t('history kept {n} days', { n: ctx.retention.days }) : t('history kept without an age limit')}
+        {trouble.length > 0 ? <> · <b>{t('{n} of {m}', { n: trouble.length, m: ctx.scopes.length })}</b> {t('watches not whole in this range')}</> : ctx.scopes.length > 0 ? ` · ${t('every watch whole in this range')}` : ''}
       </p>
       {ctx.retention.sources.some((s) => s.cappedTotal > 0) && (
         <p className="muted cov-line">
-          Cut short by a size budget, not by age: {ctx.retention.sources.filter((s) => s.cappedTotal > 0).map((s) => `${s.label} (${s.cappedTotal.toLocaleString('en')} removed${s.retainedSince ? `, now from ${isoDate(s.retainedSince, tz).slice(5)} ${hhmm(s.retainedSince, tz)}` : ''})`).join('; ')}.
+          {t('Cut short by a size budget, not by age:')} {ctx.retention.sources.filter((s) => s.cappedTotal > 0).map((s) => `${t(s.label)} (${s.retainedSince ? t('{n} removed, now from {when}', { n: s.cappedTotal.toLocaleString('en'), when: `${isoDate(s.retainedSince, tz).slice(5)} ${hhmm(s.retainedSince, tz)}` }) : t('{n} removed', { n: s.cappedTotal.toLocaleString('en') })})`).join('; ')}.
         </p>
       )}
       {ctx.scopes.length > 0 && (
         <details>
-          <summary className="label" style={{ cursor: 'pointer' }}>Coverage by watch</summary>
+          <summary className="label" style={{ cursor: 'pointer' }}>{t('Coverage by watch')}</summary>
           <div className="cov-lanes">
             {ctx.scopes.map((s) => (
               <div key={s.scope} className="cov-lane">
                 <span className="cov-name">{s.label}{s.namespace ? <span className="muted"> · {s.namespace}</span> : null}</span>
-                <span className="cov-track" aria-label={`${s.label}: ${stateWords[s.state]}`}>
+                <span className="cov-track" aria-label={`${s.label}: ${t(stateWords[s.state])}`}>
                   {s.watching.map((w, i) => <i key={i} className="on" style={{ left: pct(w.from), width: width(w.from, w.to) }} />)}
-                  {s.gaps.map((g, i) => <i key={`g${i}`} className="gap" style={{ left: pct(g.from), width: width(g.from, g.to) }} title={`Not watched ${hhmmss(g.from, tz)} to ${hhmmss(g.to, tz)}`} />)}
+                  {s.gaps.map((g, i) => <i key={`g${i}`} className="gap" style={{ left: pct(g.from), width: width(g.from, g.to) }} title={t('Not watched {from} to {to}', { from: hhmmss(g.from, tz), to: hhmmss(g.to, tz) })} />)}
                 </span>
                 <span className={`cov-state${s.state === 'watching' ? ' muted' : ''}`}>
-                  {stateWords[s.state]}
-                  {s.state === 'disabled' && s.lastObservedAt ? <> · last observed <span className="mono">{when(s.lastObservedAt, tz, ctx.from, ctx.to)}</span></> : null}
-                  {s.state === 'disabled' && !s.lastObservedAt ? ' · never observed' : null}
+                  {t(stateWords[s.state])}
+                  {s.state === 'disabled' && s.lastObservedAt ? <> · {t('last observed')} <span className="mono">{when(s.lastObservedAt, tz, ctx.from, ctx.to)}</span></> : null}
+                  {s.state === 'disabled' && !s.lastObservedAt ? ` · ${t('never observed')}` : null}
                   {s.problem ? <> · {s.problem}</> : null}
                 </span>
               </div>
             ))}
           </div>
           <p className="cov-legend muted">
-            <span><i className="sw on" /> watched</span> <span><i className="sw gap" /> not watched: records may be missing</span>
-            <span><i className="sw outside_retention" /> older than the history kept</span> <span><i className="sw before_first_observation" /> before OpsTide first observed</span>
+            <span><i className="sw on" /> {t('watched')}</span> <span><i className="sw gap" /> {t('not watched: records may be missing')}</span>
+            <span><i className="sw outside_retention" /> {t('older than the history kept')}</span> <span><i className="sw before_first_observation" /> {t('before OpsTide first observed')}</span>
           </p>
         </details>
       )}

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { downloadPost, getJSON, postJSON, query } from '../api'
 import { Failed } from '../components/Shell'
-import { explorerLink, groupWords, typeWord, type ExplorerContext, type ExplorerLookup, type ExplorerRecord } from '../explorer'
+import { explorerLink, fill, groupWords, provWord, typeWord, type ExplorerContext, type ExplorerLookup, type ExplorerRecord } from '../explorer'
+import { t, tn } from '../i18n'
 import { Link } from '../router'
 import { hhmmss, isoDate } from '../time'
 import { clearWorkspace, removeFromWorkspace, useWorkspace, WORKSPACE_MAX } from '../workspace'
@@ -72,18 +73,18 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
 
   const missing = shown?.missing.filter((m) => ids.includes(m)) ?? []
   const warnings: string[] = []
-  if (missing.length) warnings.push(`${missing.length} selected record${missing.length === 1 ? ' is' : 's are'} no longer held (removed by retention) and cannot be shown or exported.`)
-  if (tooLong) warnings.push('The selection spans more than 400 days, so coverage was not checked.')
+  if (missing.length) warnings.push(tn(missing.length, '{n} selected record is no longer held (removed by retention) and cannot be shown or exported.', '{n} selected records are no longer held (removed by retention) and cannot be shown or exported.'))
+  if (tooLong) warnings.push(t('The selection spans more than 400 days, so coverage was not checked.'))
   for (const b of ctxNow?.bands ?? []) {
-    if (b.kind === 'outside_retention') warnings.push('The selection reaches back before the history OpsTide keeps.')
-    if (b.kind === 'before_first_observation') warnings.push('The selection reaches back before OpsTide first observed this cluster.')
+    if (b.kind === 'outside_retention') warnings.push(t('The selection reaches back before the history OpsTide keeps.'))
+    if (b.kind === 'before_first_observation') warnings.push(t('The selection reaches back before OpsTide first observed this cluster.'))
   }
   const gapped = [...new Set((ctxNow?.scopes ?? []).filter((s) => s.state === 'gap').map((s) => s.label))]
-  if (gapped.length) warnings.push(`Not watched for part of the selected period: ${gapped.join(', ')}. Records from those stretches may be missing.`)
+  if (gapped.length) warnings.push(t('Not watched for part of the selected period: {scopes}. Records from those stretches may be missing.', { scopes: gapped.join(', ') }))
   for (const s of ctxNow?.scopes ?? []) {
     const who = s.namespace ? `${s.label} (${s.namespace})` : s.label
-    if (s.state === 'unavailable') warnings.push(`${who} cannot be read right now${s.problem ? ` (${s.problem})` : ''}.`)
-    if (s.state === 'disabled') warnings.push(`${who} observation is off.`)
+    if (s.state === 'unavailable') warnings.push(s.problem ? t('{who} cannot be read right now ({problem}).', { who, problem: s.problem }) : t('{who} cannot be read right now.', { who }))
+    if (s.state === 'disabled') warnings.push(t('{who} observation is off.', { who }))
   }
 
   const remove = (id: string) => removeFromWorkspace([id])
@@ -102,93 +103,93 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
     <div className="page" style={{ gap: 18, paddingTop: 24 }}>
       <div className="head-row">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span className="label">Investigation Workspace</span>
-          <h1 className="title" style={{ fontSize: 28 }}>Records you picked</h1>
+          <span className="label">{t('Investigation Workspace')}</span>
+          <h1 className="title" style={{ fontSize: 28 }}>{t('Records you picked')}</h1>
         </div>
         <span className="grow" />
         <ZoneSelect tz={tz} setTz={setTz} />
-        <Link href="/explorer" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>Back to Explorer</Link>
+        <Link href="/explorer" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>{t('Back to Explorer')}</Link>
       </div>
       <p className="muted" style={{ margin: 0, maxWidth: 820 }}>
-        Kept in this tab only; nothing is saved on the server. Up to {WORKSPACE_MAX} records. <Note more="OpsTide counts what is here and says where its watching was not whole; it does not tell you what it means.">Counts, not conclusions</Note>
+        {t('Kept in this tab only; nothing is saved on the server. Up to {max} records.', { max: WORKSPACE_MAX })} <Note more={t('OpsTide counts what is here and says where its watching was not whole; it does not tell you what it means.')}>{t('Counts, not conclusions')}</Note>
       </p>
       {error && <Failed error={error} />}
 
       {ids.length === 0 ? (
         <div className="empty-box no_matches">
-          <b>The Workspace is empty.</b>
-          <span className="muted">Add records from the <Link href="/explorer">Explorer</Link>, a release, a workload, a Node, a run, or the Log with the + button beside a record.</span>
+          <b>{t('The Workspace is empty.')}</b>
+          <span className="muted">{fill(t('Add records from the {explorer}, a release, a workload, a Node, a run, or the Log with the + button beside a record.'), { explorer: <Link href="/explorer">{t('Explorer')}</Link> })}</span>
         </div>
       ) : (
         <>
-          <section aria-label="Inventory" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2 className="label section-title">Inventory</h2>
+          <section aria-label={t('Inventory')} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <h2 className="label section-title">{t('Inventory')}</h2>
             <p style={{ margin: 0 }}>
-              <b>{ids.length}</b> selected · <b>{records.length}</b> held{missing.length > 0 && <> · <b>{missing.length}</b> no longer held</>}
-              {first && <> · from <span className="mono">{isoDate(first, tz)} {hhmmss(first, tz)}</span> to <span className="mono">{isoDate(last, tz)} {hhmmss(last, tz)}</span></>}
+              {fill(t('{n} selected'), { n: <b>{ids.length}</b> })} · {fill(t('{n} held'), { n: <b>{records.length}</b> })}{missing.length > 0 && <> · {fill(t('{n} no longer held'), { n: <b>{missing.length}</b> })}</>}
+              {first && <> · {fill(t('from {from} to {to}'), { from: <span className="mono">{isoDate(first, tz)} {hhmmss(first, tz)}</span>, to: <span className="mono">{isoDate(last, tz)} {hhmmss(last, tz)}</span> })}</>}
             </p>
             <div className="two" style={{ gap: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              <Counts title="Kind of record" rows={tally(records, (r) => groupWords[r.group] ?? r.group)} />
-              <Counts title="Provenance" rows={tally(records, (r) => r.provenance.toLowerCase())} />
-              <Counts title="Resource kind" rows={tally(records, (r) => r.resource.kind || 'none named')} />
-              <Counts title="Namespace" rows={tally(records, (r) => r.resource.namespace || 'cluster-wide')} />
-              <Counts title="Source" rows={tally(records, (r) => r.source)} />
+              <Counts title={t('Kind of record')} rows={tally(records, (r) => groupWords[r.group] ?? r.group)} />
+              <Counts title={t('Provenance')} rows={tally(records, (r) => provWord(r.provenance))} />
+              <Counts title={t('Resource kind')} rows={tally(records, (r) => r.resource.kind || t('none named'))} />
+              <Counts title={t('Namespace')} rows={tally(records, (r) => r.resource.namespace || t('cluster-wide'))} />
+              <Counts title={t('Source')} rows={tally(records, (r) => r.source)} />
             </div>
           </section>
 
-          <section aria-label="Coverage warnings" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <h2 className="label section-title">Where OpsTide’s watching was not whole</h2>
+          <section aria-label={t('Coverage warnings')} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <h2 className="label section-title">{t('Where OpsTide’s watching was not whole')}</h2>
             {warnings.length === 0
-              ? <p className="muted" style={{ margin: 0 }}>{ctxNow ? 'Every watch was whole over the period the selection covers.' : 'Checking…'}</p>
+              ? <p className="muted" style={{ margin: 0 }}>{ctxNow ? t('Every watch was whole over the period the selection covers.') : t('Checking…')}</p>
               : <ul style={{ margin: 0, paddingLeft: 18 }}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
           </section>
 
-          <section aria-label="Selected records" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <section aria-label={t('Selected records')} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-              <h2 className="label section-title" style={{ flex: 1 }}>Selected records</h2>
-              <button type="button" className="button" onClick={() => setAsc(!asc)}>{asc ? 'Oldest first' : 'Newest first'}</button>
+              <h2 className="label section-title" style={{ flex: 1 }}>{t('Selected records')}</h2>
+              <button type="button" className="button" onClick={() => setAsc(!asc)}>{asc ? t('Oldest first') : t('Newest first')}</button>
             </div>
             <div className="table-wrap">
               <table className="data compact" style={{ minWidth: 640 }}>
-                <thead><tr><th>Time</th><th>Record</th><th>Resource</th><th>Provenance</th><th><span className="sr">Actions</span></th></tr></thead>
+                <thead><tr><th>{t('Time')}</th><th>{t('Record')}</th><th>{t('Resource')}</th><th>{t('Provenance')}</th><th><span className="sr">{t('Actions')}</span></th></tr></thead>
                 <tbody>
                   {records.map((r) => (
                     <tr key={r.id}>
                       <td className="mono" style={{ whiteSpace: 'nowrap' }}>{isoDate(r.at, tz).slice(5)} {hhmmss(r.at, tz)}</td>
                       <td><span className="label" style={{ display: 'block' }}>{typeWord(r.type)}</span>{r.summary}</td>
-                      <td className="mono" style={{ overflowWrap: 'anywhere' }}>{r.resource.name ? `${r.resource.kind} ${r.resource.namespace ? `${r.resource.namespace}/` : ''}${r.resource.name}` : <span className="muted">none named</span>}</td>
-                      <td><span className={`chip prov-${r.provenance.toLowerCase()}`} style={{ margin: 0 }} title={r.source}>{r.provenance.toLowerCase()}</span></td>
+                      <td className="mono" style={{ overflowWrap: 'anywhere' }}>{r.resource.name ? `${r.resource.kind} ${r.resource.namespace ? `${r.resource.namespace}/` : ''}${r.resource.name}` : <span className="muted">{t('none named')}</span>}</td>
+                      <td><span className={`chip prov-${r.provenance.toLowerCase()}`} style={{ margin: 0 }} title={r.source}>{provWord(r.provenance)}</span></td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <Link href={explorerLink({ rec: r.id, from: new Date(Date.parse(r.at) - 3600e3).toISOString(), to: new Date(Date.parse(r.at) + 3600e3).toISOString() })}>Inspect</Link>{' '}
-                        <button type="button" className="ws-toggle" onClick={() => remove(r.id)} aria-label={`Remove ${r.summary} from the Workspace`}>✕</button>
+                        <Link href={explorerLink({ rec: r.id, from: new Date(Date.parse(r.at) - 3600e3).toISOString(), to: new Date(Date.parse(r.at) + 3600e3).toISOString() })}>{t('Inspect')}</Link>{' '}
+                        <button type="button" className="ws-toggle" onClick={() => remove(r.id)} aria-label={t('Remove {name} from the Workspace', { name: r.summary })}>✕</button>
                       </td>
                     </tr>
                   ))}
                   {missing.map((m) => (
                     <tr key={m}>
-                      <td className="muted" colSpan={4}>Record <span className="mono">{m}</span> is no longer held (removed by retention).</td>
-                      <td><button type="button" className="ws-toggle" onClick={() => remove(m)} aria-label={`Remove ${m} from the Workspace`}>✕</button></td>
+                      <td className="muted" colSpan={4}>{fill(t('Record {id} is no longer held (removed by retention).'), { id: <span className="mono">{m}</span> })}</td>
+                      <td><button type="button" className="ws-toggle" onClick={() => remove(m)} aria-label={t('Remove {name} from the Workspace', { name: m })}>✕</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <span className="muted" style={{ fontSize: 12 }}>Ordered by record time, then id. Times in {tz}.</span>
+            <span className="muted" style={{ fontSize: 12 }}>{t('Ordered by record time, then id. Times in {tz}.', { tz })}</span>
           </section>
 
-          <section aria-label="Export and clear" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2 className="label section-title">Export the selection</h2>
+          <section aria-label={t('Export and clear')} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <h2 className="label section-title">{t('Export the selection')}</h2>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', maxWidth: 720 }}>
               <input type="checkbox" checked={msgs} onChange={(e) => setMsgs(e.target.checked)} />
-              <span>Include Kubernetes Event messages and quoted condition messages{msgs && <b className="fail"> — they can contain names, addresses or other sensitive text, and go into the file.</b>}</span>
+              <span>{t('Include Kubernetes Event messages and quoted condition messages')}{msgs && <b className="fail">{t(' — they can contain names, addresses or other sensitive text, and go into the file.')}</b>}</span>
             </label>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button type="button" className="button" disabled={busy || records.length === 0} onClick={doExport}>{busy ? 'Preparing…' : 'Download selected as JSON'}</button>
-              {!confirmClear ? <button type="button" className="button" onClick={() => setConfirmClear(true)}>Clear the Workspace…</button> : (
+              <button type="button" className="button" disabled={busy || records.length === 0} onClick={doExport}>{busy ? t('Preparing…') : t('Download selected as JSON')}</button>
+              {!confirmClear ? <button type="button" className="button" onClick={() => setConfirmClear(true)}>{t('Clear the Workspace…')}</button> : (
                 <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
-                  Remove all {ids.length} from this tab?
-                  <button type="button" className="button" onClick={() => { clearWorkspace(); setConfirmClear(false) }}>Yes, clear</button>
-                  <button type="button" className="button" onClick={() => setConfirmClear(false)}>Cancel</button>
+                  {t('Remove all {n} from this tab?', { n: ids.length })}
+                  <button type="button" className="button" onClick={() => { clearWorkspace(); setConfirmClear(false) }}>{t('Yes, clear')}</button>
+                  <button type="button" className="button" onClick={() => setConfirmClear(false)}>{t('Cancel')}</button>
                 </span>
               )}
             </div>

@@ -1,3 +1,4 @@
+import { t, tn } from './i18n'
 import { hhmm, isoDate, longDay, shiftDate, shortDay } from './time'
 
 // The window the Overview shows lives in the URL, so a link shares it:
@@ -19,16 +20,25 @@ export const MIN_WINDOW = 5 * MINUTE
 // The same limit as the server: seven days, plus the hour that covers a daylight-saving day.
 export const MAX_WINDOW = 7 * DAY + HOUR
 
-export const presets: { key: string; label: string; range?: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: '1h', label: '1 h', range: '1h' },
-  { key: '3h', label: '3 h', range: '3h' },
-  { key: '6h', label: '6 h', range: '6h' },
-  { key: '12h', label: '12 h', range: '12h' },
-  { key: '24h', label: '24 h', range: '24h' },
-  { key: '3d', label: '3 d', range: '3d' },
-  { key: '5d', label: '5 d', range: '5d' },
+// The label is read when drawn, so it follows the interface language.
+const preset = (key: string, english: string, vars?: Record<string, number>, range?: string) => ({
+  key,
+  range,
+  get label() {
+    return t(english, vars)
+  },
+})
+
+export const presets: { key: string; readonly label: string; range?: string }[] = [
+  preset('today', 'Today'),
+  preset('yesterday', 'Yesterday'),
+  preset('1h', '{n} h', { n: 1 }, '1h'),
+  preset('3h', '{n} h', { n: 3 }, '3h'),
+  preset('6h', '{n} h', { n: 6 }, '6h'),
+  preset('12h', '{n} h', { n: 12 }, '12h'),
+  preset('24h', '{n} h', { n: 24 }, '24h'),
+  preset('3d', '{n} d', { n: 3 }, '3d'),
+  preset('5d', '{n} d', { n: 5 }, '5d'),
 ]
 
 const rangeRe = /^[1-9]\d*[mhd]$/
@@ -95,9 +105,10 @@ export function pressedPreset(sel: Selection, nowIso: string, tz: string): strin
 export function rangeWords(range: string): string {
   const n = parseInt(range, 10)
   const unit = range.slice(-1)
-  const [one, many] = unit === 'd' ? ['day', 'days'] : unit === 'h' ? ['hour', 'hours'] : ['minute', 'minutes']
   if (unit === 'm' && n % 60 === 0 && n >= 60) return rangeWords(`${n / 60}h`)
-  return n === 1 ? `Last ${one}` : `Last ${n} ${many}`
+  if (unit === 'd') return tn(n, 'Last day', 'Last {n} days')
+  if (unit === 'h') return tn(n, 'Last hour', 'Last {n} hours')
+  return tn(n, 'Last minute', 'Last {n} minutes')
 }
 
 /** "08:51 – 11:51" or, over midnight, "Wed 4 00:00 – Thu 5 11:51". */
@@ -108,24 +119,25 @@ export function spanWords(from: string, to: string, tz: string): string {
 
 /** "36 h", "45 min", "3 d". */
 export function lengthWords(ms: number): string {
-  if (ms >= 2 * DAY) return `${Math.round(ms / DAY)} d`
-  if (ms >= 2 * HOUR) return `${Math.round(ms / HOUR)} h`
-  return `${Math.round(ms / MINUTE)} min`
+  if (ms >= 2 * DAY) return t('{n} d', { n: Math.round(ms / DAY) })
+  if (ms >= 2 * HOUR) return t('{n} h', { n: Math.round(ms / HOUR) })
+  return t('{n} min', { n: Math.round(ms / MINUTE) })
 }
 
 export function title(sel: Selection, from: string, to: string, tz: string, nowIso: string): { title: string; sub: string } {
   const live = Date.parse(to) >= Date.parse(nowIso) - 2 * MINUTE
+  const withLive = (s: string) => (live ? t('{span} · live', { span: s }) : s)
   switch (sel.kind) {
     case 'today':
-      return { title: 'Today', sub: `${longDay(from, tz)} · ${hhmm(from, tz)} – 24:00` }
+      return { title: t('Today'), sub: t('{day} · {from} – 24:00', { day: longDay(from, tz), from: hhmm(from, tz) }) }
     case 'date': {
       const yesterday = sel.date === shiftDate(isoDate(nowIso, tz), -1)
-      return { title: yesterday ? 'Yesterday' : longDay(from, tz), sub: yesterday ? longDay(from, tz) : sel.date }
+      return { title: yesterday ? t('Yesterday') : longDay(from, tz), sub: yesterday ? longDay(from, tz) : sel.date }
     }
     case 'range':
-      return { title: rangeWords(sel.range), sub: `${spanWords(from, to, tz)}${live ? ' · live' : ''}` }
+      return { title: rangeWords(sel.range), sub: withLive(spanWords(from, to, tz)) }
     case 'custom':
-      return { title: spanWords(from, to, tz), sub: `${lengthWords(Date.parse(to) - Date.parse(from))}${live ? ' · live' : ''}` }
+      return { title: spanWords(from, to, tz), sub: withLive(lengthWords(Date.parse(to) - Date.parse(from))) }
   }
 }
 

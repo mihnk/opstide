@@ -1,4 +1,6 @@
+import { Fragment } from 'react'
 import type { HealthState, RolloutState } from '../api'
+import { t } from '../i18n'
 
 // Status is never colour alone: each state has its own shape and its own word.
 // Rollout states are circles, squares and diamonds; health states are rounded
@@ -14,8 +16,26 @@ const healthWord: Record<HealthState, string> = {
   still_observing: 'Still observing', healthy: 'No findings', degraded: 'Rule findings', insufficient_evidence: 'Insufficient evidence',
 }
 
+// The records hold the English words (the lookup keys); put each through t() where it is drawn.
 export const rolloutWords = rolloutWord
 export const healthWords = healthWord
+
+/** t() for a sentence with elements in it: each {name} in the translated text is replaced by parts[name], so the
+ *  words around a link or a bold value can move with the language. */
+export function tParts(text: string, parts: Record<string, React.ReactNode>): React.ReactNode {
+  const s = t(text)
+  const out: React.ReactNode[] = []
+  const re = /\{(\w+)\}/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(s))) {
+    if (m.index > last) out.push(s.slice(last, m.index))
+    out.push(m[1] in parts ? parts[m[1]] : m[0])
+    last = re.lastIndex
+  }
+  if (last < s.length) out.push(s.slice(last))
+  return <>{out.map((x, i) => <Fragment key={i}>{x}</Fragment>)}</>
+}
 
 function Svg({ children, color }: { children: React.ReactNode; color: string }) {
   return (
@@ -65,9 +85,9 @@ const healthColor: Record<HealthState, string> = {
 }
 
 export function RolloutStatus({ state }: { state: RolloutState }) {
-  return <span className="status-word" style={{ color: rolloutColor[state] }}><RolloutGlyph state={state} />{rolloutWord[state] ?? state}</span>
+  return <span className="status-word" style={{ color: rolloutColor[state] }}><RolloutGlyph state={state} />{t(rolloutWord[state] ?? state)}</span>
 }
 
 export function HealthStatus({ health }: { health: HealthState }) {
-  return <span className="status-word" style={{ color: healthColor[health] }}><HealthGlyph health={health} />{healthWord[health] ?? health}</span>
+  return <span className="status-word" style={{ color: healthColor[health] }}><HealthGlyph health={health} />{t(healthWord[health] ?? health)}</span>
 }

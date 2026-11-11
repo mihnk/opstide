@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { UNAUTHORIZED } from './api'
+import { t } from './i18n'
 
 // OpsTide can ask for a token before it shows anything. The page and its
 // scripts are open; the data is not. AuthGate asks the server whether a
@@ -71,34 +72,34 @@ export function AuthGate({ children }: { children: ReactNode }) {
         setState({ phase: 'in', required: true })
       } else if (res.status === 429) {
         const secs = Number(res.headers.get('Retry-After'))
-        setState({ phase: 'out', error: `Too many wrong tokens. Try again in ${secs > 0 ? `${secs} seconds` : 'a minute'}.` })
+        setState({ phase: 'out', error: secs > 0 ? t('Too many wrong tokens. Try again in {n} seconds.', { n: secs }) : t('Too many wrong tokens. Try again in a minute.') })
       } else if (res.status === 401) {
-        setState({ phase: 'out', error: 'That is not the token.' })
+        setState({ phase: 'out', error: t('That is not the token.') })
       } else {
-        setState({ phase: 'out', error: `The server answered ${res.status}.` })
+        setState({ phase: 'out', error: t('The server answered {status}.', { status: res.status }) })
       }
     } catch {
-      setState({ phase: 'out', error: 'Could not reach OpsTide.' })
+      setState({ phase: 'out', error: t('Could not reach OpsTide.') })
     } finally {
       setBusy(false)
     }
   }
 
-  if (state.phase === 'checking') return <div className="empty" aria-busy="true" style={{ padding: 40 }}>Loading…</div>
+  if (state.phase === 'checking') return <div className="empty" aria-busy="true" style={{ padding: 40 }}>{t('Loading…')}</div>
   if (state.phase === 'out') {
     return (
       <div className="login">
         <h1>OpsTide</h1>
-        <p>This OpsTide asks for a token. The person who installed it can read it from the cluster; see the README.</p>
+        <p>{t('This OpsTide asks for a token. The person who installed it can read it from the cluster; see the README.')}</p>
         <form onSubmit={submit}>
           <label className="field">
-            <span className="muted">Token</span>
+            <span className="muted">{t('Token')}</span>
             <input className="control mono" type="password" autoComplete="current-password" autoFocus
               value={token} onChange={(e) => setToken(e.target.value)} aria-invalid={state.error ? true : undefined}
               aria-describedby={state.error ? 'login-error' : undefined} />
           </label>
           {state.error && <div id="login-error" className="error" role="alert">{state.error}</div>}
-          <button type="submit" className="button" disabled={busy || !token.trim()}>Sign in</button>
+          <button type="submit" className="button" disabled={busy || !token.trim()}>{t('Sign in')}</button>
         </form>
       </div>
     )

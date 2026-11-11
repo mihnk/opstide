@@ -144,8 +144,17 @@ To run OpsTide inside the demo cluster instead of on your laptop:
 ## The web UI
 
 Open the collector's address in a browser (in development,
-http://127.0.0.1:8080). Six pages, all reading the API below and updating
-live:
+http://127.0.0.1:8080). The first visit in a browser starts with a short
+introduction: what OpsTide is, what it is watching in this cluster right now,
+and where to start. It stays at `/welcome`, linked from System.
+
+The interface is in English or Turkish: the **TR / EN** button in the header
+switches it, and the first visit follows the browser's language. Only the
+words OpsTide draws itself are translated; what comes from the cluster
+(Kubernetes Event messages, entry summaries, failure reasons) stays as
+recorded.
+
+Six pages, all reading the API below and updating live:
 
 - **Overview**: the last 24 hours across everything (counts of what was recorded, each a link, and the watches that were not whole), then a window of time as a timetable, one lane per CronJob. Pick
   Today, Yesterday, the last 1 h to 5 d, a day or a custom window, or drag

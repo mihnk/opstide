@@ -1,6 +1,9 @@
 // Types for the Explorer API (/api/v1/explorer) and the words the UI uses for what it returns.
 // OpsTide records evidence; nothing here interprets it.
 
+import { createElement, Fragment, type ReactNode } from 'react'
+import { t } from './i18n'
+
 export type Provenance = 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
 export type Classification = 'DIRECT' | 'OWNERSHIP' | 'SAME_RESOURCE_CONTEXT' | 'UNRESOLVED'
 
@@ -159,24 +162,45 @@ export interface ExplorerSummary {
 
 export interface ExplorerLookup { schema: number; records: ExplorerRecord[]; missing: string[] }
 
+// The words below are read at render time (getters), so they follow the chosen language.
 export const emptyTitle: Record<EmptyKind, string> = {
-  no_matches: 'No matches',
-  source_unavailable: 'Source unavailable',
-  outside_retention: 'Outside retained history',
-  before_first_observation: 'Before first observation',
-  collection_gap: 'Collection gap',
+  get no_matches() { return t('No matches') },
+  get source_unavailable() { return t('Source unavailable') },
+  get outside_retention() { return t('Outside retained history') },
+  get before_first_observation() { return t('Before first observation') },
+  get collection_gap() { return t('Collection gap') },
 }
 
 export const classWords: Record<Classification, string> = {
-  DIRECT: 'direct (named by UID)',
-  OWNERSHIP: 'ownership (ownerReferences)',
-  SAME_RESOURCE_CONTEXT: 'same resource context',
-  UNRESOLVED: 'unresolved',
+  get DIRECT() { return t('direct (named by UID)') },
+  get OWNERSHIP() { return t('ownership (ownerReferences)') },
+  get SAME_RESOURCE_CONTEXT() { return t('same resource context') },
+  get UNRESOLVED() { return t('unresolved') },
 }
 
 export const groupWords: Record<string, string> = {
-  operations: 'Scheduled operations', releases: 'Deployment releases', workloads: 'StatefulSets and DaemonSets', pods: 'Pod lifecycle',
-  nodes: 'Node conditions', scaling: 'Scaling', observation: 'Observation', events: 'Kubernetes Events', other: 'Other',
+  get operations() { return t('Scheduled operations') },
+  get releases() { return t('Deployment releases') },
+  get workloads() { return t('StatefulSets and DaemonSets') },
+  get pods() { return t('Pod lifecycle') },
+  get nodes() { return t('Node conditions') },
+  get scaling() { return t('Scaling') },
+  get observation() { return t('Observation') },
+  get events() { return t('Kubernetes Events') },
+  get other() { return t('Other') },
+}
+
+/** The display word for a provenance class (the value itself is never changed). */
+export function provWord(p: string): string {
+  return t(p.toLowerCase())
+}
+
+/** A translated sentence with parts (links, bold numbers) put in where its {name} placeholders are. */
+export function fill(template: string, parts: Record<string, ReactNode>): ReactNode[] {
+  return template.split(/(\{\w+\})/).filter((x) => x !== '').map((x, i) => {
+    const m = /^\{(\w+)\}$/.exec(x)
+    return createElement(Fragment, { key: i }, m && m[1] in parts ? parts[m[1]] : x)
+  })
 }
 
 /** The filters the page keeps in its link. Nothing sensitive: no token, no Event message. */
