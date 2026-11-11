@@ -663,17 +663,22 @@ func (c *Collector) workloadGone(ctx context.Context, kind, word string, it item
 	}
 	return c.db.Update(ctx, func(w *store.Writer) error {
 		known, err := w.WorkloadKnown(ctx, string(it.uid))
-		if err != nil || !known {
+		if err != nil {
 			return err
+		}
+		if !known {
+			// Never recorded as a workload, but its Pod template may have been recorded as naming config.
+			return c.endConfigRefs(ctx, w, string(it.uid), at)
 		}
 		if wl, ok, err := c.db.WorkloadByID(ctx, string(it.uid)); err != nil {
 			return err
 		} else if ok && !wl.DeletedAt.IsZero() {
 			return nil
 		}
-		if err := w.MarkWorkloadDeleted(ctx, string(it.uid), at); err != nil {
+		if err := w.MarkWorkloadDeleted(ctx, string(it.uid), at); err != nil { // ends its references too
 			return err
 		}
+		c.cfg.forgetRefs(string(it.uid))
 		o := obs{kind: kind, word: word, uid: string(it.uid), ns: it.namespace, name: it.name}
 		note := ""
 		if it.deletedAt == 0 {

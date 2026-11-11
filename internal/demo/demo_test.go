@@ -43,7 +43,7 @@ func TestSeedTellsTheWholeStory(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"job.succeeded", "job.failed", "collection.gap", "release.observed", "release.health.degraded", "statefulset.update_partitioned", "daemonset.update_completed", "node.condition_changed", "node.deleted", "node.observed", "pod.restarted", "kubernetes.event", "deployment.spec_written", "statefulset.spec_written",
-		"configmap.data_written", "configmap.created", "configmap.deleted", "secret.data_written"} {
+		"configmap.data_written", "configmap.created", "configmap.deleted", "secret.written"} {
 		if types[want] == 0 {
 			t.Errorf("the story has no %s", want)
 		}

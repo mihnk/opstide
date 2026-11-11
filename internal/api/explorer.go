@@ -122,14 +122,15 @@ func recordOfRow(row store.ExplorerRow, message bool) ExplorerRecord {
 }
 
 // changeTypes are the records that say something changed, not that something was observed to be so: a spec written (and
-// by which client), a revision, a replica target, a schedule or suspension, a cordon. The change ledger is these, oldest
-// to newest, nothing more.
+// by which client), a revision, a replica target, a schedule or suspension, a cordon, a ConfigMap or Secret created,
+// written or deleted. The change ledger is these, oldest to newest, nothing more. Helm's release records
+// (sh.helm.release.v1.*) are not among them: a release upgrade shows as the workload's own changes.
 var changeTypes = []string{
 	"deployment.spec_written", "statefulset.spec_written", "daemonset.spec_written", "cronjob.spec_written",
 	"release.observed", "statefulset.revision_changed", "daemonset.revision_changed", "workload.replica_target_changed", "hpa.desired_replicas_changed",
 	"cronjob.schedule_changed", "cronjob.suspended", "cronjob.resumed", "node.unschedulable_changed",
-	"configmap.created", "configmap.data_written", "configmap.metadata_written", "configmap.data_changed", "configmap.deleted",
-	"secret.created", "secret.data_written", "secret.metadata_written", "secret.deleted",
+	"configmap.created", "configmap.data_written", "configmap.metadata_written", "configmap.written", "configmap.data_changed", "configmap.writes_folded", "configmap.deleted",
+	"secret.created", "secret.written", "secret.writes_folded", "secret.deleted",
 }
 
 // ---- parameters ----

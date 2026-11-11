@@ -78,7 +78,7 @@ export function Workload({ id, params, tz }: { id: string; params: URLSearchPara
       </nav>
 
       {tab === 'overview' && <Overview d={d} tz={tz} />}
-      {tab === 'history' && <History id={id} tz={tz} />}
+      {tab === 'history' && <History id={id} namespace={w.namespace} tz={tz} />}
       {tab === 'revisions' && <Revisions id={id} tz={tz} />}
       {tab === 'pods' && <Pods id={id} tz={tz} kind={w.kind} />}
       {tab === 'evidence' && <EvidenceTab id={id} tz={tz} />}
@@ -153,7 +153,7 @@ function Overview({ d, tz }: { d: WorkloadDetail; tz: string }) {
   )
 }
 
-function History({ id, tz }: { id: string; tz: string }) {
+function History({ id, namespace, tz }: { id: string; namespace: string; tz: string }) {
   const [all, setAll] = useState(false)
   const path = `/api/v1/workloads/${encodeURIComponent(id)}/history?limit=100${all ? '&pods=all' : ''}`
   const { data, error } = useApi<WorkloadHistory>(path)
@@ -181,7 +181,7 @@ function History({ id, tz }: { id: string; tz: string }) {
         <p style={{ margin: '0 0 10px', fontSize: 13 }}>
           <span className="label">{t('Config it references')}</span>{' '}
           {data.references.map((r, i) => (
-            <span key={`${r.kind}/${r.name}`}>{i > 0 ? ' · ' : ''}<Link href={explorerLink({ kind: r.kind, name: r.name, range: '7d' })}><span className="mono">{r.kind} {r.name}</span></Link>{r.endedAt ? <span className="muted"> ({t('no longer named since {time}', { time: hhmmss(r.endedAt, tz) })})</span> : null}</span>
+            <span key={`${r.kind}/${r.name}`}>{i > 0 ? ' · ' : ''}<Link href={explorerLink({ kind: r.kind, name: r.name, namespace, range: '7d' })}><span className="mono">{r.kind} {r.name}</span></Link>{r.endedAt ? <span className="muted"> ({t('no longer named since {time}', { time: relativeTime(r.endedAt, new Date().toISOString(), tz) })})</span> : null}</span>
           ))}
           <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t('Changes to these ConfigMaps and Secrets are shown here too. The Pod template names them; that does not say a change reached this workload.')}</span>
         </p>

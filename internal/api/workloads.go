@@ -231,13 +231,12 @@ func (s *Server) workloadHistory(w http.ResponseWriter, r *http.Request) {
 		reply(w, r, s.log, nil, err)
 		return
 	}
-	var names []store.ConfigName
 	for _, x := range refs {
 		out.References = append(out.References, ConfigRefView{Kind: x.RefKind, Name: x.RefName, FirstSeenAt: x.FirstSeenAt, EndedAt: tp(x.EndedAt)})
-		names = append(names, store.ConfigName{Kind: x.RefKind, Name: x.RefName})
 	}
-	if r.URL.Query().Get("config") != "none" {
-		if eq.AlsoResourceUIDs, err = s.db.ConfigUIDs(r.Context(), row.Namespace, names); err != nil {
+	if r.URL.Query().Get("config") != "none" && len(refs) > 0 {
+		// Each only while the template named it: a change before or after that is not part of this workload's history.
+		if eq.AlsoResources, err = s.db.ConfigUIDs(r.Context(), row.ID); err != nil {
 			reply(w, r, s.log, nil, err)
 			return
 		}

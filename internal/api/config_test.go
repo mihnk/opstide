@@ -30,6 +30,9 @@ func TestConfigChangesAreChangesAndListTheWorkloadsThatReferenceThem(t *testing.
 		for _, e := range []store.Event{
 			{ID: "c1", Type: "configmap.data_written", Namespace: "shop", Kind: "ConfigMap", ResourceUID: "cm-1", ResourceName: "api-config", OccurredAt: at, ObservedAt: at, Severity: "info", Confidence: store.Observed,
 				Summary: "ConfigMap shop/api-config: data written by argocd-controller (Apply)", Facts: map[string]string{"fieldManager": "argocd-controller", "operation": "Apply", "keysChanged": "LOG_LEVEL"}},
+			// Before the Deployment's template named it: not part of the Deployment's history.
+			{ID: "c0", Type: "configmap.metadata_written", Namespace: "shop", Kind: "ConfigMap", ResourceUID: "cm-1", ResourceName: "api-config", OccurredAt: at.Add(-90 * time.Minute), ObservedAt: at, Severity: "info", Confidence: store.Observed,
+				Summary: "ConfigMap shop/api-config: written by kubectl-label (Update)", Facts: map[string]string{"fieldManager": "kubectl-label", "operation": "Update"}},
 			{ID: "c2", Type: "configmap.created", Namespace: "shop", Kind: "ConfigMap", ResourceUID: "cm-2", ResourceName: "unused", OccurredAt: at, ObservedAt: at, Severity: "info", Confidence: store.Observed, Summary: "ConfigMap shop/unused created"},
 			{ID: "r1", Type: "release.observed", Namespace: "shop", Kind: "Deployment", ResourceUID: "d-1", ResourceName: "api", WorkloadID: "d-1", OccurredAt: at.Add(time.Minute), ObservedAt: at.Add(time.Minute), Severity: "info", Confidence: store.Observed, Summary: "api revision 8"},
 		} {
@@ -41,7 +44,7 @@ func TestConfigChangesAreChangesAndListTheWorkloadsThatReferenceThem(t *testing.
 	}, func(c *Config) { c.WatchConfigMaps = true })
 
 	var l ExplorerList
-	if code := get(t, srv, "/api/v1/explorer?range=24h&preset=changes", &l); code != 200 || len(l.Records) != 3 {
+	if code := get(t, srv, "/api/v1/explorer?range=24h&preset=changes", &l); code != 200 || len(l.Records) != 4 {
 		t.Fatalf("%d %+v", code, l.Records)
 	}
 	var cw ExplorerRecord
@@ -54,7 +57,7 @@ func TestConfigChangesAreChangesAndListTheWorkloadsThatReferenceThem(t *testing.
 		t.Fatalf("%+v", cw)
 	}
 	var g ExplorerList
-	if code := get(t, srv, "/api/v1/explorer?range=24h&group=config", &g); code != 200 || len(g.Records) != 2 {
+	if code := get(t, srv, "/api/v1/explorer?range=24h&group=config", &g); code != 200 || len(g.Records) != 3 {
 		t.Fatalf("the config group: %d %+v", code, g.Records)
 	}
 
@@ -97,7 +100,7 @@ func TestConfigChangesAreChangesAndListTheWorkloadsThatReferenceThem(t *testing.
 	for _, e := range h.Entries.Entries {
 		types[e.Type] = true
 	}
-	if !types["configmap.data_written"] || !types["release.observed"] || types["configmap.created"] || len(h.References) != 2 {
+	if !types["configmap.data_written"] || !types["release.observed"] || types["configmap.created"] || types["configmap.metadata_written"] || len(h.References) != 2 {
 		t.Fatalf("%v %+v", types, h.References)
 	}
 	var plain WorkloadHistory
@@ -110,7 +113,7 @@ func TestConfigChangesAreChangesAndListTheWorkloadsThatReferenceThem(t *testing.
 	var sm ExplorerSummary
 	get(t, srv, "/api/v1/explorer/summary?range=24h", &sm)
 	for _, it := range sm.Items {
-		if it.Key == "changes" && it.Count != 3 {
+		if it.Key == "changes" && it.Count != 4 {
 			t.Fatalf("%+v", it)
 		}
 	}

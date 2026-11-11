@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -10,9 +12,9 @@ import (
 	"time"
 )
 
-// ConfigMaps and Secrets. OpsTide keeps who they are and when it saw them; for a ConfigMap also a hash of its content and
-// the names of its keys, so a data change can be told from a metadata change. It never keeps a value, and it never reads
-// a Secret's data at all (its watch is metadata-only).
+// ConfigMaps and Secrets. OpsTide keeps who they are and when it saw them; for a ConfigMap also an HMAC of its content and
+// of each key's value under a key made for this install, and the names of its keys, so a data change can be told from a
+// metadata change. It never keeps a value, and it never asks for a Secret's data at all (its watch is metadata-only).
 
 // Kinds of configuration objects.
 const (
@@ -27,29 +29,46 @@ type ConfigObject struct {
 	FirstSeenAt, LastSeenAt    time.Time
 	DeletedAt                  time.Time
 	Origin                     string // observed | adopted
-	ContentHash                string // ConfigMap only
+	ContentHash                string // ConfigMap only: HMAC of the sorted keys and values; '' when not known
 	Keys                       []string
+	KeyHashes                  map[string]string // ConfigMap only: key name -> HMAC of its value
+	// WritesSeen is, per field manager (manager|operation|subresource), the Unix second of the newest write already
+	// handled: recorded, or deliberately left out (a baseline, older than retention).
+	WritesSeen map[string]int64
+	// HelmRelease marks one of Helm's release records (named sh.helm.release.v1.*, labelled owner=helm).
+	HelmRelease bool
 }
 
-const configCols = `uid, kind, namespace, name, created_at, first_seen_at, last_seen_at, deleted_at, origin, content_hash, keys`
+const configCols = `uid, kind, namespace, name, created_at, first_seen_at, last_seen_at, deleted_at, origin, content_hash, keys, key_hashes, writes_seen, helm_release`
 
 func scanConfig(r interface{ Scan(...any) error }) (ConfigObject, error) {
 	var o ConfigObject
 	var created, deleted sql.NullInt64
 	var first, last int64
-	var keys string
-	if err := r.Scan(&o.UID, &o.Kind, &o.Namespace, &o.Name, &created, &first, &last, &deleted, &o.Origin, &o.ContentHash, &keys); err != nil {
+	var keys, keyHashes, writes string
+	if err := r.Scan(&o.UID, &o.Kind, &o.Namespace, &o.Name, &created, &first, &last, &deleted, &o.Origin, &o.ContentHash, &keys, &keyHashes, &writes, &o.HelmRelease); err != nil {
 		return o, err
 	}
 	o.CreatedAt, o.DeletedAt = fromMS(created), fromMS(deleted)
 	o.FirstSeenAt, o.LastSeenAt = time.UnixMilli(first).UTC(), time.UnixMilli(last).UTC()
 	_ = json.Unmarshal([]byte(keys), &o.Keys)
+	_ = json.Unmarshal([]byte(keyHashes), &o.KeyHashes)
+	_ = json.Unmarshal([]byte(writes), &o.WritesSeen)
 	return o, nil
 }
 
 // ConfigObject returns the ConfigMap or Secret with this UID.
 func (w *Writer) ConfigObject(ctx context.Context, uid string) (ConfigObject, bool, error) {
 	o, err := scanConfig(w.tx.QueryRowContext(ctx, `SELECT `+configCols+` FROM config_objects WHERE uid = ?`, uid))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ConfigObject{}, false, nil
+	}
+	return o, err == nil, err
+}
+
+// ConfigObjectByUID is ConfigObject outside a write transaction: a read that takes no write lock.
+func (s *Store) ConfigObjectByUID(ctx context.Context, uid string) (ConfigObject, bool, error) {
+	o, err := scanConfig(s.db.QueryRowContext(ctx, `SELECT `+configCols+` FROM config_objects WHERE uid = ?`, uid))
 	if errors.Is(err, sql.ErrNoRows) {
 		return ConfigObject{}, false, nil
 	}
@@ -63,15 +82,69 @@ func (w *Writer) SaveConfigObject(ctx context.Context, o ConfigObject) error {
 		keys = []string{}
 	}
 	kj, _ := json.Marshal(keys)
-	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO config_objects (`+configCols+`, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		o.UID, o.Kind, o.Namespace, o.Name, ms(o.CreatedAt), ms(o.FirstSeenAt).Int64, ms(o.LastSeenAt).Int64, ms(o.DeletedAt), o.Origin, o.ContentHash, string(kj), ms(w.now()).Int64)
+	kh := []byte("{}")
+	if len(o.KeyHashes) > 0 {
+		kh, _ = json.Marshal(o.KeyHashes)
+	}
+	ws := []byte("{}")
+	if len(o.WritesSeen) > 0 {
+		ws, _ = json.Marshal(o.WritesSeen)
+	}
+	_, err := w.tx.ExecContext(ctx, `INSERT OR REPLACE INTO config_objects (`+configCols+`, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		o.UID, o.Kind, o.Namespace, o.Name, ms(o.CreatedAt), ms(o.FirstSeenAt).Int64, ms(o.LastSeenAt).Int64, ms(o.DeletedAt), o.Origin, o.ContentHash,
+		string(kj), string(kh), string(ws), o.HelmRelease, ms(w.now()).Int64)
 	return err
 }
 
-// MarkConfigDeleted notes that a ConfigMap or Secret is gone; its record stays.
+// MarkConfigDeleted notes that a ConfigMap or Secret is gone; its record stays (until retention).
 func (w *Writer) MarkConfigDeleted(ctx context.Context, uid string, at time.Time) error {
 	_, err := w.tx.ExecContext(ctx, `UPDATE config_objects SET deleted_at = ?, updated_at = ? WHERE uid = ? AND deleted_at IS NULL`, ms(at).Int64, ms(w.now()).Int64, uid)
 	return err
+}
+
+// TouchConfigObjects sets last_seen_at of these live ConfigMaps or Secrets, in one statement per 500.
+func (s *Store) TouchConfigObjects(ctx context.Context, uids []string, at time.Time) error {
+	for len(uids) > 0 {
+		n := min(len(uids), 500)
+		part := uids[:n]
+		uids = uids[n:]
+		args := []any{ms(at).Int64}
+		for _, u := range part {
+			args = append(args, u)
+		}
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		if err := s.Update(ctx, func(w *Writer) error {
+			_, err := w.tx.ExecContext(ctx, `UPDATE config_objects SET last_seen_at = max(last_seen_at, ?) WHERE deleted_at IS NULL AND uid IN (`+marks+`)`, args...) //nolint:gosec // placeholders only
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ConfigHashKey is the key ConfigMap content is hashed under: 32 random bytes made once per database and kept in meta.
+// It is never served by the API or exported; without it a hash cannot be checked against a guessed value.
+func (s *Store) ConfigHashKey(ctx context.Context) ([]byte, error) {
+	var out []byte
+	err := s.Update(ctx, func(w *Writer) error {
+		var v string
+		err := w.tx.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'config_hash_key'`).Scan(&v)
+		if err == nil {
+			out, err = hex.DecodeString(v)
+			if err == nil && len(out) == 32 {
+				return nil
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		out = make([]byte, 32)
+		if _, err := rand.Read(out); err != nil {
+			return err
+		}
+		return w.setMeta(ctx, "config_hash_key", hex.EncodeToString(out))
+	})
+	return out, err
 }
 
 // LiveConfigObjects lists the ConfigMaps or Secrets of a kind recorded as existing.
@@ -111,29 +184,51 @@ func (s *Store) ConfigCounts(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// ConfigUIDs lists the UIDs of every ConfigMap or Secret recorded under these names (an object deleted and created again
-// under the same name has a new UID; all of them are named).
-func (s *Store) ConfigUIDs(ctx context.Context, ns string, refs []ConfigName) ([]string, error) {
-	if len(refs) == 0 {
-		return nil, nil
-	}
-	var ors []string
-	args := []any{ns}
-	for _, r := range refs {
-		ors, args = append(ors, "(kind = ? AND name = ?)"), append(args, r.Kind, r.Name)
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT uid FROM config_objects WHERE namespace = ? AND (`+strings.Join(ors, " OR ")+`) ORDER BY uid LIMIT 500`, args...) //nolint:gosec // fixed clauses, values are placeholders
+// ConfigWindow is a ConfigMap or Secret a workload's Pod template named, and when it named it: from when OpsTide first
+// saw the reference to when it ended (zero To: it still does).
+type ConfigWindow struct {
+	UID      string
+	From, To time.Time
+}
+
+// ConfigUIDs lists, for each reference of a workload, every ConfigMap or Secret recorded under that name (an object
+// deleted and created again under the same name has a new UID; all of them are named), with the reference's window.
+func (s *Store) ConfigUIDs(ctx context.Context, workloadID string) ([]ConfigWindow, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT o.uid, r.first_seen_at, r.ended_at FROM config_refs r
+	JOIN config_objects o ON o.namespace = r.namespace AND o.kind = r.ref_kind AND o.name = r.ref_name
+	WHERE r.workload_id = ? ORDER BY o.uid LIMIT 500`, workloadID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []ConfigWindow
 	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
+		var x ConfigWindow
+		var from int64
+		var to sql.NullInt64
+		if err := rows.Scan(&x.UID, &from, &to); err != nil {
 			return nil, err
 		}
-		out = append(out, u)
+		x.From, x.To = time.UnixMilli(from).UTC(), fromMS(to)
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// OpenConfigRefWorkloads lists the workloads of a kind that have a reference OpsTide has not ended.
+func (s *Store) OpenConfigRefWorkloads(ctx context.Context, workloadKind string) ([]Workload, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT workload_id, namespace, workload_name FROM config_refs WHERE workload_kind = ? AND ended_at IS NULL`, workloadKind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Workload
+	for rows.Next() {
+		x := Workload{Kind: workloadKind}
+		if err := rows.Scan(&x.ID, &x.Namespace, &x.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
 	}
 	return out, rows.Err()
 }

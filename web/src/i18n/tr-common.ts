@@ -223,7 +223,7 @@ export const common: Record<string, string> = {
   "Autoscalers": "Autoscaler'lar",
   "Kubernetes Events": "Kubernetes Event'leri",
   "Log entries": "Log kayıtları",
-  "Pod lifecycle, Event, autoscaler and count entries": "Pod yaşam döngüsü, Event, autoscaler ve sayı kayıtları",
+  "Pod lifecycle, Event, autoscaler, count and Helm release entries, folded writes": "Pod yaşam döngüsü, Event, autoscaler, sayı ve Helm release kayıtları, birleştirilmiş yazımlar",
   "not configured": "yapılandırılmadı",
   "ready": "hazır",
   "{n} namespace ({list})": "{n} namespace ({list})",

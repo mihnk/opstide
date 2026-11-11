@@ -105,11 +105,12 @@ type EventQuery struct {
 	Kind, Reason, WorkloadID string
 	// ResourceUID narrows to the entries about one resource; with Kind it is served by an index.
 	ResourceUID string
-	// AlsoResourceUIDs widens WorkloadID: entries about these resources (the ConfigMaps and Secrets a workload's Pod
-	// template names) are included as well. Ignored without WorkloadID.
-	AlsoResourceUIDs []string
-	Text             string   // substring of the summary or resource name
-	Severities       []string // info, warning or error
+	// AlsoResources widens WorkloadID: entries about these resources (the ConfigMaps and Secrets a workload's Pod
+	// template names), each only within its window (when the template named it), are included as well. Ignored
+	// without WorkloadID.
+	AlsoResources []ConfigWindow
+	Text          string   // substring of the summary or resource name
+	Severities    []string // info, warning or error
 	// Owner keeps entries of operations whose owner annotation is exactly this.
 	Owner string
 	// Cursor continues a previous page (its NextCursor).
@@ -160,12 +161,20 @@ func (s *Store) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	if q.Reason != "" {
 		where, args = append(where, "reason = ? AND reason <> ''"), append(args, q.Reason)
 	}
-	if q.WorkloadID != "" && len(q.AlsoResourceUIDs) > 0 {
-		marks := strings.TrimSuffix(strings.Repeat("?,", len(q.AlsoResourceUIDs)), ",")
-		where, args = append(where, "((workload_id = ? AND workload_id <> '') OR (resource_uid IN ("+marks+") AND resource_uid <> ''))"), append(args, q.WorkloadID)
-		for _, u := range q.AlsoResourceUIDs {
-			args = append(args, u)
+	if q.WorkloadID != "" && len(q.AlsoResources) > 0 {
+		ors := []string{"(workload_id = ? AND workload_id <> '')"}
+		args = append(args, q.WorkloadID)
+		for _, x := range q.AlsoResources {
+			if x.UID == "" {
+				continue
+			}
+			if x.To.IsZero() {
+				ors, args = append(ors, "(resource_uid = ? AND at >= ?)"), append(args, x.UID, ms(x.From).Int64)
+			} else {
+				ors, args = append(ors, "(resource_uid = ? AND at >= ? AND at <= ?)"), append(args, x.UID, ms(x.From).Int64, ms(x.To).Int64)
+			}
 		}
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	} else if q.WorkloadID != "" {
 		where, args = append(where, "workload_id = ? AND workload_id <> ''"), append(args, q.WorkloadID)
 	}

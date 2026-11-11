@@ -251,12 +251,12 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		out.Config.ConfigMapCount, out.Config.SecretCount = cs[store.KindConfigMap], cs[store.KindSecret]
 	}
 	if s.cfg.WatchConfigMaps {
-		out.Config.ConfigMapNote = "Created, written (by which field manager) and deleted are recorded, with a hash of the content and the names of keys; values are never kept."
+		out.Config.ConfigMapNote = "Created, written (by which field manager) and deleted are recorded, with the names of keys and a keyed hash (HMAC, under a key made for this install) of the content; values are dropped as they arrive and never kept."
 	} else {
 		out.Config.ConfigMapNote = "Off (watch.configMaps). Nothing says when ConfigMaps were created, written or deleted."
 	}
 	if s.cfg.WatchSecretMetadata {
-		out.Config.SecretNote = "Metadata only: OpsTide asks the API server for Secrets' metadata, so their data is never sent to it. A data write is told from a metadata write by managedFields."
+		out.Config.SecretNote = "Metadata only: Secret data is never requested. Annotations such as kubectl's last-applied-configuration can contain it, and managedFields name its keys: both arrive with the metadata and are dropped the moment they arrive, never cached or kept. Key names of Secrets are never kept, and a write never says the data changed."
 	} else {
 		out.Config.SecretNote = "Off (watch.secretMetadata). Secrets are not read at all."
 	}

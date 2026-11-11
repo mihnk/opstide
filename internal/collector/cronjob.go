@@ -123,8 +123,13 @@ func (c *Collector) syncCronJob(ctx context.Context, it item) error {
 			return nil // replaced or gone; its delete is queued with the UID
 		}
 		op, ok, err := c.db.Operation(ctx, string(it.uid))
-		if err != nil || !ok || !op.DeletedAt.IsZero() {
+		if err != nil || (ok && !op.DeletedAt.IsZero()) {
 			return err
+		}
+		if !ok {
+			// Never recorded as an operation, but its template may have been recorded as naming config.
+			at := c.now()
+			return c.db.Update(ctx, func(w *store.Writer) error { return c.endConfigRefs(ctx, w, string(it.uid), at) })
 		}
 		return c.cronJobGone(ctx, op, c.now(), msTime(it.deletedAt), !it.tombstone)
 	}
@@ -206,9 +211,10 @@ func (c *Collector) cronJobGone(ctx context.Context, op store.Operation, now, de
 		e.Summary = label(op) + " is no longer in the cluster; it was removed while OpsTide was not watching"
 	}
 	return c.db.Update(ctx, func(w *store.Writer) error {
-		if err := w.MarkOperationDeleted(ctx, op.ID, now); err != nil {
+		if err := w.MarkOperationDeleted(ctx, op.ID, now); err != nil { // ends its references too
 			return err
 		}
+		c.cfg.forgetRefs(op.ID)
 		_, err := w.AddEvent(ctx, e)
 		return err
 	})

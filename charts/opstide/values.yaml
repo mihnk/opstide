@@ -37,11 +37,15 @@ nodes:
 
 # ConfigMaps and Secrets: when one is created, deleted or written, and by which field manager.
 watch:
-  # list and watch on configmaps. A hash of the content and the names of keys are kept, never a value.
+  # list and watch on configmaps. The names of keys and a keyed hash (HMAC) of the content are kept; values are
+  # dropped as they arrive and never kept. On upgrade the watch begins then: earlier time shows as not watched.
+  # With rbac.create=false, grant list and watch on configmaps yourself or set this to false.
   configMaps: true
-  # list and watch on secrets, read through the metadata-only API: OpsTide asks for metadata, so a Secret's data is
-  # never sent to it. Kubernetes RBAC cannot grant metadata alone, so turning this on grants list and watch on Secrets
-  # themselves (in the watched namespaces, or cluster-wide); only the request is metadata-only. Off by default.
+  # list and watch on secrets, read through the metadata-only API: Secret data is never requested. Annotations such as
+  # kubectl's last-applied-configuration can contain it (and managedFields name its keys); both arrive with the
+  # metadata and are dropped the moment they arrive, never cached or kept. Key names of Secrets are never kept.
+  # Kubernetes RBAC cannot grant metadata alone, so turning this on grants list and watch on Secrets themselves (in the
+  # watched namespaces, or cluster-wide); only the request is metadata-only. Off by default.
   secretMetadata: false
 
 retention:

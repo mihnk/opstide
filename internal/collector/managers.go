@@ -107,14 +107,19 @@ func (s *writtenSeen) add(ids []string) {
 	}
 }
 
-// recordSpecWrites writes a Log entry for each spec write of an object not yet recorded. word is the lowercase kind
+// recordSpecWrites writes a Log entry for each spec write of an object not yet recorded, unless it is older than
+// retention. word is the lowercase kind
 // ("deployment"); the entry type is word + ".spec_written". Entries are deterministic by manager, operation and time, so
 // seeing the same write again after a relist or a restart adds nothing. A write older than this process is marked as
 // already there when OpsTide began watching.
 func (c *Collector) recordSpecWrites(ctx context.Context, word, kind, ns, name, uid string, mf []metav1.ManagedFieldsEntry) error {
 	var fresh []specWrite
 	var keys []string
+	cut := c.retentionCut(c.now())
 	for _, w := range specWrites(mf) {
+		if !cut.IsZero() && w.At.Before(cut) {
+			continue // older than the record keeps: it would be pruned again at the next prune
+		}
 		k := fmt.Sprintf("%s/%s/%s/%s/%s/%d", word, uid, w.Manager, w.Operation, w.Subresource, w.At.Unix())
 		if !c.written.has(k) {
 			fresh, keys = append(fresh, w), append(keys, k)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,8 +20,11 @@ type PruneResult struct {
 
 // A Log entry is routine-volume when a burst of them (a crash loop, a node upgrade) should not be able to push out the
 // rest: Pod created/ready/terminated (restarts, OOM kills and evictions are findings' evidence and stay with the rest), Kubernetes Event entries (the Events themselves are kept apart), autoscaler entries, reported
-// counts and Job creation. They have their own budget; everything else shares the rest.
-const routineEntries = `(substr(type, 1, 4) IN ('evid', 'hpa.') OR type IN ('pod.created', 'pod.ready', 'pod.terminated', 'job.created', 'statefulset.counts_changed', 'daemonset.counts_changed'))`
+// counts, Job creation, Helm's release records (ConfigMaps and Secrets named sh.helm.release.v1.*, one set per
+// upgrade) and the folded writes of a ConfigMap or Secret written again and again (a controller's status). They have
+// their own budget; everything else shares the rest.
+var routineEntries = `(substr(type, 1, 4) IN ('evid', 'hpa.') OR type IN ('pod.created', 'pod.ready', 'pod.terminated', 'job.created', 'statefulset.counts_changed', 'daemonset.counts_changed', '` +
+	strings.Join(ConfigRoutineTypes, "', '") + `'))`
 
 // Prune removes what is older than before, then the oldest entries beyond
 // maxEvents. Operations go only once their CronJob has been deleted before
@@ -137,6 +141,17 @@ func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retenti
 			return err
 		}
 		if err := exec(&r.Releases, `DELETE FROM workload_state WHERE workload_id NOT IN (SELECT id FROM workloads)`); err != nil {
+			return err
+		}
+		// ConfigMaps and Secrets deleted before the cut, and references that ended before it, go with retention. A
+		// reference of a workload whose own record is gone (pruned) and that OpsTide has not confirmed since the cut goes
+		// too: nothing is left to show it against.
+		if err := exec(&r.Releases, `DELETE FROM config_objects WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cut); err != nil {
+			return err
+		}
+		if err := exec(&r.Releases, `DELETE FROM config_refs WHERE (ended_at IS NOT NULL AND ended_at < ?)
+	OR (last_seen_at < ? AND workload_id NOT IN (SELECT id FROM workloads) AND workload_id NOT IN (SELECT id FROM operations)
+		AND (workload_kind <> 'Deployment' OR ended_at IS NOT NULL))`, cut, cut); err != nil {
 			return err
 		}
 		for src, n := range r.Capped {

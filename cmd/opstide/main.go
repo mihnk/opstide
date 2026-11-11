@@ -110,7 +110,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	defer stopMaint()
 
 	col := collector.New(client, db, collector.Options{Namespaces: cfg.Namespaces, Log: log, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
-		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Metadata: md})
+		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Metadata: md, RetentionDays: cfg.RetentionDays})
 	colErr := make(chan error, 1)
 	go func() { colErr <- col.Run(ctx) }()
 

@@ -71,7 +71,18 @@ func GroupOfType(t string) string {
 // Routine entries are the ordinary life of Pods, and Kubernetes Events of type Normal. Views may leave them
 // out by default, say how many they left out, and show them on request.
 // Reported replica counts and Job creation say little on their own; they are routine too.
-var routineTypes = []string{"pod.created", "pod.ready", "pod.terminated", "job.created", "statefulset.counts_changed", "daemonset.counts_changed"}
+// Helm's release records (ConfigMaps and Secrets named sh.helm.release.v1.*, labelled owner=helm) are routine as well:
+// each upgrade makes one and relabels the one before, and the release itself is recorded elsewhere.
+var routineTypes = append([]string{"pod.created", "pod.ready", "pod.terminated", "job.created", "statefulset.counts_changed", "daemonset.counts_changed"}, HelmReleaseTypes...)
+
+// HelmReleaseTypes are the entries about Helm's release records (see routineTypes).
+var HelmReleaseTypes = []string{"configmap.helm_release_created", "configmap.helm_release_written", "configmap.helm_release_deleted",
+	"secret.helm_release_created", "secret.helm_release_written", "secret.helm_release_deleted"}
+
+// ConfigRoutineTypes are the ConfigMap and Secret entries counted against the routine-volume retention budget: Helm's
+// release records, and the folded writes of an object written again within five minutes of its previous write entry.
+// Folded writes stay visible by default; they are only budgeted with the routine volume.
+var ConfigRoutineTypes = append(append([]string{}, HelmReleaseTypes...), "configmap.writes_folded", "secret.writes_folded")
 
 // IsRoutineType says whether a Log entry type is routine.
 func IsRoutineType(t string) bool {

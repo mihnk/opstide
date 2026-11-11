@@ -66,13 +66,16 @@ type Options struct {
 	// and is off unless asked for, whatever the namespaces being watched.
 	ObserveNodes bool
 	// WatchConfigMaps records ConfigMaps being created, deleted and written (by which field manager), keeping a hash of
-	// their content and the names of their keys, never a value.
+	// their content (HMAC) and the names of their keys, never a value.
 	WatchConfigMaps bool
 	// WatchSecretMetadata records Secrets being created, deleted and written, through Metadata only: their data is never
 	// requested. Off unless asked for, and ignored without Metadata.
 	WatchSecretMetadata bool
 	// Metadata is the metadata-only client Secrets are read through (PartialObjectMetadata).
 	Metadata metadata.Interface
+	// RetentionDays is how long the record keeps history: a write older than that, found in managedFields, is not
+	// recorded (it would only be pruned again). 0 sets no limit.
+	RetentionDays int
 	// configWriteEvery overrides the least time between two write entries of one ConfigMap or Secret (tests).
 	configWriteEvery time.Duration
 }
@@ -89,6 +92,8 @@ type Collector struct {
 	// lowQueue holds Kubernetes Events and autoscalers, which come in bursts (a node upgrade, a crash loop) and must not
 	// delay a short Job or a Pod being recorded: it has its own worker.
 	lowQueue workqueue.TypedRateLimitingInterface[item]
+	// cfgQueue holds ConfigMaps and Secrets: a relist of tens of thousands of them must delay neither Jobs nor Events.
+	cfgQueue workqueue.TypedRateLimitingInterface[item]
 	// firstFail is when each object's current run of failed tries began (read and written by its worker only, per queue).
 	firstFail map[item]time.Time
 	// written remembers the spec writes already put in the change ledger; started is when this process began.
@@ -98,7 +103,12 @@ type Collector struct {
 	cfg                           configState
 	watchConfigMaps, watchSecrets bool
 	cfgEvery                      time.Duration
-	failMu                        sync.Mutex
+	retentionDays                 int
+	// trim reduces ConfigMaps and Secrets' metadata as they arrive; cfgGone holds the last state of one whose delete
+	// was seen until the worker has recorded it.
+	trim    *configTrim
+	cfgGone sync.Map
+	failMu  sync.Mutex
 	// dropped counts objects given up on; droppedAt is the last time.
 	dropped   atomic.Uint64
 	droppedAt atomic.Int64
@@ -165,6 +175,10 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 		lowQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[item](),
 			workqueue.TypedRateLimitingQueueConfig[item]{Name: "opstide-events"}),
+		cfgQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[item](),
+			workqueue.TypedRateLimitingQueueConfig[item]{Name: "opstide-config"}),
+		trim:      newConfigTrim(),
 		firstFail: map[item]time.Time{},
 		scopes:    map[string]*scope{},
 	}
@@ -183,6 +197,7 @@ func New(client kubernetes.Interface, db *store.Store, opt Options) *Collector {
 		c.cfgEvery = configWriteEvery
 	}
 	c.watchConfigMaps, c.watchSecrets = opt.WatchConfigMaps, opt.WatchSecretMetadata && opt.Metadata != nil
+	c.retentionDays = opt.RetentionDays
 	c.window = opt.ReleaseWindow
 	if c.window <= 0 {
 		c.window = release.DefaultWindow
@@ -373,7 +388,10 @@ func (c *Collector) informer(ns, kind string, example runtime.Object, idx cache.
 func (c *Collector) add(it item) { c.queueOf(it.kind).Add(it) }
 
 func (c *Collector) queueOf(kind string) workqueue.TypedRateLimitingInterface[item] {
-	if kind == Events || kind == HPAs || kind == ConfigMaps || kind == Secrets {
+	if kind == ConfigMaps || kind == Secrets {
+		return c.cfgQueue
+	}
+	if kind == Events || kind == HPAs {
 		return c.lowQueue
 	}
 	return c.queue
@@ -452,7 +470,7 @@ type Stats struct {
 func (c *Collector) Stats() Stats {
 	return Stats{
 		Synced: c.synced.Load(), Processed: c.processed.Load(), Failed: c.failed.Load(),
-		Queued: c.queue.Len() + c.lowQueue.Len(), Dropped: c.dropped.Load(), Failing: len(c.cov.problems()), Workload: c.wm.stats(), Evidence: c.em.stats(c.eventsSource()),
+		Queued: c.queue.Len() + c.lowQueue.Len() + c.cfgQueue.Len(), Dropped: c.dropped.Load(), Failing: len(c.cov.problems()), Workload: c.wm.stats(), Evidence: c.em.stats(c.eventsSource()),
 	}
 }
 
@@ -463,6 +481,15 @@ func (c *Collector) Problems() []Problem { return c.cov.problems() }
 func (c *Collector) Run(ctx context.Context) error {
 	defer c.queue.ShutDown()
 	defer c.lowQueue.ShutDown()
+	defer c.cfgQueue.ShutDown()
+	if c.watchConfigMaps {
+		// The key ConfigMap content is hashed under; the transforms need it before the first object arrives.
+		key, err := c.db.ConfigHashKey(ctx)
+		if err != nil {
+			return fmt.Errorf("the ConfigMap hash key: %w", err)
+		}
+		c.trim.key = key
+	}
 	for _, inf := range c.informers {
 		go inf.RunWithContext(ctx)
 	}
@@ -490,6 +517,9 @@ func (c *Collector) Run(ctx context.Context) error {
 		}
 		if err := c.reconcileAbsentWorkloadPods(ctx); err != nil {
 			c.log.Warn("reconciling Pods removed while not watching", "err", err)
+		}
+		if err := c.reconcileConfigRefs(ctx, store.KindStatefulSet, store.KindDaemonSet); err != nil {
+			c.log.Warn("ending references of workloads removed while not watching", "err", err)
 		}
 	})
 	for _, kind := range []string{ConfigMaps, Secrets} { // each on its own: one that cannot be read must not hold back the other
@@ -520,6 +550,9 @@ func (c *Collector) Run(ctx context.Context) error {
 	if err := c.reconcileAbsentDeployments(ctx); err != nil {
 		c.log.Warn("reconciling Deployments removed while not watching", "err", err)
 	}
+	if err := c.reconcileConfigRefs(ctx, store.KindDeployment, "CronJob"); err != nil {
+		c.log.Warn("ending references of workloads removed while not watching", "err", err)
+	}
 	go c.sweepReleases(ctx)
 	c.synced.Store(true)
 	c.log.Info("watches synced", "informers", len(c.informers))
@@ -528,9 +561,14 @@ func (c *Collector) Run(ctx context.Context) error {
 		<-ctx.Done()
 		c.queue.ShutDown()
 		c.lowQueue.ShutDown()
+		c.cfgQueue.ShutDown()
 	}()
 	go func() {
 		for c.next(ctx, c.lowQueue) {
+		}
+	}()
+	go func() {
+		for c.next(ctx, c.cfgQueue) {
 		}
 	}()
 	for c.next(ctx, c.queue) {

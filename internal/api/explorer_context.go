@@ -75,7 +75,7 @@ type RetentionSourceView struct {
 	CappedTotal   int64      `json:"cappedTotal"`
 }
 
-var retentionLabels = map[string]string{"log": "Log entries", "routine": "Pod lifecycle, Event, autoscaler and count entries", "evidence": "Kubernetes Events"}
+var retentionLabels = map[string]string{"log": "Log entries", "routine": "Pod lifecycle, Event, autoscaler, count and Helm release entries, folded writes", "evidence": "Kubernetes Events"}
 
 // retentionSources is cached for a minute: finding each source's oldest record walks the log, and it changes slowly.
 func (s *Server) retentionSources(ctx context.Context) []RetentionSourceView {

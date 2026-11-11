@@ -37,9 +37,10 @@ func (c *Collector) syncDeployment(ctx context.Context, it item) error {
 			at = msTime(it.deletedAt)
 		}
 		return c.db.Update(ctx, func(w *store.Writer) error {
-			if err := w.MarkWorkloadDeleted(ctx, string(it.uid), at); err != nil {
+			if err := w.MarkWorkloadDeleted(ctx, string(it.uid), at); err != nil { // ends its references too, recorded or not
 				return err
 			}
+			c.cfg.forgetRefs(string(it.uid))
 			return c.retireDeleted(ctx, w, string(it.uid), at, c.now())
 		})
 	}

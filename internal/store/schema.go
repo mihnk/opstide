@@ -410,7 +410,7 @@ DROP INDEX IF EXISTS evidence_explorer;
 CREATE INDEX evidence_record_key ON evidence(record_key, id);
 `,
 	// 8: ConfigMaps and Secrets. Only identity, when each was seen, and for a ConfigMap a hash of its content and the
-	// names of its keys: never a value, and for a Secret nothing beyond its metadata (OpsTide does not read its data).
+	// names of its keys: never a value, and for a Secret nothing beyond its metadata (OpsTide never requests its data).
 	// config_refs is which workloads' Pod templates name which ConfigMap or Secret, by name, as OpsTide last saw them.
 	`
 CREATE TABLE config_objects (
@@ -442,6 +442,22 @@ CREATE TABLE config_refs (
 	PRIMARY KEY (workload_id, ref_kind, ref_name)
 );
 CREATE INDEX config_refs_target ON config_refs(namespace, ref_kind, ref_name);
+`,
+	// 9: a ConfigMap's content hash is an HMAC under a key made for this install (kept in meta, never served), so a small
+	// value cannot be recovered by hashing guesses. Hashes made before (plain SHA-256) are dropped, not compared, and are
+	// kept out of record IDs. key_hashes holds the per-key HMACs, so the changed keys can be named after a restart;
+	// writes_seen holds, per field manager, the time of the newest write already handled, so a restart or a relist does
+	// not handle a write twice; helm_release marks Helm's release records. A Secret's write is one neutral type: managedFields cannot say its data changed.
+	`
+UPDATE config_objects SET content_hash = '';
+ALTER TABLE config_objects ADD COLUMN key_hashes TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE config_objects ADD COLUMN writes_seen TEXT NOT NULL DEFAULT '{}';
+-- 1 for Helm's release records (named sh.helm.release.v1.*, labelled owner=helm): routine volume, not configuration.
+ALTER TABLE config_objects ADD COLUMN helm_release INTEGER NOT NULL DEFAULT 0;
+UPDATE events SET id = 'configmap.data_changed/' || resource_uid || '/seq' || seq WHERE type = 'configmap.data_changed';
+UPDATE events SET type = 'secret.written' WHERE type IN ('secret.data_written', 'secret.metadata_written');
+CREATE INDEX config_objects_deleted ON config_objects(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX config_refs_ended ON config_refs(ended_at) WHERE ended_at IS NOT NULL;
 `,
 }
 
