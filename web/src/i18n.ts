@@ -60,7 +60,7 @@ export function setLang(l: Lang) {
 export const LANG_EVENT = 'opstide-lang'
 
 /** For tests. */
-export function useLangForTest(l: Lang) {
+export function setLangForTest(l: Lang) {
   current = l
 }
 

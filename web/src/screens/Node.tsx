@@ -46,10 +46,10 @@ export function Node({ id, tz }: { id: string; tz: string }) {
       <div className="two">
         <section aria-label={t('Scheduling')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h2 className="label section-title">{t('Scheduling')}</h2>
-          <p style={{ margin: 0 }}>
+          <div style={{ margin: 0 }}>
             <span className="mono">spec.unschedulable = {String(n.unschedulable)}</span>{' '}
             <Note more={t('The field alone does not say who or what set it, nor whether Pods can be scheduled here: taints and conditions are separate.')}>{t('as reported')}</Note>
-          </p>
+          </div>
         </section>
         <section aria-label={t('Conditions')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h2 className="label section-title">{t('Conditions as Kubernetes reported')}</h2>

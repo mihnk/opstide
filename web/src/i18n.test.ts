@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Exception, Range } from './api'
-import { t, tn, useLangForTest } from './i18n'
+import { t, tn, setLangForTest } from './i18n'
 import { tr } from './i18n/tr'
 import { exceptionText, rangeSentence } from './narrative'
 import { ago, duration, longDay } from './time'
 
-afterEach(() => useLangForTest('en'))
+afterEach(() => setLangForTest('en'))
 
 describe('interface language', () => {
   it('falls back to the English text, and fills values in', () => {
-    useLangForTest('tr')
+    setLangForTest('tr')
     expect(t('A phrase nobody translated')).toBe('A phrase nobody translated')
     expect(t('{n} failed', { n: 3 })).toBe('3 başarısız')
     expect(tn(1, '{n} gap', '{n} gaps')).toBe('1 boşluk')
-    useLangForTest('en')
+    setLangForTest('en')
     expect(tn(2, '{n} gap', '{n} gaps')).toBe('2 gaps')
   })
 
@@ -26,7 +26,7 @@ describe('interface language', () => {
   })
 
   it('builds the Overview sentences in Turkish', () => {
-    useLangForTest('tr')
+    setLangForTest('tr')
     const r = {
       from: '2026-11-06T00:00:00Z', to: '2026-11-07T00:00:00Z', now: '2026-11-06T14:55:00Z', gaps: [],
       counts: { observed: 12, succeeded: 10, failed: 2, running: 0, unknown: 0, missed: 0, skipped: 0, unconfirmed: 0, stillDue: 5 },
@@ -39,7 +39,7 @@ describe('interface language', () => {
   })
 
   it('writes dates and lengths in Turkish', () => {
-    useLangForTest('tr')
+    setLangForTest('tr')
     expect(longDay('2026-11-06T12:00:00Z', 'UTC')).toBe('6 Kasım Cuma')
     expect(duration(937)).toBe('15dk 37sn')
     expect(ago('2026-11-06T12:00:00Z', Date.parse('2026-11-06T12:03:00Z'))).toBe('3 dk önce')

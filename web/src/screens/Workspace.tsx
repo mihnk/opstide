@@ -110,9 +110,9 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
         <ZoneSelect tz={tz} setTz={setTz} />
         <Link href="/explorer" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>{t('Back to Explorer')}</Link>
       </div>
-      <p className="muted" style={{ margin: 0, maxWidth: 820 }}>
+      <div className="muted" style={{ margin: 0, maxWidth: 820 }}>
         {t('Kept in this tab only; nothing is saved on the server. Up to {max} records.', { max: WORKSPACE_MAX })} <Note more={t('OpsTide counts what is here and says where its watching was not whole; it does not tell you what it means.')}>{t('Counts, not conclusions')}</Note>
-      </p>
+      </div>
       {error && <Failed error={error} />}
 
       {ids.length === 0 ? (

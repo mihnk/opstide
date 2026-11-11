@@ -57,13 +57,28 @@ func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retenti
 			r.Events += n
 			r.Capped["routine"] += n
 		}
-		var capLog int64
-		if err := exec(&capLog, `DELETE FROM events WHERE seq IN (
-	SELECT seq FROM events ORDER BY at DESC, seq DESC LIMIT -1 OFFSET ?)`, maxEvents); err != nil {
+		// The overall budget can still reach routine entries (when they share it, or are newer than what is left of
+		// the rest); each removed entry is credited to its own source, so System says which history was cut short. The
+		// newest entry past the budget is found once; it and everything older go.
+		var cutAt, cutSeq int64
+		switch err := w.tx.QueryRowContext(ctx, `SELECT at, seq FROM events ORDER BY at DESC, seq DESC LIMIT 1 OFFSET ?`, maxEvents).Scan(&cutAt, &cutSeq); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
 			return err
+		default:
+			const past = `(at < ? OR (at = ? AND seq <= ?))`
+			var capRoutine int64
+			if err := w.tx.QueryRowContext(ctx, `SELECT count(*) FROM events WHERE `+routineEntries+` AND `+past, cutAt, cutAt, cutSeq).Scan(&capRoutine); err != nil { //nolint:gosec // constant clauses
+				return err
+			}
+			var capAll int64
+			if err := exec(&capAll, `DELETE FROM events WHERE `+past, cutAt, cutAt, cutSeq); err != nil {
+				return err
+			}
+			r.Events += capAll
+			r.Capped["routine"] += capRoutine
+			r.Capped["log"] += capAll - capRoutine
 		}
-		r.Events += capLog
-		r.Capped["log"] += capLog
 		if err := exec(&r.Runs, `DELETE FROM runs WHERE coalesce(finished_at, created_at) < ? AND status IN ('succeeded', 'failed', 'unknown')`, cut); err != nil {
 			return err
 		}

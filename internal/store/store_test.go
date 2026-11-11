@@ -1245,3 +1245,32 @@ func TestARoutineBurstDoesNotEvictTheRestOfTheLog(t *testing.T) {
 		t.Fatalf("what the routine budget keeps starts with the newest ten: %v", by["routine"].RetainedSince)
 	}
 }
+
+// When routine entries share the one budget, what the overall cap removes is credited to the source it came from: a
+// burst of Pod entries pushed out by the cap is "routine", and only the Job entries it reaches are "log".
+func TestTheOverallCapCreditsEachSource(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		for i := 0; i < 4; i++ {
+			id := fmt.Sprintf("job%d", i)
+			if _, err := w.AddEvent(ctx, Event{ID: id, Type: "job.failed", Namespace: "ns", Kind: "Job", ResourceUID: id, ResourceName: id, OccurredAt: t0.Add(time.Duration(i) * time.Minute), ObservedAt: t0, Severity: "info", Confidence: Observed, Summary: id}); err != nil {
+				return err
+			}
+		}
+		for i := 0; i < 6; i++ {
+			id := fmt.Sprintf("pod%d", i)
+			if _, err := w.AddEvent(ctx, Event{ID: id, Type: "pod.created", Namespace: "ns", Kind: "Pod", ResourceUID: id, ResourceName: id, OccurredAt: t0.Add(10*time.Minute + time.Duration(i)*time.Second), ObservedAt: t0, Severity: "info", Confidence: Observed, Summary: id}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	// One shared budget of 3: the three newest Pod entries stay; three older Pod entries and all four Job entries go.
+	r, err := s.PruneBudgets(ctx, t0.AddDate(0, 0, -30), Retention{MaxEvents: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Capped["routine"] != 3 || r.Capped["log"] != 4 || r.Events != 7 {
+		t.Fatalf("%+v", r)
+	}
+}

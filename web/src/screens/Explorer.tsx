@@ -301,9 +301,9 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
       {data && (
         <div className="split">
           <section aria-label={t('Timeline')} className="main">
-            <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
+            <div className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
               {hhmmss(data.from, tz)} {isoDate(data.from, tz)} → {hhmmss(data.to, tz)} {isoDate(data.to, tz)} · {t('newest first')} · <Note more={data.orderBasis}>{t('record time order')}</Note>
-            </p>
+            </div>
             {records.length === 0 && data.empty && (
               <div className={`empty-box ${data.empty.kind}`} role="status">
                 <span className="label">{emptyTitle[data.empty.kind]}</span>

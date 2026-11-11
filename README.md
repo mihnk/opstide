@@ -260,6 +260,16 @@ make run CONTEXT=kind-dev    # another context
 For UI work, run `npm run dev` in `web/` next to `make run`: Vite serves
 the app with hot reload and proxies `/api` to the collector.
 
+`npm test` in `web/` also draws every screen, in English and in Turkish,
+against API answers recorded from the demo (`web/src/test/demo-api.json`); a
+screen fails if it throws, logs a React error or says it could not load. When
+the API changes, record them again with a demo running:
+
+```bash
+go run ./cmd/opstide -demo -listen 127.0.0.1:18400 &
+cd web && node scripts/record-ui-fixtures.cjs http://127.0.0.1:18400 src/test/demo-api.json
+```
+
 Probes: `/healthz` (process), `/readyz` (watches synced and storage
 writable). They, the page and its scripts need no token; everything else does
 when one is set (`-token-file`, or `OPSTIDE_TOKEN` for a quick try). Listening
