@@ -23,6 +23,8 @@ const (
 	defAnnotationLimit  = 500
 	maxAnnotationLimit  = 1000
 	annotationPageLimit = 500 // the Explorer's page size; longer answers are read page by page
+	// maxGapRegions is how many not-watched regions one answer draws; past it a notice region covers the rest.
+	maxGapRegions = 500
 )
 
 // Annotation kinds, in the order the kinds parameter names them.
@@ -61,6 +63,9 @@ func annotationTime(r *http.Request, name string) (time.Time, error) {
 	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 		if n < 0 || n > 1<<45 {
 			return time.Time{}, badRequest(name + " is out of range")
+		}
+		if n < 1e11 { // before 1973 in milliseconds, but a time of this century in seconds
+			return time.Time{}, badRequest(name + " looks like epoch seconds; send milliseconds")
 		}
 		return time.UnixMilli(n).UTC(), nil
 	}
@@ -272,7 +277,8 @@ func (s *Server) recordAnnotation(rec ExplorerRecord) Annotation {
 	if s.cfg.PublicURL != "" {
 		text += ` <a href="` + html.EscapeString(link) + `">Open in OpsTide</a>`
 	}
-	return Annotation{Time: rec.At.UnixMilli(), Title: rec.Summary, Text: text, Tags: tags, Kind: kind, RecordID: rec.ID, Provenance: rec.Provenance,
+	// The summary carries cluster-controlled strings (field managers, Event reasons, object names): escaped like the text.
+	return Annotation{Time: rec.At.UnixMilli(), Title: html.EscapeString(rec.Summary), Text: text, Tags: tags, Kind: kind, RecordID: rec.ID, Provenance: rec.Provenance,
 		Namespace: rec.Resource.Namespace, URL: link}
 }
 
@@ -295,6 +301,16 @@ func (s *Server) gapAnnotations(r *http.Request, q annotationQuery, groups []str
 		switch sc.State {
 		case CovGap:
 			gs = sc.Gaps
+		case CovBeforeFirst:
+			// This watch began after the range (or has not begun) while others were on: the whole range is not
+			// watched for it, so a quiet graph is not read as a calm one. A watch turned off (CovDisabled) is a setting.
+			end := q.to
+			if c.Now.Before(end) {
+				end = c.Now
+			}
+			if end.After(q.from) {
+				gs = []Span{{q.from, end}}
+			}
 		case CovUnavailable:
 			end := q.to
 			if c.Now.Before(end) {
@@ -349,6 +365,16 @@ func (s *Server) gapAnnotations(r *http.Request, q annotationQuery, groups []str
 		}
 		regions = append(regions, region{p.sp, map[string]bool{p.label: true}})
 	}
+	// A range with very many short stretches is not drawn region by region: past maxGapRegions one notice covers the
+	// rest of the range, so nothing there reads as watched.
+	var capped *Span
+	if len(regions) > maxGapRegions {
+		capped = &Span{regions[maxGapRegions-1].sp.From, q.to}
+		if c.Now.Before(capped.To) && c.Now.After(capped.From) {
+			capped.To = c.Now
+		}
+		regions = regions[:maxGapRegions-1]
+	}
 	for _, rg := range regions {
 		labels := make([]string, 0, len(rg.labels))
 		for l := range rg.labels {
@@ -361,6 +387,13 @@ func (s *Server) gapAnnotations(r *http.Request, q annotationQuery, groups []str
 		}
 		out = append(out, s.gapAnnotation(rg.sp, q, "OpsTide was not watching",
 			"Not watched: "+list+". Records from this stretch may be missing; a quiet graph here is not proof that nothing happened."))
+	}
+	if capped != nil {
+		a := s.gapAnnotation(*capped, q, "More stretches not watched than can be drawn",
+			"From here on OpsTide was not watching in more than "+itoa(maxGapRegions-1)+" separate stretches; they are not drawn one by one. Records from this part of the range may be missing. Narrow the range to see each stretch.")
+		a.Kind = annoNotice
+		a.Tags = append(a.Tags, annoNotice)
+		out = append(out, a)
 	}
 	for _, b := range c.Bands {
 		switch b.Kind {
@@ -392,7 +425,14 @@ func (s *Server) gapAnnotation(sp Span, q annotationQuery, title, text string) A
 // namespace, the windows that cover it). They say work was planned then, as declared; not what it did.
 func (s *Server) maintenanceAnnotations(q annotationQuery) []Annotation {
 	var out []Annotation
-	for _, sp := range s.maintenanceSpans(q.from, q.to, q.namespace) {
+	spans, truncated := s.maintenanceSpans(q.from, q.to, q.namespace)
+	if truncated {
+		// Some occurrences are not drawn: a notice over the range says so.
+		link := s.publicLink(explorerPath(q.from, q.to, q.namespace, "", ""))
+		out = append(out, Annotation{Time: q.from.UnixMilli(), TimeEnd: q.to.UnixMilli(), Kind: annoNotice, Tags: []string{"opstide", annoNotice, annoMaintenance},
+			Title: "More maintenance window occurrences than are drawn", Text: html.EscapeString(maintenanceTruncatedNote), Namespace: q.namespace, URL: link})
+	}
+	for _, sp := range spans {
 		where := "the whole cluster"
 		if len(sp.Namespaces) > 0 {
 			where = "namespaces " + strings.Join(sp.Namespaces, ", ")
@@ -411,7 +451,7 @@ func (s *Server) maintenanceAnnotations(q annotationQuery) []Annotation {
 		for _, ns := range sp.Namespaces {
 			tags = append(tags, "namespace:"+ns)
 		}
-		out = append(out, Annotation{Time: sp.From.UnixMilli(), TimeEnd: sp.To.UnixMilli(), Title: "Maintenance: " + sp.Name, Text: t, Tags: tags,
+		out = append(out, Annotation{Time: sp.From.UnixMilli(), TimeEnd: sp.To.UnixMilli(), Title: html.EscapeString("Maintenance: " + sp.Name), Text: t, Tags: tags,
 			Kind: annoMaintenance, Provenance: ProvDerived, Namespace: q.namespace, URL: link})
 	}
 	return out

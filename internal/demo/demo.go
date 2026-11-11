@@ -203,11 +203,11 @@ func cronJobs(s *seeder) error {
 		}
 		// The job template's images: already named when OpsTide began; the archiver's moved to 0.9 two days ago.
 		img := templateImages[j.id]
-		if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[0]}}, store.OriginAdopted, s.ago(jobsWatched)); err != nil {
+		if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[0]}}, store.OriginAdopted, s.ago(jobsWatched), false); err != nil {
 			return err
 		}
 		if len(img) > 1 {
-			if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[1]}}, store.OriginObserved, s.ago(48*time.Hour)); err != nil {
+			if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[1]}}, store.OriginObserved, s.ago(48*time.Hour), false); err != nil {
 				return err
 			}
 		}

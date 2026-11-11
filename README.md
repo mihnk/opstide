@@ -333,33 +333,46 @@ maintenance:
     - name: orders-db migration
       start: "2026-11-21T22:00:00Z"   # one-off: RFC 3339
       end: "2026-11-22T01:00:00Z"
-      namespaces: [data]             # empty: the whole cluster, cluster-scoped records (Nodes) included
+      namespaces: [data]             # left out or []: the whole cluster, cluster-scoped records (Nodes) included
 ```
 
 The chart renders them into a ConfigMap the binary reads at start (`-maintenance-file`, `OPSTIDE_MAINTENANCE_FILE`) and
 restarts the pod when they change. They are never edited in the UI or the API. Each is checked strictly when OpsTide
 starts: an unknown field, a time or cron that does not parse, a cron that never fires, a one-off longer than 31 days or a
-recurring duration outside 1 minute to 168 hours, a namespace that is not a namespace name, a name used twice or more
-than 100 windows, and OpsTide refuses to start with the window named in the error. A recurring window's occurrences
-follow daylight saving in its zone (an occurrence at a time the clocks skip does not happen; one in a repeated hour
-happens twice), and one question expands at most 1,000 occurrences of a window.
+recurring duration outside 1 minute to 168 hours, a recurring duration longer than the time between two of its starts
+(occurrences would overlap: `* * * * *` takes at most `1m`), a namespace that is not a namespace name, a name used
+twice or more than 100 windows, and OpsTide refuses to start with the window named in the error. A recurring window's
+occurrences follow daylight saving in its zone, unlike a CronJob: a start at a wall time the clocks skip (`30 2 * * *`
+on the spring-forward night in America/New_York) opens the window at the first instant that exists after it (03:00),
+and a start in a repeated hour (`30 1 * * *` on the fall-back night) opens it once, at the first 01:30. One question
+expands at most 1,000 occurrences of a window and 10,000 in all; when a range holds more, the answer says the list is
+incomplete (`maintenanceTruncated` on the Overview, `maintenanceWindowsTruncated` in *Recorded before this*, a
+`notice` region in Grafana), and records are still marked correctly. System flags a window that names a namespace
+OpsTide does not watch.
 
 **Nothing is hidden.** A record whose time falls inside a window that covers its namespace gets the window as context:
 `maintenance: {name, from, to, provenance: DERIVED, statement: "inside maintenance window <name>"}` on the API's records,
-never written into the stored record. Where it shows:
+never written into the stored record. A Kubernetes Event about a cluster-scoped object (a Node, a Namespace, a
+PersistentVolume, a ClusterRole …) is stored by Kubernetes in `default` but matched as cluster-scoped: only a
+cluster-wide window covers it. Where it shows:
 
 - **Overview**: windows are a tinted band on the lanes they cover (not the grey hatch of "not watching"); an exception
-  inside one is still listed, labelled *during maintenance <name>* and after the others; a run that did not start in
-  one says so.
+  inside one is still listed, still red when it is a failure, labelled *during maintenance <name>* and after the
+  others. A grouped exception (a failure streak, several failed runs) is labelled only when every run in it falls in
+  the same occurrence; otherwise the runs inside and outside are separate entries (a streak stays one, unlabelled).
+  Missed runs are grouped per occurrence. A stretch OpsTide was not watching is never labelled or moved down.
 - **Schedules**: under *Needs a look*, a CronJob that needs a look only for what happened during maintenance is
-  labelled with the window and listed after the others.
+  labelled with the window and listed after the others, its reasons still in red; a run not confirmed because OpsTide
+  was not watching is never put down to maintenance.
 - **Explorer**: a chip on each record inside a window, the window in the record's details and in *Recorded before this*,
   and a filter *Outside maintenance only* (off by default; `maintenance=outside`) that leaves them out of the list,
-  not out of the record.
+  not out of the record, and says how many it left out (`suppressedMaintenance`).
 - **Grafana annotations**: `kinds=maintenance` gives one region per occurrence (in the default kinds); a change or
   failure inside one is tagged `maintenance:<name>`.
-- **System** lists the windows and their next occurrences, and `/metrics` has `opstide_maintenance_active{name}`, 1
-  while a window is open, so an alert rule can hold back during it:
+- **System** lists the windows and their next occurrences, and `/metrics` has `opstide_maintenance_active{name,scope}`,
+  1 while a window is open somewhere in its scope (`scope` is `cluster`, or the window's namespaces sorted and joined
+  with commas: a namespaced window being open says nothing about other namespaces), so an alert rule can hold back
+  during it:
 
   ```promql
   ... unless on() opstide_maintenance_active{name="Saturday node upgrade"} == 1
@@ -372,23 +385,42 @@ A window says work was planned then, as declared. It is not evidence of what the
 "What version was running in prod last Tuesday at 10:00?" and "where does image X run?" OpsTide answers both from what
 it already records, with no watch of its own:
 
-- **Deployments**: each release's ReplicaSet Pod template, seen live (`OBSERVED`), with the image ID a Pod reported when
-  one did;
-- **StatefulSets and DaemonSets**: each ControllerRevision's template (`DERIVED`: the newest revision's template; Pods
-  held back by a partition, OnDelete or a slow rollout can still run an earlier one);
-- **CronJobs**: the job template, recorded from the upgrade that added this (schema 12) on (`OBSERVED`; a CronJob's
-  Jobs run it when the schedule fires).
+- **Deployments**: each release's ReplicaSet Pod template, with the image ID a Pod reported when one did;
+- **StatefulSets and DaemonSets**: each ControllerRevision's template (Pods held back by a partition, OnDelete or a
+  slow rollout can still run an earlier one);
+- **CronJobs**: the job template, recorded from the upgrade that added this (schema 12) on (a CronJob's Jobs run it
+  when the schedule fires).
+
+Each use carries two provenances: `templateProvenance` is `OBSERVED` (OpsTide saw the template name the image, in a
+live object), and `provenance`, of the stretch (since and until), is `DERIVED` (a rule applied to when revisions became
+current), or `UNKNOWN` when the revision's rollout failed (its Pods may never have run it) or a time is not known. A
+stalled rollout stays `DERIVED`, with a note.
 
 A *use* is one container of one workload running one image: **since** the revision that gave it the image became
 current (Kubernetes' creation time of the revision; when OpsTide saw it become current after a rollback; or, for
 something already in use when OpsTide first recorded it, that time, marked as such), **until** a newer revision gave the
-container another image, removed the container, or the workload was deleted. Init containers are labelled. An image is
-shown as written (`repository[:tag][@digest]`); a missing tag is not filled in.
+container another image, removed the container, or the workload was deleted. A rollback OpsTide did not see is dated
+when it found it (`first_recorded`), and the use before it ended *by* then (`untilBasis: unknown`); with no usable
+time at all, `since` is null (`sinceBasis: unknown`, `sinceAfter` the time it is known to be after), never a copy of
+another time. A StatefulSet or DaemonSet rolled back to an earlier ControllerRevision keeps that revision's earlier
+stretch (Kubernetes renumbers it in place). A CronJob template row says why it ended (`replaced`,
+`container_removed`, `workload_deleted`, schema 13); a change found at the first sync after OpsTide was not watching
+opens the new image as `first_recorded` and ends the old one with an unknown time. A use still open in a namespace
+OpsTide no longer watches is not called current (`untilBasis: unknown`). Init containers are labelled. An image is
+shown as written (`repository[:tag][@digest]`); a missing tag is not filled in, and one as long as OpsTide stores (253
+bytes in a revision, 512 in a CronJob template) is flagged `imageTruncated`.
 
 `GET /api/v1/images?at=` answers for the revision each workload had then. When OpsTide was not watching then (a gap,
-before it first watched), each use is `UNKNOWN` and the answer says why; older than `retention.days`, revisions replaced
-since are no longer held and the answer says so (`coverage.state: outside_retention`) rather than show a guess. Times are
-those of revisions, not of Pods pulling images.
+before it first watched), each use is `UNKNOWN` and the answer says why; a use whose time is not known that may have
+been current then is listed as `UNKNOWN`; a workload whose held revisions all start after `at` (and whose first
+revision is not among them) is listed under `unknown`, never left out as if it ran nothing. Revisions are kept until
+they *stopped* being current longer ago than `retention.days`; older than that, the answer says so (`coverage.state:
+outside_retention`) rather than show a guess. Times are those of revisions, not of Pods pulling images. Notes come
+both as English (`notes`, `note`) and as codes with values (`noteCodes`, `notes` on each use: `adopted_created`,
+`rollout_state`, `controller_revision`, `cronjob_template`, `cronjob_adopted`, `rollback_found`, `since_unknown`,
+`earlier_period`, `until_unknown`, `changed_while_unwatched`, `namespace_not_watched`, `image_truncated`, `coverage`,
+`cronjob_images_since`, `no_record`, `revision_times`, `uncertain_at`, `workloads_history_starts`), which the UI words
+in the reader's language.
 
 ## Grafana annotations
 
@@ -457,14 +489,22 @@ and failures; when there were more, a `notice` region covers the part of the ran
 Gaps are the watches the drawn records come from (every watch with `kinds=gaps` alone) that were not watched, merged
 into one region per stretch with the watches named, plus the parts of the range before OpsTide first watched or
 older than it keeps. A watch that is turned off (Nodes, Secret metadata) is a setting, shown on System, and is not
-drawn. The request needs the token like the rest of the API.
+drawn. More than 500 not-watched stretches in one answer are not drawn one by one: past the 499th a `notice` region covers
+the rest of the range. A Warning Event that keeps repeating (a crash loop's `BackOff`) is one record and is drawn once,
+at its first occurrence; its later repeats are not drawn, and a range that starts after its first occurrence does not
+show it. `from` and `to` below 10¹¹ are refused as epoch seconds (send milliseconds). The request needs the token like
+the rest of the API.
 
 ## Upgrading
 
 - **ConfigMaps are watched from the upgrade on.** The `configmaps` watch (on by default) begins when the upgraded pod
   starts, so any time before that shows as *not watched* for ConfigMaps, and ConfigMaps already there are a baseline.
 - **CronJob images are recorded from the upgrade on** (schema 12, a new table): the image inventory holds no CronJob
-  image from before it and says so. Deployments', StatefulSets' and DaemonSets' images come from revisions already held.
+  image from before it and says so.
+- **Schema 13** records why a CronJob template image row ended; rows ended before it say `workload_deleted` when the
+  CronJob's deletion matches, and otherwise read as replaced (when the next image starts there) or ended at a time not
+  known. Release and ControllerRevision history is now kept until a revision stopped being current more than
+  `retention.days` ago (before, by when it was first seen), so the database can hold a little more. Deployments', StatefulSets' and DaemonSets' images come from revisions already held.
 - **The run-time trend adds an index on runs** (schema 11) when the upgraded pod first starts; like any migration it
   first copies the database to `opstide.db.pre-v10`.
 - **`rbac.create=false`**: add `list` and `watch` on `configmaps` to the role you manage, or set `watch.configMaps=false`;
@@ -550,8 +590,8 @@ not your cluster: `opstide_ready`, `opstide_last_heartbeat_timestamp_seconds`
 `opstide_collector_queue_length`, `opstide_store_events`,
 `opstide_store_bytes`, `opstide_store_wal_bytes`,
 `opstide_store_oldest_event_timestamp_seconds`, `opstide_build_info`,
-`opstide_maintenance_active{name}` (1 while a configured [maintenance window](#maintenance-windows) is open, one series per
-window) and `opstide_http_requests_total` by kind of request and status code. A scrape
+`opstide_maintenance_active{name,scope}` (1 while a configured [maintenance window](#maintenance-windows) is open somewhere
+in its scope, `cluster` or its namespaces; one series per window) and `opstide_http_requests_total` by kind of request and status code. A scrape
 config with the token:
 
 ```yaml

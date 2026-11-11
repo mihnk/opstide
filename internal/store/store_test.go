@@ -174,7 +174,7 @@ func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Take it back to version 1, as a database written before the indexes would be.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 1`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 1`); err != nil {
 		t.Fatalf("rewinding to version 1: %v", err)
 	}
 	s.Close()
@@ -767,7 +767,8 @@ func TestRetentionKeepsLivePodsOfAReusedReplicaSet(t *testing.T) {
 	s, ctx := open(t)
 	old := releaseFixture("old", "rsA", 1, t0.AddDate(0, 0, -60))
 	other := releaseFixture("other", "rsB", 2, t0.AddDate(0, 0, -50))
-	back := releaseFixture("back", "rsA", 3, t0.Add(-time.Hour)) // the newest: always kept
+	other.SupersededAt = t0.AddDate(0, 0, -40)                      // replaced before the cut: it goes
+	back := releaseFixture("back", "rsA", 3, t0.AddDate(0, 0, -40)) // the newest: always kept
 	update(t, s, func(w *Writer) error {
 		for _, r := range []Release{old, other, back} {
 			if err := w.UpsertRelease(ctx, r); err != nil {
@@ -807,7 +808,7 @@ func TestMigrationFourKeepsReleasesOnTheirOwnRules(t *testing.T) {
 	}
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin; DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
 DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id;
-DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 3`); err != nil {
+DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 3`); err != nil {
 		t.Fatalf("rewinding to version 3: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO releases (id, workload_id, namespace, workload, revision, revision_num, replicaset_uid, replicaset_name, fingerprint, origin,
@@ -907,7 +908,7 @@ func TestMigrationFiveKeepsDeploymentsAndNamesTheirEntries(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners;
 DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin;
 DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
-DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 4`); err != nil {
+DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 4`); err != nil {
 		t.Fatalf("rewinding to version 4: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at) VALUES ('d1','ns','api',1,1)`); err != nil {
@@ -1077,7 +1078,7 @@ func TestMigrationSixKeepsDeploymentsFromLookingRecentlyChanged(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
 		t.Fatalf("rewinding to version 5: %v", err)
 	}
 	s.Close()
@@ -1120,7 +1121,7 @@ func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -1161,7 +1162,7 @@ func TestDatabaseIsBackedUpBeforeMigrating(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An older schema, as after an upgrade of OpsTide.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -1272,5 +1273,103 @@ func TestTheOverallCapCreditsEachSource(t *testing.T) {
 	}
 	if r.Capped["routine"] != 3 || r.Capped["log"] != 4 || r.Events != 7 {
 		t.Fatalf("%+v", r)
+	}
+}
+
+// Retention keeps a revision by when it stopped being current, not by when it was first seen: a release or
+// ControllerRevision seen 60 days ago that was current until 10 days ago stays (with a 30-day cut); one replaced 40
+// days ago goes. A rollback that renumbered a ControllerRevision 10 days ago keeps the one it replaced.
+func TestRetentionKeepsRevisionsCurrentInsideTheKeptHistory(t *testing.T) {
+	s, ctx := open(t)
+	a := releaseFixture("a", "rsA", 1, t0.AddDate(0, 0, -70))
+	a.SupersededAt = t0.AddDate(0, 0, -60)
+	b := releaseFixture("b", "rsB", 2, t0.AddDate(0, 0, -60))
+	b.StartedAt = t0.AddDate(0, 0, -60)
+	c := releaseFixture("c", "rsC", 3, t0.AddDate(0, 0, -10)) // b's superseded_at was never set: c's start ends it
+	c.StartedAt = t0.AddDate(0, 0, -10)
+	update(t, s, func(w *Writer) error {
+		for _, r := range []Release{a, b, c} {
+			if err := w.UpsertRelease(ctx, r); err != nil {
+				return err
+			}
+		}
+		if err := w.UpsertWorkload(ctx, Workload{ID: "ss", Kind: "StatefulSet", Namespace: "ns", Name: "db", FirstSeen: t0.AddDate(0, 0, -70), LastSeen: t0}); err != nil {
+			return err
+		}
+		return nil
+	})
+	addAt := func(at time.Time, v WorkloadRevision) {
+		s.now = func() time.Time { return at }
+		update(t, s, func(w *Writer) error { _, err := w.AddRevision(ctx, v); return err })
+	}
+	rev := func(id string, n int64, created time.Time) WorkloadRevision {
+		return WorkloadRevision{ID: id, WorkloadID: "ss", Kind: "StatefulSet", Name: id, Number: n, CreatedAt: created, ObservedAt: created, Origin: OriginObserved, Fingerprint: id, Snapshot: "{}"}
+	}
+	addAt(t0.AddDate(0, 0, -70), rev("v1", 1, t0.AddDate(0, 0, -70)))
+	addAt(t0.AddDate(0, 0, -65), rev("v2", 2, t0.AddDate(0, 0, -65)))
+	addAt(t0.AddDate(0, 0, -60), rev("v3", 3, t0.AddDate(0, 0, -60)))
+	addAt(t0.AddDate(0, 0, -10), rev("v1", 4, t0.AddDate(0, 0, -70))) // a rollback to v1, 10 days ago: renumbered in place
+	s.now = func() time.Time { return t0 }
+	if _, err := s.Prune(ctx, t0.AddDate(0, 0, -30), 1000); err != nil {
+		t.Fatal(err)
+	}
+	revs, err := s.ImageRevisions(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, r := range revs {
+		ids = append(ids, r.ID)
+	}
+	sort.Strings(ids)
+	if got := strings.Join(ids, ","); got != "b,c,v1,v3" {
+		t.Fatalf("held %s", got)
+	}
+}
+
+// Migration 13 records why a CronJob template image row ended; rows ended before it say workload_deleted when the
+// CronJob's deletion matches their end, and nothing (not known) otherwise.
+func TestMigration13RecordsWhyTemplateRowsEnded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v12.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := t0.Add(-time.Hour)
+	if err := s.Update(ctx, func(w *Writer) error {
+		if err := w.UpsertOperation(ctx, Operation{ID: "cj", Namespace: "data", Name: "backup", Schedule: "0 * * * *", ConcurrencyPolicy: "Allow", CreatedAt: t0.AddDate(0, 0, -3), FirstSeenAt: t0.AddDate(0, 0, -3), LastSeenAt: t0}); err != nil {
+			return err
+		}
+		for _, id := range []string{"cj", "cj2"} {
+			if err := w.SetTemplateImages(ctx, id, "CronJob", "data", id, []TemplateContainer{{Name: "c", Image: "x:1"}}, OriginObserved, t0.AddDate(0, 0, -2), false); err != nil {
+				return err
+			}
+		}
+		if err := w.SetTemplateImages(ctx, "cj2", "CronJob", "data", "cj2", nil, OriginObserved, t0.AddDate(0, 0, -1), false); err != nil {
+			return err
+		}
+		return w.MarkOperationDeleted(ctx, "cj", gone)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE template_images DROP COLUMN end_reason; PRAGMA user_version = 12`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ts, err := s.TemplateImages(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, ti := range ts {
+		got[ti.WorkloadID] = ti.EndReason
+	}
+	if got["cj"] != TemplateEndWorkloadDeleted || got["cj2"] != "" {
+		t.Fatalf("%v", got)
 	}
 }

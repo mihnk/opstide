@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { imageRef, query, type ImageDetail, type ImageGroup, type ImageList, type ImageUse } from '../api'
+import { imageRef, query, type ImageCoverage, type ImageDetail, type ImageGroup, type ImageList, type ImageNote, type ImageUse } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { Note } from '../components/Note'
 import { provWord } from '../explorer'
-import { t, tn } from '../i18n'
+import { locale, t, tn } from '../i18n'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { offset, relativeTime, utcToZoned, zonedToUtc } from '../time'
@@ -16,26 +16,81 @@ const sinceWords: Record<ImageUse['sinceBasis'], string> = {
   created: 'when the revision was created, as Kubernetes reported it',
   observed: 'when OpsTide saw it become current',
   first_recorded: 'when OpsTide first recorded it; it was in use before that',
+  unknown: 'when it became current is not known',
 }
 const untilWords: Record<NonNullable<ImageUse['untilBasis']>, string> = {
   replaced: 'replaced by a newer revision',
   container_removed: 'the container was removed',
   workload_deleted: 'the workload was deleted',
+  unknown: 'it stopped being current; when is not known',
 }
-const coverageWords: Record<ImageList['coverage']['state'], string> = {
+const coverageWords: Record<ImageCoverage['state'], string> = {
   watching: 'watching', gap: 'gap', before_first_observation: 'before first observation', outside_retention: 'outside retention',
+}
+const coverageNotes: Record<ImageCoverage['state'], string> = {
+  watching: 'OpsTide was watching the workloads and their revisions at this time.',
+  gap: 'OpsTide was not watching all of these workloads at this time: a revision that came and went then may not have been recorded.',
+  before_first_observation: 'This is before OpsTide first watched these workloads. A revision it found already there is shown with Kubernetes\' creation time, but whether another was current then is not known.',
+  outside_retention: 'This is older than the {days} days of history OpsTide keeps. Revisions replaced since then are no longer held, so what ran then is not known; nothing is shown as if it were.',
+}
+
+/** A coded note from the API, worded in the reader's language. Unknown codes fall back to the API's English. */
+export function noteWords(n: ImageNote, cov?: ImageCoverage, tz = 'UTC'): string {
+  const p = n.params ?? {}
+  const when = (v?: string) => (v ? new Date(v).toLocaleString(locale(), { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' }) : '')
+  switch (n.code) {
+    case 'adopted_created': return t('Created before OpsTide watched: the time is Kubernetes\' creation time of the revision.')
+    case 'rollout_state': return p.state === 'failed' ? t('The rollout of this revision was recorded as failed; its Pods may not all have run it.') : t('The rollout of this revision was recorded as stalled; its Pods may not all have run it.')
+    case 'controller_revision': return t('From the newest ControllerRevision\'s template: Pods held back by a partition, OnDelete or a slow rollout can still run an earlier revision.')
+    case 'cronjob_template': return t('A CronJob\'s template: its Jobs run this image when the schedule fires.')
+    case 'cronjob_adopted': return t('The CronJob already named this image when OpsTide first recorded its template; since when is not known.')
+    case 'rollback_found': return t('Made current again by a rollback OpsTide did not see: since is when it found it current, not when the rollback happened.')
+    case 'since_unknown': return p.after ? t('When this became current is not known (some time after {time}).', { time: when(p.after) }) : t('When this became current is not known.')
+    case 'earlier_period': return t('Before a rollback made this revision current again, it was current from its creation until the next revision: the earlier stretch.')
+    case 'until_unknown': return p.by ? t('It stopped being current by {time}; exactly when is not known.', { time: when(p.by) }) : t('It stopped being current; when is not known.')
+    case 'changed_while_unwatched': return t('The template was found changed after OpsTide was not watching: when the change happened is not known.')
+    case 'namespace_not_watched': return t('OpsTide no longer watches this namespace: whether this is still current is not known.')
+    case 'image_truncated': return t('The reference may have been cut at {n} bytes where OpsTide stores it; it is shown as stored.', { n: p.bytes ?? '' })
+    case 'coverage': return cov ? t(coverageNotes[cov.state], { days: cov.retentionDays }) : ''
+    case 'cronjob_images_since': return t('OpsTide records CronJob images since {time}; none is held from before, so CronJobs are missing here.', { time: when(p.since) })
+    case 'no_record': return t('OpsTide holds no record of this image in a workload it watches (within the {days} days it keeps). That says what was recorded, not that the image never ran.', { days: p.days ?? '' })
+    case 'revision_times': return t('Times are those of the workloads\' revisions: when a revision became current, not when each Pod pulled the image.')
+    case 'uncertain_at': return t('Some uses may or may not have been current at this time (a time not known); they are marked UNKNOWN.')
+    case 'workloads_history_starts': return t('{n} workloads have no revision held from this time: what they ran then is not known.', { n: p.n ?? '' })
+  }
+  return n.code
+}
+
+/** Unique per use, even when two share a workload, container and an unknown since. */
+function rowKeyOf(u: ImageUse, i: number): string {
+  return `${u.workloadId}/${u.init}/${u.container}/${u.since ?? u.sinceAfter ?? 'unknown'}/${u.fromRevision}/${i}`
+}
+
+function provTitleOf(u: ImageUse, tz: string): string | undefined {
+  const parts = (u.notes ?? []).map((n) => noteWords(n, undefined, tz)).filter(Boolean)
+  if (u.templateProvenance) parts.push(t('The template named this image: {p}. The stretch: {s}.', { p: provWord(u.templateProvenance), s: provWord(u.provenance) }))
+  return parts.length ? parts.join(' ') : u.note
 }
 
 function UseWhen({ u, now, tz }: { u: ImageUse; now: string; tz: string }) {
   return (
     <>
-      <span className="mono" title={t(sinceWords[u.sinceBasis])}>{relativeTime(u.since, now, tz)}{u.sinceBasis === 'first_recorded' ? ' *' : ''}</span>
+      {u.since
+        ? <span className="mono" title={t(sinceWords[u.sinceBasis])}>{relativeTime(u.since, now, tz)}{u.sinceBasis === 'first_recorded' ? ' *' : ''}</span>
+        : <span className="muted" title={t(sinceWords.unknown)}>{u.sinceAfter ? t('after {time}', { time: relativeTime(u.sinceAfter, now, tz) }) : t('not known')}</span>}
       <span className="muted"> → </span>
-      {u.until
-        ? <span className="mono" title={u.untilBasis ? t(untilWords[u.untilBasis]) : undefined}>{relativeTime(u.until, now, tz)}</span>
-        : <span className="muted">{t('still current')}</span>}
+      {u.untilBasis === 'unknown'
+        ? <span className="muted" title={t(untilWords.unknown)}>{u.until ? t('by {time}', { time: relativeTime(u.until, now, tz) }) : t('not known')}</span>
+        : u.until
+          ? <span className="mono" title={u.untilBasis ? t(untilWords[u.untilBasis]) : undefined}>{relativeTime(u.until, now, tz)}</span>
+          : <span className="muted">{t('still current')}</span>}
     </>
   )
+}
+
+function Notes({ notes, cov, tz, fallback }: { notes?: ImageNote[]; cov: ImageCoverage; tz: string; fallback: string[] }) {
+  const words = notes ? notes.map((n) => noteWords(n, cov, tz)).filter(Boolean) : fallback
+  return <span>{words.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span>
 }
 
 function WorkloadCell({ u }: { u: ImageUse }) {
@@ -126,11 +181,23 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
       {data && (data.coverage.state !== 'watching' || data.notes.length > 0) && (
         <div className="banner" role="note">
           <span className="label">{t(coverageWords[data.coverage.state])}</span>
-          <span>{data.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span>
+          <Notes notes={data.noteCodes} cov={data.coverage} tz={tz} fallback={data.notes} />
         </div>
       )}
       {error && !data && <Failed error={error} />}
       {!data && !error && <Loading />}
+      {data && (data.unknown?.length ?? 0) > 0 && (
+        <section aria-label={t('Not known at this time')} className="rows">
+          <h2 className="label section-title">{t('Not known at this time')} <span className="note">· {t('no revision of these is held from then')}</span></h2>
+          {data.unknown!.map((w) => (
+            <Link key={w.workloadId} className="row" href={w.path} style={{ gridTemplateColumns: 'minmax(0, 1fr) auto auto' }}>
+              <span className="mono" style={{ overflowWrap: 'anywhere' }}>{w.kind} {w.namespace}/{w.workload}</span>
+              <span className="muted" style={{ fontSize: 12 }}>{t('held from {time}', { time: relativeTime(w.heldSince, data.now, tz) })}</span>
+              <span className="chip prov-unknown" style={{ marginLeft: 0 }}>{provWord(w.provenance)}</span>
+            </Link>
+          ))}
+        </section>
+      )}
       {data && data.images.length === 0 && (
         <div className="empty">{q || ns ? t('No image matches these filters at this time.') : t('No image is recorded at this time. That says what OpsTide holds, not that nothing ran.')}</div>
       )}
@@ -139,13 +206,13 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
           <table className="data" style={{ minWidth: 1040 }}>
             <thead><tr><th>{t('Image')}</th><th>{t('Workload')}</th><th>{t('Container')}</th><th>{t('Since → until')}</th><th>{t('Revision')}</th><th>{t('Provenance')}</th></tr></thead>
             <tbody>
-              {data.images.map((g) => <ImageRows key={g.image} g={g} now={data.now} tz={tz} />)}
+              {data.images.map((g) => <ImageRows key={g.ref} g={g} now={data.now} tz={tz} />)}
             </tbody>
           </table>
         </div>
       )}
       {data?.truncated && <span className="muted" style={{ fontSize: 13 }}>{t('Only the first {n} images are listed; narrow the search.', { n: data.images.length })}</span>}
-      <Note block more={t('Times are those of each workload\'s revisions: when the revision that gave a container its image became current, and when a newer one replaced it, not when each Pod pulled it. Deployments come from the ReplicaSet templates OpsTide saw (observed); StatefulSets and DaemonSets from their ControllerRevisions (derived: Pods held back by a partition or OnDelete can still run an earlier one); CronJobs from their job template. A time marked * is when OpsTide first recorded it: it was in use before. Image references are shown as written; a missing tag is not filled in.')}>{t('From recorded revisions · not a scan of the nodes')}</Note>
+      <Note block more={t("Times are those of each workload's revisions: when the revision that gave a container its image became current, and when a newer one replaced it, not when each Pod pulled it. That a template named an image was seen (observed): a Deployment's ReplicaSet, a StatefulSet's or DaemonSet's ControllerRevision, a CronJob's job template. When it was the running image is derived from when revisions became current (Pods held back by a partition or OnDelete can still run an earlier one), and unknown when a time is not known or a rollout failed. A time marked * is when OpsTide first recorded it: it was in use before. Image references are shown as written; a missing tag is not filled in.")}>{t('From recorded revisions · not a scan of the nodes')}</Note>
     </div>
   )
 }
@@ -154,7 +221,7 @@ function ImageRows({ g, now, tz }: { g: ImageGroup; now: string; tz: string }) {
   return (
     <>
       {g.uses.map((u, i) => (
-        <tr key={`${u.workloadId}/${u.init}/${u.container}/${u.since}`}>
+        <tr key={rowKeyOf(u, i)}>
           {i === 0 && (
             <td rowSpan={g.uses.length} style={{ verticalAlign: 'top' }}>
               <Link href={`/images/${g.ref}`} className="mono" style={{ display: 'block', overflowWrap: 'anywhere', fontWeight: 500 }}>{g.image}</Link>
@@ -165,7 +232,7 @@ function ImageRows({ g, now, tz }: { g: ImageGroup; now: string; tz: string }) {
           <td><ContainerCell u={u} /></td>
           <td><UseWhen u={u} now={now} tz={tz} /></td>
           <td><RevisionCell u={u} /></td>
-          <td><span className={`chip prov-${u.provenance.toLowerCase()}`} style={{ marginLeft: 0 }} title={u.note}>{provWord(u.provenance)}</span></td>
+          <td><span className={`chip prov-${u.provenance.toLowerCase()}`} style={{ marginLeft: 0 }} title={provTitleOf(u, tz)}>{provWord(u.provenance)}</span></td>
         </tr>
       ))}
     </>
@@ -195,15 +262,18 @@ export function Image({ refId, tz }: { refId: string; tz: string }) {
       <p className="sentence" style={{ margin: 0 }}>
         {data.uses.length === 0 ? t('OpsTide holds no record of this image.') : t('{current} of {uses} recorded uses are current, in {workloads} workloads.', { current: data.current, uses: data.uses.length, workloads: data.workloads })}
       </p>
-      {data.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Note')}</span><span>{data.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
+      <div className="banner" role="note">
+        <span className="label">{t('Coverage')}: {t(coverageWords[data.coverage.state])}</span>
+        <Notes notes={data.noteCodes} cov={data.coverage} tz={tz} fallback={data.notes} />
+      </div>
 
       {data.uses.length > 0 && (
         <div className="table-wrap">
           <table className="data" style={{ minWidth: 980 }}>
             <thead><tr><th>{t('Workload')}</th><th>{t('Container')}</th><th>{t('Since → until')}</th><th>{t('Before and after')}</th><th>{t('Revision')}</th><th>{t('Provenance')}</th></tr></thead>
             <tbody>
-              {data.uses.map((u) => (
-                <tr key={`${u.workloadId}/${u.init}/${u.container}/${u.since}`}>
+              {data.uses.map((u, i) => (
+                <tr key={rowKeyOf(u, i)}>
                   <td><WorkloadCell u={u} /></td>
                   <td><ContainerCell u={u} /></td>
                   <td><UseWhen u={u} now={data.now} tz={tz} />{u.untilBasis && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t(untilWords[u.untilBasis])}</span>}</td>
@@ -213,7 +283,8 @@ export function Image({ refId, tz }: { refId: string; tz: string }) {
                     {!u.previous && !u.replacedBy && <span className="muted">—</span>}
                   </td>
                   <td><RevisionCell u={u} /></td>
-                  <td><span className={`chip prov-${u.provenance.toLowerCase()}`} style={{ marginLeft: 0 }} title={u.note}>{provWord(u.provenance)}</span></td>
+                  <td><span className={`chip prov-${u.provenance.toLowerCase()}`} style={{ marginLeft: 0 }} title={provTitleOf(u, tz)}>{provWord(u.provenance)}</span>
+                    {(u.notes ?? []).length > 0 && <span className="muted" style={{ display: 'block', fontSize: 12, maxWidth: 320 }}>{(u.notes ?? []).map((n) => noteWords(n, data.coverage, tz)).join(' ')}</span>}</td>
                 </tr>
               ))}
             </tbody>

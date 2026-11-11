@@ -47,6 +47,8 @@ export interface ExplorerList {
   records: ExplorerRecord[]
   nextCursor?: string
   suppressedRoutine: number
+  /** Records maintenance=outside left out (inside a declared window); 0 without that filter. */
+  suppressedMaintenance?: number
   empty?: ExplorerEmpty
   notices: string[]
   provenance: { eventsApi: string; notes: string[] }
@@ -204,6 +206,8 @@ export interface ExplorerBefore {
   maintenance?: MaintenanceMark
   maintenanceWindows?: MaintenanceSpan[]
   maintenanceNote?: string
+  /** More occurrences overlap the window than one question expands: maintenanceWindows is incomplete. */
+  maintenanceWindowsTruncated?: boolean
 }
 
 export const beforeWindows: BeforeWindow[] = ['15m', '1h', '6h', '24h']

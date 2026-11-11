@@ -38,8 +38,9 @@ releases:
 # it read as planned. Records inside a window are marked "inside maintenance window <name>" and listed after the
 # others; nothing is hidden or deleted. Declared here only (never edited in the UI); a bad entry stops OpsTide from
 # starting, with the reason in its log. At most 100. Each is one-off (start and end, RFC 3339) or recurring (a
-# 5-field cron, a duration such as 2h, and an optional IANA timeZone; UTC when empty). namespaces narrows it (empty:
-# the whole cluster, cluster-scoped records included). The metric opstide_maintenance_active{name} is 1 while one is open.
+# 5-field cron, a duration such as 2h no longer than the time between two starts, and an optional IANA timeZone; UTC
+# when empty). namespaces narrows it (left out or []: the whole cluster, cluster-scoped records included). The metric
+# opstide_maintenance_active{name,scope} is 1 while one is open somewhere in its scope.
 #   windows:
 #     - name: Saturday node upgrade
 #       cron: "0 2 * * 6"

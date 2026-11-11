@@ -138,7 +138,7 @@ func TestDemoMaintenanceAndImages(t *testing.T) {
 	}
 	shipper := map[string]bool{}
 	for _, r := range revs {
-		if strings.Contains(r.Snapshot, "shop/log-shipper:1.2") {
+		if strings.Contains(r.Containers+r.InitContainers, "shop/log-shipper:1.2") {
 			shipper[r.WorkloadID] = true
 		}
 	}

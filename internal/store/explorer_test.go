@@ -449,7 +449,7 @@ func TestSchema10AddsTheNameIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_name; PRAGMA user_version = 9`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_name; DROP TABLE template_images; PRAGMA user_version = 9`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

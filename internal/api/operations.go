@@ -208,7 +208,7 @@ func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.
 			}
 		}
 	}
-	var missed, missedInside, unconfirmed, unconfirmedInside int
+	var missed, missedInside, unconfirmed int
 	for _, sl := range slots {
 		if sl.At.Before(dayAgo) {
 			continue
@@ -221,11 +221,8 @@ func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.
 				missed++
 			}
 		case schedule.Unconfirmed:
-			if during(sl.At) {
-				unconfirmedInside++
-			} else {
-				unconfirmed++
-			}
+			// Not confirmed because OpsTide was not watching: a coverage gap, never put down to maintenance.
+			unconfirmed++
 		}
 	}
 	if missed > 0 {
@@ -236,9 +233,7 @@ func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.
 	}
 	if unconfirmed > 0 {
 		why = append(why, "not confirmed in the last 24 h")
-	}
-	if unconfirmedInside > 0 {
-		why = append(why, "not confirmed during maintenance in the last 24 h")
+		untimed++ // keeps the row from being put after the others for maintenance
 	}
 	if len(v.op.MetadataProblems) > 0 {
 		why = append(why, "annotations need fixing")

@@ -13,6 +13,28 @@ export function changeText(ratio: number): string {
   return lang() === 'tr' ? `${sign}%${n}` : `${sign}${n}%`
 }
 
+/** A run time from milliseconds: "420 ms" and "1.4 s" below ten seconds, so sub-second runs are not all "0 s" or
+ * "1 s" beside a ratio of their exact values; whole seconds and up from there. Falls back to the seconds field. */
+export function runTime(ms: number | null | undefined, seconds: number | null): string {
+  if (ms === null || ms === undefined) return seconds === null ? '—' : duration(seconds)
+  if (ms < 1000) return t('{n} ms', { n: Math.max(0, Math.round(ms)).toLocaleString(locale()) })
+  if (ms < 10_000) return t('{n} s', { n: (Math.round(ms / 100) / 10).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })
+  return duration(ms / 1000)
+}
+
+const p50 = (p: DurationPeriod) => runTime(p.p50Ms, p.p50Seconds)
+const p95 = (p: DurationPeriod) => runTime(p.p95Ms, p.p95Seconds)
+
+/** The baseline's label: "The 23 days before", unless the kept history cut it short. */
+function baselineName(p: DurationPeriod): string {
+  return p.shortenedByRetention ? t('Baseline (shortened to the history kept)') : t('The 23 days before')
+}
+
+/** The last instant of a period: its to is exclusive (the next period's start). */
+function lastInstant(to: string): string {
+  return new Date(new Date(to).getTime() - 1).toISOString()
+}
+
 /** The marker drawn beside a duration that is longer than its baseline, in the colour of "longer than expected". */
 export function LongerMark() {
   return <i className="longer-mark" aria-hidden="true" />
@@ -30,12 +52,12 @@ export function DurationCell({ d }: { d: DurationTrend }) {
   }
   return (
     <span title={title}>
-      <span className="mono" style={{ fontSize: 13 }}>{t('p50 {d} · 7d', { d: duration(r.p50Seconds) })}</span>
+      <span className="mono" style={{ fontSize: 13 }}>{t('p50 {d} · 7d', { d: p50(r) })}</span>
       <span className="muted" style={{ display: 'block', fontSize: 12 }}>
         {!d.enough ? t('too few runs to compare') : d.longer && d.ratio !== null ? (
           <span style={{ color: 'var(--ink)' }}><LongerMark />{t('longer than its baseline ({change})', { change: changeText(d.ratio) })}</span>
-        ) : b.p50Seconds !== null ? t('baseline p50 {d}', { d: duration(b.p50Seconds) }) : ''}
-        {!r.whole ? ` · ${t('not whole')}` : ''}
+        ) : b.p50Seconds !== null ? t('baseline p50 {d}', { d: p50(b) }) : ''}
+        {!r.whole ? ` · ${t('not whole')}` : !b.whole ? ` · ${t('baseline not whole')}` : ''}
       </span>
     </span>
   )
@@ -43,7 +65,7 @@ export function DurationCell({ d }: { d: DurationTrend }) {
 
 function periodTitle(name: string, p: DurationPeriod): string {
   if (p.p50Seconds === null || p.p95Seconds === null) return `${name}: ${t('no succeeded run')}`
-  return `${name}: ${tn(p.runs, '{n} run', '{n} runs')}, p50 ${duration(p.p50Seconds)}, p95 ${duration(p.p95Seconds)}${p.whole ? '' : ` (${t('not whole')})`}`
+  return `${name}: ${tn(p.runs, '{n} run', '{n} runs')}, p50 ${p50(p)}, p95 ${p95(p)}${p.whole ? '' : ` (${t('not whole')})`}`
 }
 
 function coverageText(p: DurationPeriod): string {
@@ -56,9 +78,13 @@ function coverageText(p: DurationPeriod): string {
 
 /** The Operation page's section: both periods side by side, the comparison, and the latest runs as small bars. */
 export function DurationSection({ d, tz }: { d: DurationTrend; tz: string }) {
-  const rows: [string, DurationPeriod][] = [[t('Last 7 days'), d.recent], [t('The 23 days before'), d.baseline]]
+  const rows: [string, DurationPeriod, string][] = [
+    [t('Last 7 days'), d.recent, d.recent.to],
+    [baselineName(d.baseline), d.baseline, lastInstant(d.baseline.to)],
+  ]
   const points = d.points ?? []
-  const max = Math.max(1, ...points.map((p) => p.seconds))
+  const msOf = (p: { seconds: number; ms?: number }) => p.ms ?? p.seconds * 1000
+  const max = Math.max(1, ...points.map(msOf))
   return (
     <section aria-label={t('Run time')} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <h2 className="label section-title">{t('Run time')} <span className="note">· {t('succeeded runs, by when they started')}</span></h2>
@@ -77,12 +103,12 @@ export function DurationSection({ d, tz }: { d: DurationTrend; tz: string }) {
             <tr>{['Period', 'Runs', 'p50', 'p95', 'Coverage'].map((h) => <th key={h} scope="col" className="label">{t(h)}</th>)}</tr>
           </thead>
           <tbody>
-            {rows.map(([name, p]) => (
+            {rows.map(([name, p, last]) => (
               <tr key={name}>
-                <td>{name} <span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{shortDay(p.from, tz)} – {shortDay(p.to, tz)}</span></td>
+                <td>{name} <span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{shortDay(p.from, tz)} – {shortDay(last, tz)}</span></td>
                 <td className="mono">{p.runs}</td>
-                <td className="mono">{p.p50Seconds !== null ? duration(p.p50Seconds) : '—'}</td>
-                <td className="mono">{p.p95Seconds !== null ? duration(p.p95Seconds) : '—'}</td>
+                <td className="mono">{p50(p)}</td>
+                <td className="mono">{p95(p)}</td>
                 <td className={p.whole ? 'muted' : undefined}>{coverageText(p)}</td>
               </tr>
             ))}
@@ -93,8 +119,8 @@ export function DurationSection({ d, tz }: { d: DurationTrend; tz: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span className="spark" role="img" aria-label={t('Duration of the last {n} succeeded runs, oldest first', { n: points.length })}>
             {points.map((p) => (
-              <i key={p.runId} className={p.recent ? 'recent' : undefined} style={{ height: `${Math.max(4, (p.seconds / max) * 100)}%` }}
-                title={`${shortDay(p.startedAt, tz)} ${hhmm(p.startedAt, tz)} · ${duration(p.seconds)}`} />
+              <i key={p.runId} className={p.recent ? 'recent' : undefined} style={{ height: `${Math.max(4, (msOf(p) / max) * 100)}%` }}
+                title={`${shortDay(p.startedAt, tz)} ${hhmm(p.startedAt, tz)} · ${runTime(p.ms, p.seconds)}`} />
             ))}
           </span>
           <span className="muted" style={{ fontSize: 12 }}>

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/store"
 )
 
@@ -362,7 +363,10 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 	case "":
 	case "outside":
 		f.Maintenance = m
-		occ, truncated := s.cfg.Maintenance.Between(q.From, q.To)
+		// Only the windows that can cover a record of the namespace asked for (a namespaced window cannot cover another
+		// namespace's records), merged where they overlap, count against the limit.
+		occ, truncated := s.cfg.Maintenance.BetweenIn(q.From, q.To, q.Namespace)
+		occ = maintenance.Merge(occ)
 		if truncated || len(occ) > maxExcludedOccurrences {
 			return q, f, badRequest("too many maintenance window occurrences in this range to leave out; narrow the range")
 		}
@@ -419,10 +423,13 @@ type ExplorerList struct {
 	NextCursor string           `json:"nextCursor,omitempty"`
 	// SuppressedRoutine counts routine records (Pod created/ready/terminated, Normal Kubernetes Events) left out;
 	// routine=1 shows them. Nothing else is hidden.
-	SuppressedRoutine int            `json:"suppressedRoutine"`
-	Empty             *ExplorerEmpty `json:"empty,omitempty"`
-	Notices           []string       `json:"notices"`
-	Provenance        Provenance     `json:"provenance"`
+	SuppressedRoutine int `json:"suppressedRoutine"`
+	// SuppressedMaintenance counts the records maintenance=outside left out (inside a window, with every other filter
+	// applied); 0 without that filter. They are still recorded and listed without it.
+	SuppressedMaintenance int            `json:"suppressedMaintenance"`
+	Empty                 *ExplorerEmpty `json:"empty,omitempty"`
+	Notices               []string       `json:"notices"`
+	Provenance            Provenance     `json:"provenance"`
 }
 
 func (s *Server) explorer(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +448,7 @@ func (s *Server) explorer(w http.ResponseWriter, r *http.Request) {
 		order = "asc"
 	}
 	out := ExplorerList{Schema: Schema, From: q.From, To: q.To, Range: f.Range, Order: order, OrderBasis: ExplorerOrderBasis, Records: make([]ExplorerRecord, 0, len(pg.Rows)),
-		NextCursor: pg.NextCursor, SuppressedRoutine: pg.SuppressedRoutine, Notices: []string{}, Provenance: Provenance{EventsAPI: s.eventsSource(), Notes: []string{}}}
+		NextCursor: pg.NextCursor, SuppressedRoutine: pg.SuppressedRoutine, SuppressedMaintenance: pg.SuppressedExcluded, Notices: []string{}, Provenance: Provenance{EventsAPI: s.eventsSource(), Notes: []string{}}}
 	for _, row := range pg.Rows {
 		out.Records = append(out.Records, recordOfRow(row, false))
 	}

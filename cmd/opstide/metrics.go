@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,11 +119,18 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPADesired), "type", "hpa_desired_replicas_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPACondition), "type", "hpa_condition_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPATarget), "type", "workload_replica_target_changed")
-		// One series per configured maintenance window (at most 100), 1 while it is open, so an alert rule can hold back
-		// during planned work: `unless on() opstide_maintenance_active{name="..."} == 1`. Declared, not observed.
+		// One series per configured maintenance window (at most 100), 1 while it is open somewhere in its scope, so an
+		// alert rule can hold back during planned work: `unless on() opstide_maintenance_active{name="..."} == 1`.
+		// scope is "cluster" or the window's namespaces, sorted and comma-separated: a namespaced window being open says
+		// nothing about other namespaces. Declared, not observed.
 		active := maint.Active(time.Now())
 		for _, mw := range maint.Windows() {
-			w.Gauge("opstide_maintenance_active", "1 while a maintenance window declared in OpsTide's configuration is open, else 0; the window's name is a label.", b2f(active[mw.Name]), "name", mw.Name)
+			scope := "cluster"
+			if len(mw.Namespaces) > 0 {
+				scope = strings.Join(mw.Namespaces, ",") // sorted when the window was read
+			}
+			w.Gauge("opstide_maintenance_active", "1 while a maintenance window declared in OpsTide's configuration is open somewhere in its scope, else 0; "+
+				"name is the window, scope is cluster or its namespaces.", b2f(active[mw.Name]), "name", mw.Name, "scope", scope)
 		}
 		if wc, err := db.WorkloadCounts(ctx); err == nil {
 			for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet"} {

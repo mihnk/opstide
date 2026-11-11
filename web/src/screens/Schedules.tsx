@@ -76,7 +76,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       <Link href={href} style={{ display: 'flex', flexDirection: 'column', color: 'var(--ink)', textDecoration: 'none' }}>
                         <span style={{ fontWeight: 500, color: o.displayName ? undefined : 'var(--muted)' }}>{o.displayName || o.name}</span>
                         <span className="mono muted" style={{ fontSize: 12 }}>{o.namespace}/{o.name}</span>
-                        {!!o.attention?.length && <span className={o.maintenance ? 'muted' : 'fail'} style={{ fontSize: 12 }}>{o.attention.map((w) => t(w)).join(' · ')}</span>}
+                        {!!o.attention?.length && <span className="fail" style={{ fontSize: 12 }}>{o.attention.map((w) => t(w)).join(' · ')}</span>}
                         {o.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={o.maintenance.statement}>{t('during maintenance {name}', { name: o.maintenance.name })}</span></span>}
                       </Link>
                     </td>

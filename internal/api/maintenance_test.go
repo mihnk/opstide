@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mihnk/opstide/internal/maintenance"
+	"github.com/mihnk/opstide/internal/store"
 )
 
 func windows(t *testing.T, specs ...maintenance.Spec) *maintenance.Set {
@@ -89,11 +91,13 @@ func TestSchedulesSayWhatHappenedDuringMaintenance(t *testing.T) {
 			continue
 		}
 		joined := strings.Join(o.Attention, "|")
-		if !strings.Contains(joined, "failed during maintenance in the last 24 h") || !strings.Contains(joined, "not confirmed during maintenance") {
+		// The failure is put in the window; the run not confirmed because OpsTide was not watching is not (a gap is
+		// never explained by maintenance), so the row is not marked as a whole.
+		if !strings.Contains(joined, "failed during maintenance in the last 24 h") || !strings.Contains(joined, "not confirmed in the last 24 h") || strings.Contains(joined, "not confirmed during") {
 			t.Fatalf("attention %q", joined)
 		}
-		if o.Maintenance == nil || o.Maintenance.Name != "all morning" {
-			t.Fatalf("every reason was inside the window: %+v", o.Maintenance)
+		if o.Maintenance != nil {
+			t.Fatalf("a gap reason keeps the row unmarked: %+v", o.Maintenance)
 		}
 		return
 	}
@@ -131,8 +135,8 @@ func TestExplorerMarksRecordsAndCanListOnlyThoseOutside(t *testing.T) {
 	if code := get(t, srv, "/api/v1/explorer?range=24h&routine=1&maintenance=outside", &out); code != 200 {
 		t.Fatal(code)
 	}
-	if len(out.Records) != len(l.Records)-2 {
-		t.Fatalf("outside only: %d of %d", len(out.Records), len(l.Records))
+	if len(out.Records) != len(l.Records)-2 || out.SuppressedMaintenance != 2 || l.SuppressedMaintenance != 0 {
+		t.Fatalf("outside only: %d of %d, %d left out", len(out.Records), len(l.Records), out.SuppressedMaintenance)
 	}
 	for _, r := range out.Records {
 		if r.Maintenance != nil {
@@ -195,7 +199,111 @@ func TestSystemListsWindowsAndTheirNextOccurrences(t *testing.T) {
 	if len(ws) != 2 || ws[0].Kind != "recurring" || !ws[0].Active || len(ws[0].Next) != 3 || !ws[0].Next[0].From.Equal(at(11, 0)) || ws[0].Duration != "2h0m0s" {
 		t.Fatalf("%+v", ws)
 	}
-	if ws[1].Kind != "one-off" || ws[1].Active || len(ws[1].Next) != 1 || ws[1].Start == nil || ws[1].Namespaces[0] != "data" {
+	if ws[1].Kind != "one-off" || ws[1].Active || len(ws[1].Next) != 1 || ws[1].Start == nil || ws[1].Namespaces[0] != "data" || len(ws[1].UnwatchedNamespaces) != 0 {
 		t.Fatalf("%+v", ws[1])
+	}
+	// Watching only payments: the window for data is flagged, the cluster-wide one is not.
+	s.cfg.Namespaces = []string{"payments"}
+	if code := get(t, srv, "/api/v1/system", &sys); code != 200 {
+		t.Fatal(code)
+	}
+	if ws := sys.Maintenance.Windows; len(ws[0].UnwatchedNamespaces) != 0 || len(ws[1].UnwatchedNamespaces) != 1 || ws[1].UnwatchedNamespaces[0] != "data" {
+		t.Fatalf("unwatched %+v", ws)
+	}
+}
+
+// A grouped exception is marked only when every member is inside the window: the payments streak (08:00–09:03) is
+// only partly inside 08:00–08:35 and stays unmarked; the busy CronJob's failed runs split into the one inside (08:20)
+// and the four outside. A stretch OpsTide was not watching is never marked, even inside a cluster-wide window.
+func TestRangeMarksAggregatesOnlyWhenWhollyInside(t *testing.T) {
+	srv, s := history(t)
+	s.cfg.Maintenance = windows(t,
+		maintenance.Spec{Name: "short", Start: at(8, 0).Format(time.RFC3339), End: at(8, 35).Format(time.RFC3339), Namespaces: []string{"payments"}},
+		maintenance.Spec{Name: "cluster", Start: at(9, 5).Format(time.RFC3339), End: at(9, 50).Format(time.RFC3339)},
+	)
+	var d Range
+	if code := get(t, srv, "/api/v1/range?within=12h&tz=UTC", &d); code != 200 {
+		t.Fatal(code)
+	}
+	var busyIn, busyOut []Exception
+	gaps := 0
+	for _, e := range d.Exceptions {
+		switch {
+		case e.OperationID == "pay" && e.Kind == "failing":
+			if e.Maintenance != nil {
+				t.Fatalf("a streak partly outside the window is not marked: %+v", e)
+			}
+		case e.OperationID == "busy" && e.Kind == "failed":
+			if e.Maintenance != nil {
+				busyIn = append(busyIn, e)
+			} else {
+				busyOut = append(busyOut, e)
+			}
+		case e.Kind == "gap":
+			gaps++
+			if e.Maintenance != nil {
+				t.Fatalf("a gap is never marked: %+v", e)
+			}
+		}
+	}
+	if gaps == 0 {
+		t.Fatal("the fixture's gap is listed")
+	}
+	if len(busyIn) != 1 || busyIn[0].Count != 1 || busyIn[0].Maintenance.Name != "short" || len(busyOut) != 1 || busyOut[0].Count != 4 {
+		t.Fatalf("split: in %+v out %+v", busyIn, busyOut)
+	}
+}
+
+// A Kubernetes Event about a Node is stored in default, but it is about a cluster-scoped object: a window for default
+// does not cover it, a cluster-wide one does, in the marks and in "outside maintenance only". Windows of other
+// namespaces do not count against the Explorer's limit when a namespace is asked for.
+func TestMaintenanceClusterScopedEvents(t *testing.T) {
+	at := base.Add(-2 * time.Hour)
+	seed := func(ctx context.Context, w *store.Writer) error {
+		for _, e := range []store.Evidence{ev("node-ev", "u-node", "NodeNotReady", "Warning", "Node", "node-1", "node-uid", at), ev("pod-ev", "u-pod", "BackOff", "Warning", "Pod", "web-1", "pod-uid", at)} {
+			e.Namespace = "default"
+			if err := w.SaveEvidence(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	nsOnly := windows(t, maintenance.Spec{Name: "default only", Start: at.Add(-time.Minute).Format(time.RFC3339), End: at.Add(time.Minute).Format(time.RFC3339), Namespaces: []string{"default"}})
+	srv := setupWith(t, base, nil, seed, func(c *Config) { c.Maintenance = nsOnly })
+	var l ExplorerList
+	if code := get(t, srv, "/api/v1/explorer?range=24h", &l); code != 200 {
+		t.Fatal(code)
+	}
+	for _, r := range l.Records {
+		if (r.Resource.Kind == "Node") != (r.Maintenance == nil) {
+			t.Fatalf("%s %s: %+v", r.Resource.Kind, r.Resource.Name, r.Maintenance)
+		}
+	}
+	var out ExplorerList
+	if code := get(t, srv, "/api/v1/explorer?range=24h&maintenance=outside", &out); code != 200 || len(out.Records) != 1 || out.Records[0].Resource.Kind != "Node" || out.SuppressedMaintenance != 1 {
+		t.Fatalf("outside: %d %+v", code, out)
+	}
+
+	whole := windows(t, maintenance.Spec{Name: "cluster", Start: at.Add(-time.Minute).Format(time.RFC3339), End: at.Add(time.Minute).Format(time.RFC3339)})
+	srv = setupWith(t, base, nil, seed, func(c *Config) { c.Maintenance = whole })
+	if code := get(t, srv, "/api/v1/explorer?range=24h&maintenance=outside", &out); code != 200 || len(out.Records) != 0 || out.SuppressedMaintenance != 2 {
+		t.Fatalf("cluster-wide: %d %+v", code, out)
+	}
+
+	// 720 occurrences a day of a window for another namespace: refused without a namespace, fine for default.
+	daily := windows(t, maintenance.Spec{Name: "data minutes", Cron: "*/2 * * * *", Duration: "1m", Namespaces: []string{"data"}})
+	srv = setupWith(t, base, nil, seed, func(c *Config) { c.Maintenance = daily })
+	if code := get(t, srv, "/api/v1/explorer?range=24h&maintenance=outside", nil); code != 400 {
+		t.Fatalf("too many: %d", code)
+	}
+	if code := get(t, srv, "/api/v1/explorer?range=24h&maintenance=outside&namespace=default", &out); code != 200 || len(out.Records) != 2 {
+		t.Fatalf("another namespace's windows: %d %+v", code, out)
+	}
+	// Back-to-back occurrences of one window merge into one span: "*/2 for 2m" over a day (720, more than the 500
+	// allowed) is one stretch.
+	merged := windows(t, maintenance.Spec{Name: "always", Cron: "*/2 * * * *", Duration: "2m", Namespaces: []string{"shop"}})
+	srv = setupWith(t, base, nil, seed, func(c *Config) { c.Maintenance = merged })
+	if code := get(t, srv, "/api/v1/explorer?range=24h&maintenance=outside", &out); code != 200 || out.SuppressedMaintenance != 0 || len(out.Records) != 2 {
+		t.Fatalf("merged: %d %+v", code, out)
 	}
 }

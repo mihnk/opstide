@@ -185,3 +185,46 @@ func TestDurationTrendShortRetention(t *testing.T) {
 		t.Fatalf("short retention %+v", d.Duration)
 	}
 }
+
+// Across a DST change the retention boundary is read in the reader's zone: with 30 days kept, the 23-day baseline
+// (29 local days back from today's midnight) is never shortened, whatever the hour. In UTC, 30×24 h before 23:30 on
+// 28 November (New York) was after the baseline's local midnight once the clocks had gone back.
+func TestDurationTrendRetentionAcrossDST(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip(err)
+	}
+	s := &Server{cfg: Config{Retention: store.Retention{Days: 30}}}
+	for h := 0; h < 24; h++ {
+		now := time.Date(2026, 11, 28, h, 30, 0, 0, ny)
+		_, b := s.trendPeriods(now, ny)
+		if b.ShortenedByRetention || !b.From.Equal(time.Date(2026, 10, 30, 0, 0, 0, 0, ny)) {
+			t.Fatalf("%v: %+v", now, b)
+		}
+	}
+	// Kept for 20 days, it is shortened at every hour, from the later of the two boundaries.
+	s.cfg.Retention.Days = 20
+	now := time.Date(2026, 11, 28, 23, 30, 0, 0, ny)
+	if _, b := s.trendPeriods(now, ny); !b.ShortenedByRetention || !b.From.Equal(now.UTC().AddDate(0, 0, -20)) {
+		t.Fatalf("20 days: %+v", b)
+	}
+}
+
+// Sub-second runs: the whole-second fields round to 0 s and 1 s, the millisecond fields carry what the ratio is of.
+func TestDurationTrendSubSecond(t *testing.T) {
+	ms := func(n int, v int) []time.Duration {
+		out := make([]time.Duration, n)
+		for i := range out {
+			out[i] = time.Duration(v) * time.Millisecond
+		}
+		return out
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	recent := DurationPeriod{From: now.AddDate(0, 0, -7), To: now}
+	baseline := DurationPeriod{From: now.AddDate(0, 0, -30), To: now.AddDate(0, 0, -7)}
+	cov := &coverage{byScope: map[string][]Span{}, first: map[string]time.Time{}}
+	tr := durationTrend(store.Operation{Namespace: "x"}, ms(5, 900), ms(5, 400), recent, baseline, cov, nil)
+	if *tr.Recent.P50Seconds != 1 || *tr.Baseline.P50Seconds != 0 || *tr.Recent.P50Ms != 900 || *tr.Baseline.P50Ms != 400 || *tr.Ratio != 2.25 || !tr.Longer {
+		t.Fatalf("%+v", tr)
+	}
+}

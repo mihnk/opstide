@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/mihnk/opstide/internal/maintenance"
+	"github.com/mihnk/opstide/internal/store"
 )
 
 // Maintenance windows are declared in configuration (Helm values), never in the UI or the API. A record whose time
@@ -56,8 +57,9 @@ func (s *Server) maintenanceAt(t time.Time, ns string) *MaintenanceMark {
 }
 
 // maintenanceSpans lists the occurrences overlapping [from, to), clipped to it. A namespace narrows to the windows
-// that cover it; "" lists every window.
-func (s *Server) maintenanceSpans(from, to time.Time, namespace string) []MaintenanceSpan {
+// that cover it; "" lists every window. truncated says the expansion was cut (see maintenance.MaxOccurrences): the list
+// is then incomplete, and the answer must say so.
+func (s *Server) maintenanceSpans(from, to time.Time, namespace string) ([]MaintenanceSpan, bool) {
 	return s.spansWhere(from, to, func(o maintenance.Occurrence) bool {
 		return namespace == "" || len(o.Namespaces) == 0 || has(o.Namespaces, namespace)
 	})
@@ -65,13 +67,13 @@ func (s *Server) maintenanceSpans(from, to time.Time, namespace string) []Mainte
 
 // recordSpans lists the occurrences overlapping [from, to) that cover a record in namespace ns ("" is a cluster-scoped
 // record, which only a cluster-wide window covers).
-func (s *Server) recordSpans(from, to time.Time, ns string) []MaintenanceSpan {
+func (s *Server) recordSpans(from, to time.Time, ns string) ([]MaintenanceSpan, bool) {
 	return s.spansWhere(from, to, func(o maintenance.Occurrence) bool { return len(o.Namespaces) == 0 || has(o.Namespaces, ns) })
 }
 
-func (s *Server) spansWhere(from, to time.Time, keep func(maintenance.Occurrence) bool) []MaintenanceSpan {
+func (s *Server) spansWhere(from, to time.Time, keep func(maintenance.Occurrence) bool) ([]MaintenanceSpan, bool) {
 	out := []MaintenanceSpan{}
-	occ, _ := s.cfg.Maintenance.Between(from, to)
+	occ, truncated := s.cfg.Maintenance.Between(from, to)
 	for _, o := range occ {
 		if !keep(o) {
 			continue
@@ -85,7 +87,20 @@ func (s *Server) spansWhere(from, to time.Time, keep func(maintenance.Occurrence
 		}
 		out = append(out, sp)
 	}
-	return out
+	return out, truncated
+}
+
+// maintenanceTruncatedNote is what an answer whose maintenance windows were not all expanded says.
+const maintenanceTruncatedNote = "More maintenance window occurrences fall in this range than OpsTide expands for one question; only the first are listed. Records are still marked correctly. Narrow the range to see every occurrence."
+
+// maintenanceNamespace is the namespace a record is matched to windows by: "" (cluster-scoped, which only a
+// cluster-wide window covers) for a record about a cluster-scoped object, such as a Kubernetes Event about a Node,
+// which Kubernetes stores in default.
+func maintenanceNamespace(rec ExplorerRecord) string {
+	if store.IsClusterScoped(rec.Resource.Kind) {
+		return ""
+	}
+	return rec.Resource.Namespace
 }
 
 // markRecords adds the maintenance window each record falls in, by its record time and namespace.
@@ -104,7 +119,7 @@ func (s *Server) markRecords(recs []ExplorerRecord) {
 	}
 	ix := s.cfg.Maintenance.Index(lo, hi.Add(time.Millisecond))
 	for i := range recs {
-		if o, ok := ix.At(recs[i].At, recs[i].Resource.Namespace); ok {
+		if o, ok := ix.At(recs[i].At, maintenanceNamespace(recs[i])); ok {
 			recs[i].Maintenance = markOf(o)
 		}
 	}
@@ -123,6 +138,9 @@ type MaintenanceWindowView struct {
 	Note       string            `json:"note,omitempty"`
 	Active     bool              `json:"active"`
 	Next       []MaintenanceSpan `json:"next"` // the open occurrence, if any, then the next ones (up to 3 in all)
+	// UnwatchedNamespaces are namespaces the window names that OpsTide is not set to watch: nothing there is recorded,
+	// so the window marks nothing in them (likely a typo or a namespace left out of the watch).
+	UnwatchedNamespaces []string `json:"unwatchedNamespaces,omitempty"`
 }
 
 // MaintenanceSystem is what System says about maintenance windows.
@@ -133,11 +151,19 @@ type MaintenanceSystem struct {
 
 func (s *Server) maintenanceSystem(now time.Time) MaintenanceSystem {
 	out := MaintenanceSystem{Windows: []MaintenanceWindowView{},
-		Note: "Declared in configuration (Helm values maintenance.windows). A record inside a window is marked, never hidden: it is still listed and counted."}
+		Note: "Declared in configuration (Helm values maintenance.windows). A record inside a window is marked, never hidden: it is still listed and counted. " +
+			"A window that names no namespace (namespaces: [] or none) covers the whole cluster, cluster-scoped records included."}
 	for _, w := range s.cfg.Maintenance.Windows() {
 		v := MaintenanceWindowView{Name: w.Name, Kind: "one-off", Namespaces: w.Namespaces, Note: w.Note, Next: []MaintenanceSpan{}}
 		if v.Namespaces == nil {
 			v.Namespaces = []string{}
+		}
+		if len(s.cfg.Namespaces) > 0 { // empty: every namespace is watched
+			for _, ns := range v.Namespaces {
+				if !has(s.cfg.Namespaces, ns) {
+					v.UnwatchedNamespaces = append(v.UnwatchedNamespaces, ns)
+				}
+			}
 		}
 		if w.Recurring() {
 			v.Kind, v.Cron, v.Duration, v.TimeZone = "recurring", w.Cron, w.Duration.String(), w.TimeZone

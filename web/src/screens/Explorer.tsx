@@ -276,6 +276,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title={t('Leaves out the records inside a maintenance window declared in the configuration. They are still recorded, and shown when this is off.')}>
           <input type="checkbox" checked={filter.maintenance === 'outside'} onChange={(e) => set({ maintenance: e.target.checked ? 'outside' : null })} />
           {t('Outside maintenance only')}
+          {data && filter.maintenance === 'outside' && (data.suppressedMaintenance ?? 0) > 0 && <span className="chip" title={t('Left out of the timeline, not deleted')}>{t('{n} left out', { n: data.suppressedMaintenance ?? 0 })}</span>}
         </label>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input type="checkbox" checked={groupBy} onChange={(e) => set({ by: e.target.checked ? 'resource' : null, rec })} />

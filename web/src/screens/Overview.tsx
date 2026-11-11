@@ -95,6 +95,7 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
             <Timeline label={t('Operation')} from={data.from} to={data.to} tz={tz} now={hasNow ? data.now : undefined} gaps={data.gaps}
               watchedSince={data.watchedSince} lanes={lanes}
               markHref={(m, lane) => (lane.key === 'rollouts' ? undefined : `/operations/${encodeURIComponent(lane.key)}${m.runId ? `?run=${encodeURIComponent(m.runId)}` : ''}`)} />
+            {data.maintenanceTruncated && <span className="muted" style={{ fontSize: 12 }}>{t('More maintenance window occurrences fall in this window than are drawn; the band shows only the first. Records are still marked. Narrow the window to see every occurrence.')}</span>}
             <Legend maintenance={(data.maintenance ?? []).length > 0} before={!!data.watchedSince && Date.parse(data.watchedSince) > Date.parse(data.from)} note={`${t("Bar width is the run's duration.")}${data.idle ? ` ${tn(data.idle, '{n} CronJob had nothing in this window.', '{n} CronJobs had nothing in this window.')}` : ''}`} />
           </>
         )}
@@ -204,8 +205,9 @@ function RecentChanges({ tz }: { tz: string }) {
 
 function ExceptionRow({ e, tz, from, to, nowMs, go }: { e: Exception; tz: string; from: string; to: string; nowMs: number; go: (s: Selection) => void }) {
   const text = exceptionText(e, tz, from, to)
-  // Inside a declared maintenance window it is still listed, after the others, and not drawn in red.
-  const red = !e.maintenance && (e.kind === 'failing' || e.kind === 'failed' || e.kind === 'missed')
+  // Inside a declared maintenance window it is still listed (after the others) and still drawn as what it is: a
+  // failure stays red; the window is a label beside it, not a reason to tone it down.
+  const red = e.kind === 'failing' || e.kind === 'failed' || e.kind === 'missed'
   const href = e.kind === 'gap' ? '/system' : `/operations/${encodeURIComponent(e.operationId ?? '')}${e.runId ? `?run=${encodeURIComponent(e.runId)}` : ''}`
   const start = Date.parse(e.from ?? e.at)
   const end = Date.parse(e.to ?? e.at)

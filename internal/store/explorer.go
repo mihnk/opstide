@@ -146,6 +146,7 @@ type ExplorerQuery struct {
 	Asc     bool // oldest first (exports)
 
 	routineOnly bool // counting the routine records a query leaves out
+	insideOnly  bool // counting the records Exclude leaves out
 }
 
 // ExcludeSpan is a stretch of record time, [From, To), optionally limited to some namespaces.
@@ -154,24 +155,62 @@ type ExcludeSpan struct {
 	Namespaces []string
 }
 
-// excludeClause is NOT (inside any of the spans), on the given time column.
-func excludeClause(c *clause, col string, spans []ExcludeSpan) {
-	if len(spans) == 0 {
-		return
+// ClusterScopedKinds are the built-in kinds that live outside any namespace. A Kubernetes Event about one of them is
+// stored in a namespace (normally default), but the record is about a cluster-scoped object: for maintenance windows
+// it is in no namespace, so only a cluster-wide window covers it.
+var ClusterScopedKinds = []string{"APIService", "CSIDriver", "CSINode", "CertificateSigningRequest", "ClusterRole", "ClusterRoleBinding",
+	"CustomResourceDefinition", "IngressClass", "MutatingWebhookConfiguration", "Namespace", "Node", "PersistentVolume", "PriorityClass",
+	"RuntimeClass", "StorageClass", "ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding", "ValidatingWebhookConfiguration", "VolumeAttachment"}
+
+// IsClusterScoped says whether kind is one of ClusterScopedKinds.
+func IsClusterScoped(kind string) bool {
+	for _, k := range ClusterScopedKinds {
+		if k == kind {
+			return true
+		}
 	}
+	return false
+}
+
+// evidenceNamespaceExpr is a Kubernetes Event's namespace for maintenance matching: "" when it is about a
+// cluster-scoped object.
+var evidenceNamespaceExpr = func() string {
+	q := make([]string, len(ClusterScopedKinds))
+	for i, k := range ClusterScopedKinds {
+		q[i] = "'" + k + "'"
+	}
+	return "(CASE WHEN regarding_kind IN (" + strings.Join(q, ", ") + ") THEN '' ELSE namespace END)"
+}()
+
+// insideSpans is (inside any of the spans), on the given time column and namespace expression.
+func insideSpans(col, nsExpr string, spans []ExcludeSpan) (string, []any) {
 	var ors []string
 	var args []any
 	for _, sp := range spans {
 		part := "(" + col + " >= ? AND " + col + " < ?"
 		args = append(args, sp.From.UnixMilli(), sp.To.UnixMilli())
 		if len(sp.Namespaces) > 0 {
-			cond, a := in("namespace", sp.Namespaces)
+			cond, a := in(nsExpr, sp.Namespaces)
 			part += " AND " + cond
 			args = append(args, a...)
 		}
 		ors = append(ors, part+")")
 	}
-	c.add("NOT ("+strings.Join(ors, " OR ")+")", args...)
+	return "(" + strings.Join(ors, " OR ") + ")", args
+}
+
+// excludeClause is NOT (inside any of the spans), on the given time column; when counting what Exclude leaves out
+// (insideOnly), it is the opposite.
+func excludeClause(c *clause, col, nsExpr string, spans []ExcludeSpan, insideOnly bool) {
+	if len(spans) == 0 {
+		return
+	}
+	cond, args := insideSpans(col, nsExpr, spans)
+	if insideOnly {
+		c.add(cond, args...)
+		return
+	}
+	c.add("NOT "+cond, args...)
 }
 
 // ExplorerRow is a record as stored. Exactly one of Event and Evidence is set.
@@ -188,6 +227,8 @@ type ExplorerPage struct {
 	NextCursor string
 	// SuppressedRoutine counts routine records the query left out (zero when Routine is set).
 	SuppressedRoutine int
+	// SuppressedExcluded counts the records Exclude left out (with every other filter applied).
+	SuppressedExcluded int
 }
 
 func eventRID(seq int64) string { return fmt.Sprintf("e.%012d", seq) }
@@ -370,7 +411,7 @@ func (q ExplorerQuery) eventsClause(cursor *explorerCursor) clause {
 		s, a := in("type", routineTypes)
 		c.add("NOT ("+s+")", a...)
 	}
-	excludeClause(&c, "at", q.Exclude)
+	excludeClause(&c, "at", "namespace", q.Exclude, q.insideOnly)
 	if cursor != nil {
 		c.cursor("at", "printf('e.%012d', seq)", *cursor, q.Asc)
 	}
@@ -449,7 +490,7 @@ AND `+evidenceKey+` >= ?`, q.ReleaseReplicaSet, q.ReleaseWorkload, q.ReleaseFrom
 	if !q.Routine {
 		c.add("event_type <> 'Normal'")
 	}
-	excludeClause(&c, evidenceKey, q.Exclude)
+	excludeClause(&c, evidenceKey, evidenceNamespaceExpr, q.Exclude, q.insideOnly)
 	if cursor != nil {
 		c.cursor(evidenceKey, "('k.' || id)", *cursor, q.Asc)
 	}
@@ -576,6 +617,13 @@ func (s *Store) Explorer(ctx context.Context, q ExplorerQuery) (ExplorerPage, er
 			return ExplorerPage{}, err
 		}
 		page.SuppressedRoutine = n
+	}
+	if len(q.Exclude) > 0 {
+		n, err := s.explorerCount(ctx, q.withInsideOnly())
+		if err != nil {
+			return ExplorerPage{}, err
+		}
+		page.SuppressedExcluded = n
 	}
 	return page, nil
 }
@@ -705,6 +753,11 @@ func (q ExplorerQuery) withRoutineOnly() ExplorerQuery {
 	q.Cursor, q.Routine = "", true
 	// The routine set is added by the count itself; a type filter still applies, so a filter that names no routine type counts none.
 	q.routineOnly = true
+	return q
+}
+
+func (q ExplorerQuery) withInsideOnly() ExplorerQuery {
+	q.Cursor, q.insideOnly = "", true
 	return q
 }
 

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -20,6 +21,12 @@ import (
 // annotationServer is the api_test fixture's day (Istanbul, now 10:06, Jobs not watched 03:10–03:14, a failed run
 // recorded 08:15) with a few changes and Kubernetes Events added. publicURL and token tune the server.
 func annotationServer(t *testing.T, publicURL, token string) *httptest.Server {
+	t.Helper()
+	return annotationServerWith(t, publicURL, token, nil)
+}
+
+// annotationServerWith is annotationServer with more written to the record by extra.
+func annotationServerWith(t *testing.T, publicURL, token string, extra func(w *store.Writer) error) *httptest.Server {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "opstide.db"))
@@ -62,12 +69,17 @@ func annotationServer(t *testing.T, publicURL, token string) *httptest.Server {
 		if err := w.OpenInterval(ctx, "jobs", store.Healthy, local(3, 14)); err != nil {
 			return err
 		}
+		if extra != nil {
+			if err := extra(w); err != nil {
+				return err
+			}
+		}
 		return w.Heartbeat(ctx, local(10, 6))
 	}); err != nil {
 		t.Fatal(err)
 	}
 	s := New(db, watcher{problems: []collector.Problem{{Scope: "pods/kube-system", Err: "forbidden"}}},
-		Config{Version: "test", Cluster: "c", Retention: store.Retention{Days: 30, MaxEvents: 2_000_000}, StartedAt: local(0, 0), PublicURL: publicURL}, nil)
+		Config{Version: "test", Cluster: "c", Retention: store.Retention{Days: 30, MaxEvents: 2_000_000}, StartedAt: local(0, 0), PublicURL: publicURL, WatchConfigMaps: true}, nil)
 	s.now = func() time.Time { return local(10, 6) }
 	mux := http.NewServeMux()
 	s.Register(mux)
@@ -240,5 +252,80 @@ func TestAnnotationsNeedTheToken(t *testing.T) {
 	var out []Annotation
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 || len(out) != 2 {
 		t.Fatalf("with the token: %d %v %d", resp.StatusCode, err, len(out))
+	}
+}
+
+// Summaries carry cluster-controlled strings; the title is escaped like the text.
+func TestAnnotationsEscapeTitles(t *testing.T) {
+	const evil = "<img src=x onerror=alert(1)>"
+	ctx := context.Background()
+	srv := annotationServerWith(t, "", "", func(w *store.Writer) error {
+		if _, err := w.AddEvent(ctx, store.Event{ID: "deployment.spec_written/d-x/9", Type: "deployment.spec_written", Namespace: "shop", Kind: "Deployment", ResourceName: "api",
+			WorkloadID: "d-x", OccurredAt: local(9, 0), ObservedAt: local(9, 0), Severity: "info", Confidence: store.Observed, Summary: "api spec written by " + evil}); err != nil {
+			return err
+		}
+		e := ev("w9", "uw9", evil, "Warning", "Pod", "api-1", "pod-9", local(9, 1))
+		e.Namespace = "shop"
+		return w.SaveEvidence(ctx, e)
+	})
+	got := annos(t, srv, "from="+msq(local(8, 30))+"&to="+msq(local(9, 30))+"&kinds=changes,failures")
+	if len(got) != 2 {
+		t.Fatalf("records %q", kindsOf(got))
+	}
+	for _, a := range got {
+		if strings.Contains(a.Title, "<img") || strings.Contains(a.Text, "<img") || !strings.Contains(a.Title, "&lt;img src=x onerror=alert(1)&gt;") {
+			t.Fatalf("not escaped: %+v", a)
+		}
+	}
+}
+
+// A watch turned on after the range (ConfigMaps today, the range two days ago) is not watched over the whole range: a
+// region, clipped to the range, so a quiet graph there is not read as calm. A watch turned off is not drawn.
+func TestAnnotationsWatchNotYetOn(t *testing.T) {
+	srv := annotationServerWith(t, "", "", func(w *store.Writer) error {
+		return w.OpenInterval(context.Background(), "configmaps", store.Healthy, local(9, 0))
+	})
+	from, to := local(0, 0).AddDate(0, 0, -3), local(0, 0).AddDate(0, 0, -2)
+	gs := annos(t, srv, "from="+msq(from)+"&to="+msq(to)+"&kinds=gaps&namespace=payments")
+	if len(gs) != 1 || gs[0].Time != from.UnixMilli() || gs[0].TimeEnd != to.UnixMilli() || !strings.Contains(gs[0].Text, "ConfigMaps") ||
+		strings.Contains(gs[0].Text, "Secrets") {
+		t.Fatalf("not yet watched %+v", gs)
+	}
+	// Changes are drawn from ConfigMaps too: the region is there with them.
+	if cs := annos(t, srv, "from="+msq(from)+"&to="+msq(to)+"&kinds=changes,gaps&namespace=payments"); len(cs) != 1 || cs[0].Kind != "gap" {
+		t.Fatalf("with changes %+v", cs)
+	}
+}
+
+func TestAnnotationsRejectEpochSeconds(t *testing.T) {
+	srv := annotationServer(t, "", "")
+	var body map[string]any
+	if code := get(t, srv, "/api/v1/annotations?from=1762500000&to=1762586400", &body); code != 400 || !strings.Contains(fmt.Sprint(body), "looks like epoch seconds; send milliseconds") {
+		t.Fatalf("seconds: %d %v", code, body)
+	}
+}
+
+func TestAnnotationsCapGapRegions(t *testing.T) {
+	ctx := context.Background()
+	srv := annotationServerWith(t, "", "", func(w *store.Writer) error {
+		// 600 one-minute stretches the CronJob watch was not on, the day before the fixture's.
+		at := local(0, 0).AddDate(0, 0, -1)
+		if err := w.OpenInterval(ctx, "cronjobs", store.Healthy, at); err != nil {
+			return err
+		}
+		for i := 0; i < 600; i++ {
+			if err := w.CloseInterval(ctx, "cronjobs", at.Add(time.Duration(2*i+1)*time.Minute), "flap"); err != nil {
+				return err
+			}
+			if err := w.OpenInterval(ctx, "cronjobs", store.Healthy, at.Add(time.Duration(2*i+2)*time.Minute)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	from, to := local(0, 0).AddDate(0, 0, -1), local(0, 0)
+	gs := annos(t, srv, "from="+msq(from)+"&to="+msq(to)+"&kinds=gaps&namespace=payments")
+	if len(gs) != maxGapRegions || gs[len(gs)-1].Kind != "notice" || gs[len(gs)-1].TimeEnd != to.UnixMilli() {
+		t.Fatalf("capped: %d %+v", len(gs), gs[len(gs)-1])
 	}
 }

@@ -72,6 +72,9 @@ type Server struct {
 	retMu  sync.Mutex // guards the cached retention sources
 	retAt  time.Time
 	retVal []RetentionSourceView
+
+	imgMu sync.Mutex // guards the decoded image inventory, kept while the record of revisions does not change
+	img   *imageMemo
 }
 
 // New returns an API server.

@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/mihnk/opstide/internal/inventory"
-	"github.com/mihnk/opstide/internal/release"
 	"github.com/mihnk/opstide/internal/store"
 )
 
@@ -45,25 +44,36 @@ type ImageUse struct {
 	Init       bool   `json:"init"`
 	// Since is when the workload's revision that first gave the container this image became current; SinceBasis says
 	// what that time is: created (Kubernetes' creation time of the revision), observed (when OpsTide saw it become
-	// current) or first_recorded (it was already in use when OpsTide first recorded it).
-	Since      time.Time `json:"since"`
-	SinceBasis string    `json:"sinceBasis"`
-	// Until is when a newer revision replaced it (null: still the newest revision recorded); UntilBasis says how:
-	// replaced, container_removed or workload_deleted.
+	// current), first_recorded (it was already in use when OpsTide first recorded it) or unknown (since is null;
+	// sinceAfter, when set, is a time it became current after).
+	Since      *time.Time `json:"since"`
+	SinceBasis string     `json:"sinceBasis"`
+	SinceAfter *time.Time `json:"sinceAfter,omitempty"`
+	// Until is when a newer revision replaced it (null: still the newest revision recorded, unless untilBasis is
+	// unknown); UntilBasis says how: replaced, container_removed, workload_deleted, or unknown (it ended, when is not
+	// known; until, when set, is a time by which it had ended).
 	Until        *time.Time `json:"until"`
 	UntilBasis   string     `json:"untilBasis,omitempty"`
+	Current      bool       `json:"current"` // the image of the newest revision recorded, as far as OpsTide knows
 	FromRevision string     `json:"fromRevision"`
 	ToRevision   string     `json:"toRevision"`
 	ReleaseID    string     `json:"releaseId,omitempty"`       // the release of fromRevision (Deployments)
 	LatestRelID  string     `json:"latestReleaseId,omitempty"` // the release of toRevision (Deployments)
-	// Provenance is OBSERVED (seen in a live object: a ReplicaSet's or CronJob's template), DERIVED (inferred from a
-	// ControllerRevision's template) or, in an answer about a time OpsTide was not watching, UNKNOWN.
-	Provenance      string `json:"provenance"`
-	ReportedImageID string `json:"reportedImageId,omitempty"` // the image ID a Pod of the revision reported
-	Previous        string `json:"previous,omitempty"`
-	ReplacedBy      string `json:"replacedBy,omitempty"`
-	Adopted         bool   `json:"adopted"`
-	Note            string `json:"note,omitempty"`
+	// Provenance is of the stretch (since and until): DERIVED, a rule applied to the revisions seen; UNKNOWN when the
+	// revision's rollout failed (its Pods may never have run it), when a time is not known, or in an answer about a
+	// time OpsTide was not watching. TemplateProvenance is of "the template named this image": OBSERVED, seen in a
+	// live object (a ReplicaSet's, ControllerRevision's or CronJob's template).
+	Provenance         string `json:"provenance"`
+	TemplateProvenance string `json:"templateProvenance"`
+	ReportedImageID    string `json:"reportedImageId,omitempty"` // the image ID a Pod of the revision reported
+	Previous           string `json:"previous,omitempty"`
+	ReplacedBy         string `json:"replacedBy,omitempty"`
+	Adopted            bool   `json:"adopted"`
+	// ImageTruncated: the reference may have been cut where OpsTide caps stored text; it is shown as stored.
+	ImageTruncated bool `json:"imageTruncated,omitempty"`
+	// Note is the notes in English; Notes are the same as codes with values, for clients that word them themselves.
+	Note  string           `json:"note,omitempty"`
+	Notes []inventory.Note `json:"notes"`
 	// Path is the workload's page (a CronJob's is its Schedules page).
 	Path string `json:"path"`
 }
@@ -104,6 +114,22 @@ type ImageList struct {
 	Truncated bool          `json:"truncated"` // more images matched than limit
 	Encoding  string        `json:"refEncoding"`
 	Notes     []string      `json:"notes"`
+	// NoteCodes are Notes as codes with values (see the note codes in the README), for clients that word them.
+	NoteCodes []inventory.Note `json:"noteCodes"`
+	// Unknown lists, for an answer about a past time, the workloads whose held history starts after it while they
+	// may have existed then: what they ran is not known. Never an empty answer for them.
+	Unknown []UnknownWorkload `json:"unknown"`
+}
+
+// UnknownWorkload is a workload whose image at the time asked about is not known.
+type UnknownWorkload struct {
+	WorkloadID string    `json:"workloadId"`
+	Kind       string    `json:"kind"`
+	Namespace  string    `json:"namespace"`
+	Workload   string    `json:"workload"`
+	HeldSince  time.Time `json:"heldSince"`  // the earliest time a held revision of it became current
+	Provenance string    `json:"provenance"` // UNKNOWN
+	Path       string    `json:"path"`
 }
 
 // ImageTag is another image of the same repository.
@@ -125,12 +151,13 @@ type ImageDetail struct {
 	Now        time.Time     `json:"now"`
 	Coverage   ImageCoverage `json:"coverage"`
 	// Uses is every recorded use of the image, newest first; Current counts those still current.
-	Uses      []ImageUse `json:"uses"`
-	Current   int        `json:"current"`
-	Workloads int        `json:"workloads"`
-	OtherTags []ImageTag `json:"otherTags"` // other images of the same repository
-	Encoding  string     `json:"refEncoding"`
-	Notes     []string   `json:"notes"`
+	Uses      []ImageUse       `json:"uses"`
+	Current   int              `json:"current"`
+	Workloads int              `json:"workloads"`
+	OtherTags []ImageTag       `json:"otherTags"` // other images of the same repository
+	Encoding  string           `json:"refEncoding"`
+	Notes     []string         `json:"notes"`
+	NoteCodes []inventory.Note `json:"noteCodes"`
 }
 
 // EncodeImageRef is an image reference as it goes in a path.
@@ -152,57 +179,206 @@ func decodeImageRef(ref string) (string, error) {
 	return string(b), nil
 }
 
-// imageUses reads every recorded use, in a namespace when one is given.
-func (s *Server) imageUses(ctx context.Context, namespace string) ([]inventory.Use, error) {
-	revs, err := s.db.ImageRevisions(ctx, namespace)
+// imageMemo is the decoded inventory of the whole record, for one state of the revisions and template rows.
+type imageMemo struct {
+	version string
+	uses    []inventory.Use
+	held    []inventory.Held
+}
+
+// snapshotContainer is the part of a stored snapshot's container the inventory reads.
+type snapshotContainer struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+}
+
+// Image references are capped where they are stored: 253 bytes in a release or ControllerRevision snapshot, 512 in a
+// CronJob template row. One that long may have been cut.
+const (
+	snapshotTextCap  = 253
+	templateImageCap = 512
+)
+
+// cleanImage makes a stored reference valid UTF-8 (one cut inside a character before cuts were made on character
+// boundaries) and says whether it may have been cut.
+func cleanImage(img string, limit int) (string, bool) {
+	cut := len(img) >= limit-3
+	if !utf8.ValidString(img) {
+		img, cut = strings.ToValidUTF8(img, ""), true
+	}
+	return img, cut
+}
+
+// allImageUses decodes every recorded use, reusing the last decoding while the revisions and template rows are as
+// they were. Only the containers' names and images are read from the stored snapshots.
+func (s *Server) allImageUses(ctx context.Context) (*imageMemo, error) {
+	ver, err := s.db.ImageVersion(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.imgMu.Lock()
+	defer s.imgMu.Unlock()
+	if s.img != nil && s.img.version == ver {
+		return s.img, nil
+	}
+	revs, err := s.db.ImageRevisions(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 	var in []inventory.Revision
 	for _, r := range revs {
-		sn, err := release.DecodeSnapshot(r.Snapshot)
-		if err != nil {
-			continue // a snapshot that cannot be read names no image; nothing is made up for it
-		}
 		ir := inventory.Revision{WorkloadID: r.WorkloadID, Kind: r.Kind, Namespace: r.Namespace, Workload: r.Workload, WorkloadDeletedAt: r.WorkloadDeletedAt,
-			ID: r.ID, Revision: r.Revision, Number: r.Number, CreatedAt: r.CreatedAt, ObservedAt: r.ObservedAt, Adopted: r.Origin == store.OriginAdopted, State: r.State,
-			Provenance: inventory.Derived, BecameNewestAt: r.UpdatedAt}
+			ID: r.ID, Revision: r.Revision, Number: r.Number, CreatedAt: r.CreatedAt, ObservedAt: r.ObservedAt, Adopted: r.Origin == store.OriginAdopted, State: r.State}
 		if r.Kind == store.KindDeployment {
-			ir.ReleaseID, ir.Provenance, ir.BecameNewestAt = r.ID, inventory.Observed, r.ObservedAt
+			// A rollback is a release of its own: when OpsTide saw it, or, adopted, when it found it current.
+			ir.ReleaseID, ir.BecameNewestAt, ir.RollbackUnseen = r.ID, r.ObservedAt, r.Origin == store.OriginAdopted
 			if r.ImageIDs != "" {
 				_ = json.Unmarshal([]byte(r.ImageIDs), &ir.ReportedIDs)
 			}
+		} else {
+			// A ControllerRevision made current again is renumbered in place (updated_at). Never renumbered after
+			// OpsTide recorded it, a rollback to it happened before: it found it already current.
+			ir.BecameNewestAt, ir.RenumberedInPlace = r.UpdatedAt, true
+			ir.RollbackUnseen = r.UpdatedAt.Sub(r.ObservedAt) < 2*time.Second
 		}
-		for _, c := range sn.InitContainers {
+		var cs, ics []snapshotContainer
+		if r.InitContainers != "" && json.Unmarshal([]byte(r.InitContainers), &ics) != nil {
+			continue // a snapshot that cannot be read names no image; nothing is made up for it
+		}
+		if r.Containers != "" && json.Unmarshal([]byte(r.Containers), &cs) != nil {
+			continue
+		}
+		for _, c := range ics {
 			ir.Containers = append(ir.Containers, inventory.Container{Name: c.Name, Image: c.Image, Init: true})
 		}
-		for _, c := range sn.Containers {
+		for _, c := range cs {
 			ir.Containers = append(ir.Containers, inventory.Container{Name: c.Name, Image: c.Image})
 		}
 		in = append(in, ir)
 	}
 	uses := inventory.FromRevisions(in)
-	tis, err := s.db.TemplateImages(ctx, namespace)
+	held := inventory.HeldOf(in)
+	tis, err := s.db.TemplateImages(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 	var ts []inventory.Template
 	for _, t := range tis {
 		ts = append(ts, inventory.Template{WorkloadID: t.WorkloadID, Kind: t.WorkloadKind, Namespace: t.Namespace, Workload: t.WorkloadName, Container: t.Container,
-			Init: t.Init, Image: t.Image, Adopted: t.Origin == store.OriginAdopted, FirstSeenAt: t.FirstSeenAt, EndedAt: t.EndedAt})
+			Init: t.Init, Image: t.Image, Adopted: t.Origin == store.OriginAdopted, FirstSeenAt: t.FirstSeenAt, EndedAt: t.EndedAt, EndReason: t.EndReason})
 	}
-	return append(uses, inventory.FromTemplates(ts)...), nil
+	uses = append(uses, inventory.FromTemplates(ts)...)
+	held = append(held, inventory.HeldOfTemplates(ts)...)
+	for i := range uses {
+		uses[i].Image, _ = cleanImage(uses[i].Image, templateImageCap)
+	}
+	s.img = &imageMemo{version: ver, uses: uses, held: held}
+	return s.img, nil
 }
 
-func useView(u inventory.Use) ImageUse {
+// imageUses lists every recorded use, in a namespace when one is given, with the workloads' held history.
+func (s *Server) imageUses(ctx context.Context, namespace string) ([]inventory.Use, []inventory.Held, error) {
+	m, err := s.allImageUses(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if namespace == "" {
+		return m.uses, m.held, nil
+	}
+	var uses []inventory.Use
+	for _, u := range m.uses {
+		if u.Namespace == namespace {
+			uses = append(uses, u)
+		}
+	}
+	var held []inventory.Held
+	for _, h := range m.held {
+		if h.Namespace == namespace {
+			held = append(held, h)
+		}
+	}
+	return uses, held, nil
+}
+
+// watchedNamespace says whether OpsTide is set to watch the namespace now (every namespace when none is listed).
+func (s *Server) watchedNamespace(ns string) bool {
+	return len(s.cfg.Namespaces) == 0 || has(s.cfg.Namespaces, ns)
+}
+
+func (s *Server) useView(u inventory.Use) ImageUse {
 	v := ImageUse{WorkloadID: u.WorkloadID, Kind: u.Kind, Namespace: u.Namespace, Workload: u.Workload, Container: u.Container, Init: u.Init,
-		Since: u.Since, SinceBasis: u.SinceBasis, Until: tp(u.Until), UntilBasis: u.UntilBasis, FromRevision: u.FromRevision, ToRevision: u.ToRevision,
-		ReleaseID: u.ReleaseID, LatestRelID: u.LatestReleaseID, Provenance: u.Provenance, ReportedImageID: u.ReportedImageID, Previous: u.Previous,
-		ReplacedBy: u.ReplacedBy, Adopted: u.Adopted, Note: u.Note, Path: "/workloads/" + pathValue(u.WorkloadID)}
+		Since: tp(u.Since), SinceBasis: u.SinceBasis, SinceAfter: tp(u.SinceAfter), Until: tp(u.Until), UntilBasis: u.UntilBasis, Current: u.Current(),
+		FromRevision: u.FromRevision, ToRevision: u.ToRevision, ReleaseID: u.ReleaseID, LatestRelID: u.LatestReleaseID, Provenance: u.Provenance,
+		TemplateProvenance: u.TemplateProvenance, ReportedImageID: u.ReportedImageID, Previous: u.Previous, ReplacedBy: u.ReplacedBy, Adopted: u.Adopted,
+		Notes: append([]inventory.Note{}, u.Notes...), Path: "/workloads/" + pathValue(u.WorkloadID)}
 	if u.Kind == "CronJob" {
 		v.Path = "/operations/" + pathValue(u.WorkloadID)
 	}
+	if v.SinceBasis == inventory.SinceUnknown || v.UntilBasis == inventory.UntilUnknown {
+		v.Provenance = ProvUnknown
+	}
+	// Still open in a namespace OpsTide no longer watches: whether it is still current is not known.
+	if v.Current && !s.watchedNamespace(u.Namespace) {
+		v.Current, v.UntilBasis, v.Provenance = false, inventory.UntilUnknown, ProvUnknown
+		v.Notes = append(v.Notes, inventory.Note{Code: noteNotWatchedNow})
+	}
+	limit := snapshotTextCap
+	if u.Kind == "CronJob" {
+		limit = templateImageCap
+	}
+	_, v.ImageTruncated = cleanImage(u.Image, limit)
+	if v.ImageTruncated {
+		v.Notes = append(v.Notes, inventory.Note{Code: noteImageTruncated, Params: map[string]string{"bytes": itoa(limit)}})
+	}
+	texts := make([]string, 0, len(v.Notes))
+	for _, n := range v.Notes {
+		texts = append(texts, noteText(n))
+	}
+	v.Note = strings.Join(texts, " ")
 	return v
+}
+
+// Note codes the API adds to the inventory's own (inventory.Note*).
+const (
+	noteNotWatchedNow  = "namespace_not_watched"    // a use still open in a namespace OpsTide no longer watches
+	noteImageTruncated = "image_truncated"          // params bytes: the reference may have been cut there
+	noteCoverage       = "coverage"                 // params state: the coverage note for the time asked about
+	noteCronJobsSince  = "cronjob_images_since"     // params since: no CronJob image held from before
+	noteNoRecord       = "no_record"                // params days: no record of this image
+	noteRevisionTimes  = "revision_times"           // times are revisions', not image pulls
+	noteUncertainAt    = "uncertain_at"             // a use that may or may not have been current at the time asked about
+	noteUnknownHistory = "workloads_history_starts" // params n: workloads whose held history starts after the time asked about
+)
+
+func noteText(n inventory.Note) string {
+	switch n.Code {
+	case noteNotWatchedNow:
+		return "OpsTide no longer watches this namespace: whether this is still current is not known."
+	case noteImageTruncated:
+		return "The reference may have been cut at " + n.Params["bytes"] + " bytes where OpsTide stores it; it is shown as stored."
+	case noteCronJobsSince:
+		return "OpsTide records CronJob images since " + n.Params["since"] + "; none is held from before, so CronJobs are missing here."
+	case noteNoRecord:
+		return "OpsTide holds no record of this image in a workload it watches (within the " + n.Params["days"] + " days it keeps). That says what was recorded, not that the image never ran."
+	case noteRevisionTimes:
+		return "Times are those of the workloads' revisions: when a revision became current, not when each Pod pulled the image."
+	case noteUncertainAt:
+		return "Some uses may or may not have been current at this time (a time not known); they are marked UNKNOWN."
+	case noteUnknownHistory:
+		return n.Params["n"] + " workloads have no revision held from this time: what they ran then is not known (see unknown)."
+	}
+	return n.Text()
+}
+
+// sinceKey orders a use by its since, a not-known since by the time it is known to be after.
+func sinceKey(u ImageUse) time.Time {
+	if u.Since != nil {
+		return *u.Since
+	}
+	if u.SinceAfter != nil {
+		return *u.SinceAfter
+	}
+	return time.Time{}
 }
 
 func sortUses(us []ImageUse) {
@@ -220,7 +396,7 @@ func sortUses(us []ImageUse) {
 		if a.Container != b.Container {
 			return a.Container < b.Container
 		}
-		return a.Since.Before(b.Since)
+		return sinceKey(a).Before(sinceKey(b))
 	})
 }
 
@@ -306,24 +482,32 @@ func (s *Server) buildImages(r *http.Request) (ImageList, error) {
 		return ImageList{}, err
 	}
 	ns := q.Get("namespace")
-	out := ImageList{Schema: Schema, At: at, Now: now, Current: !now.After(at.Add(time.Minute)), Namespace: ns, Query: text, Images: []ImageGroup{}, Encoding: ImageRefEncoding, Notes: []string{}}
+	out := ImageList{Schema: Schema, At: at, Now: now, Current: !now.After(at.Add(time.Minute)), Namespace: ns, Query: text, Images: []ImageGroup{}, Encoding: ImageRefEncoding,
+		Notes: []string{}, NoteCodes: []inventory.Note{}, Unknown: []UnknownWorkload{}}
 	if out.Coverage, err = s.imageCoverage(r.Context(), at, ns); err != nil {
 		return out, err
 	}
-	uses, err := s.imageUses(r.Context(), ns)
+	uses, held, err := s.imageUses(r.Context(), ns)
 	if err != nil {
 		return out, err
 	}
 	needle := strings.ToLower(text)
+	matches := func(image, ns, workload string) bool {
+		return needle == "" || strings.Contains(strings.ToLower(image), needle) || strings.Contains(strings.ToLower(ns+"/"+workload), needle)
+	}
 	groups := map[string]*ImageGroup{}
+	uncertain := 0
 	for _, u := range uses {
-		if !u.ActiveAt(at) {
+		in, certain := u.At(at)
+		if !in || !matches(u.Image, u.Namespace, u.Workload) {
 			continue
 		}
-		if needle != "" && !strings.Contains(strings.ToLower(u.Image), needle) && !strings.Contains(strings.ToLower(u.Namespace+"/"+u.Workload), needle) {
-			continue
+		v := s.useView(u)
+		if !certain {
+			v.Provenance = ProvUnknown
+			v.Notes = append(v.Notes, inventory.Note{Code: noteUncertainAt})
+			uncertain++
 		}
-		v := useView(u)
 		if out.Coverage.State != CovWatching {
 			v.Provenance = ProvUnknown // what OpsTide holds from before then; whether it was still current is not confirmed
 		}
@@ -348,11 +532,45 @@ func (s *Server) buildImages(r *http.Request) (ImageList, error) {
 	if len(out.Images) > limit {
 		out.Images, out.Truncated = out.Images[:limit], true
 	}
+	// A workload whose held history starts after the time asked about, and that may have existed then: what it ran is
+	// not known. It is listed as such, never left out as if it ran nothing.
+	if !out.Current {
+		for _, h := range held {
+			if !at.Before(h.Since) || h.NothingBefore || (!h.DeletedAt.IsZero() && !at.Before(h.DeletedAt)) || !matches("", h.Namespace, h.Workload) {
+				continue
+			}
+			p := "/workloads/" + pathValue(h.WorkloadID)
+			if h.Kind == "CronJob" {
+				p = "/operations/" + pathValue(h.WorkloadID)
+			}
+			out.Unknown = append(out.Unknown, UnknownWorkload{WorkloadID: h.WorkloadID, Kind: h.Kind, Namespace: h.Namespace, Workload: h.Workload, HeldSince: h.Since, Provenance: ProvUnknown, Path: p})
+		}
+		sort.Slice(out.Unknown, func(i, j int) bool {
+			a, b := out.Unknown[i], out.Unknown[j]
+			if a.Namespace != b.Namespace {
+				return a.Namespace < b.Namespace
+			}
+			return a.Workload < b.Workload
+		})
+	}
 	if out.Coverage.State != CovWatching {
-		out.Notes = append(out.Notes, out.Coverage.Note)
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteCoverage, Params: map[string]string{"state": out.Coverage.State}})
 	}
 	if since := out.Coverage.CronJobImagesSince; since != nil && at.Before(*since) {
-		out.Notes = append(out.Notes, "OpsTide records CronJob images since "+since.Format(time.RFC3339)+"; none is held from before, so CronJobs are missing here.")
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteCronJobsSince, Params: map[string]string{"since": since.Format(time.RFC3339)}})
+	}
+	if uncertain > 0 {
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteUncertainAt})
+	}
+	if n := len(out.Unknown); n > 0 {
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteUnknownHistory, Params: map[string]string{"n": itoa(n)}})
+	}
+	for _, n := range out.NoteCodes {
+		if n.Code == noteCoverage {
+			out.Notes = append(out.Notes, out.Coverage.Note)
+			continue
+		}
+		out.Notes = append(out.Notes, noteText(n))
 	}
 	return out, nil
 }
@@ -373,12 +591,12 @@ func (s *Server) buildImage(r *http.Request) (ImageDetail, error) {
 	now := s.now().UTC().Truncate(time.Millisecond)
 	ref := inventory.ParseRef(image)
 	out := ImageDetail{Schema: Schema, Image: image, Ref: EncodeImageRef(image), Repository: ref.Repository, Tag: ref.Tag, Digest: ref.Digest, Now: now,
-		Uses: []ImageUse{}, OtherTags: []ImageTag{}, Encoding: ImageRefEncoding, Notes: []string{}}
+		Uses: []ImageUse{}, OtherTags: []ImageTag{}, Encoding: ImageRefEncoding, Notes: []string{}, NoteCodes: []inventory.Note{}}
 	ns := r.URL.Query().Get("namespace")
 	if out.Coverage, err = s.imageCoverage(r.Context(), now, ns); err != nil {
 		return out, err
 	}
-	uses, err := s.imageUses(r.Context(), ns)
+	uses, _, err := s.imageUses(r.Context(), ns)
 	if err != nil {
 		return out, err
 	}
@@ -386,9 +604,10 @@ func (s *Server) buildImage(r *http.Request) (ImageDetail, error) {
 	tags := map[string]*ImageTag{}
 	for _, u := range uses {
 		if u.Image == image {
-			out.Uses = append(out.Uses, useView(u))
+			v := s.useView(u)
+			out.Uses = append(out.Uses, v)
 			workloads[u.WorkloadID] = true
-			if u.Until.IsZero() {
+			if v.Current {
 				out.Current++
 			}
 			continue
@@ -402,25 +621,38 @@ func (s *Server) buildImage(r *http.Request) (ImageDetail, error) {
 			tags[u.Image] = tg
 		}
 		tg.Uses++
-		if u.Until.IsZero() {
+		if u.Current() && s.watchedNamespace(u.Namespace) {
 			tg.Current++
 		}
 	}
 	out.Workloads = len(workloads)
 	sort.SliceStable(out.Uses, func(i, j int) bool {
-		if !out.Uses[i].Since.Equal(out.Uses[j].Since) {
-			return out.Uses[i].Since.After(out.Uses[j].Since)
+		a, b := sinceKey(out.Uses[i]), sinceKey(out.Uses[j])
+		if !a.Equal(b) {
+			return a.After(b)
 		}
-		return out.Uses[i].Workload < out.Uses[j].Workload
+		if out.Uses[i].Workload != out.Uses[j].Workload {
+			return out.Uses[i].Workload < out.Uses[j].Workload
+		}
+		return out.Uses[i].Container < out.Uses[j].Container
 	})
 	for _, tg := range tags {
 		out.OtherTags = append(out.OtherTags, *tg)
 	}
 	sort.Slice(out.OtherTags, func(i, j int) bool { return out.OtherTags[i].Image < out.OtherTags[j].Image })
 	if len(out.Uses) == 0 {
-		out.Notes = append(out.Notes, "OpsTide holds no record of this image in a workload it watches"+
-			" (within the "+itoa(s.cfg.Retention.Days)+" days it keeps). That says what was recorded, not that the image never ran.")
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteNoRecord, Params: map[string]string{"days": itoa(s.cfg.Retention.Days)}})
 	}
-	out.Notes = append(out.Notes, "Times are those of the workloads' revisions: when a revision became current, not when each Pod pulled the image.")
+	if out.Coverage.State != CovWatching {
+		out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteCoverage, Params: map[string]string{"state": out.Coverage.State}})
+	}
+	out.NoteCodes = append(out.NoteCodes, inventory.Note{Code: noteRevisionTimes})
+	for _, n := range out.NoteCodes {
+		if n.Code == noteCoverage {
+			out.Notes = append(out.Notes, out.Coverage.Note)
+			continue
+		}
+		out.Notes = append(out.Notes, noteText(n))
+	}
 	return out, nil
 }

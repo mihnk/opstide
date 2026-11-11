@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Range } from './api'
-import { changeText } from './components/Duration'
+import { changeText, runTime } from './components/Duration'
+import { noteWords } from './screens/Images'
 import { setLangForTest } from './i18n'
 import { exceptionText, joinAnd, rangeSentence } from './narrative'
 import { pickStep, place, tickList } from './geometry'
@@ -190,5 +191,24 @@ describe('run time against its baseline', () => {
     setLangForTest('tr')
     expect(changeText(1.34)).toBe('+%34')
     setLangForTest('en')
+  })
+
+  it('writes sub-second run times in milliseconds, not as 0 s and 1 s', () => {
+    expect(runTime(400, 0)).toBe('400 ms')
+    expect(runTime(900, 1)).toBe('900 ms')
+    expect(runTime(1450, 1)).toBe('1.5 s')
+    expect(runTime(125_000, 125)).toBe('2m 05s')
+    expect(runTime(undefined, 3)).toBe('3 s')
+    expect(runTime(null, null)).toBe('—')
+  })
+})
+
+describe('image inventory notes', () => {
+  it('words the API note codes in the reader language', () => {
+    expect(noteWords({ code: 'until_unknown' })).toBe('It stopped being current; when is not known.')
+    setLangForTest('tr')
+    expect(noteWords({ code: 'image_truncated', params: { bytes: '512' } })).toBe("Referans, OpsTide'ın sakladığı yerde 512 baytta kesilmiş olabilir; saklandığı gibi gösteriliyor.")
+    setLangForTest('en')
+    expect(noteWords({ code: 'something_new' })).toBe('something_new')
   })
 })

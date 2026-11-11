@@ -51,10 +51,10 @@ func imageServer(t *testing.T) *httptest.Server {
 			CreatedAt: base.Add(-5 * 24 * time.Hour), ObservedAt: base.Add(-5 * 24 * time.Hour), Origin: store.OriginObserved, Snapshot: podSnap(nil, corev1.Container{Name: "web", Image: "shop/web:2.0"}, ship)}); err != nil {
 			return err
 		}
-		if err := w.SetTemplateImages(ctx, "cj-backup", "CronJob", "data", "backup", []store.TemplateContainer{{Name: "dump", Image: "postgres:16.4"}}, store.OriginAdopted, base.Add(-5*24*time.Hour)); err != nil {
+		if err := w.SetTemplateImages(ctx, "cj-backup", "CronJob", "data", "backup", []store.TemplateContainer{{Name: "dump", Image: "postgres:16.4"}}, store.OriginAdopted, base.Add(-5*24*time.Hour), false); err != nil {
 			return err
 		}
-		return w.SetTemplateImages(ctx, "cj-backup", "CronJob", "data", "backup", []store.TemplateContainer{{Name: "dump", Image: "postgres:16.5"}}, store.OriginObserved, base.Add(-time.Hour))
+		return w.SetTemplateImages(ctx, "cj-backup", "CronJob", "data", "backup", []store.TemplateContainer{{Name: "dump", Image: "postgres:16.5"}}, store.OriginObserved, base.Add(-time.Hour), false)
 	}, func(*Config) {})
 }
 
@@ -80,7 +80,7 @@ func TestImagesNowAndAtATime(t *testing.T) {
 		t.Fatal("a replaced image is not current")
 	}
 	api := m["shop/api:1.5.1"]
-	if api.Repository != "shop/api" || api.Tag != "1.5.1" || len(api.Uses) != 1 || api.Uses[0].Provenance != ProvObserved || api.Uses[0].Until != nil ||
+	if api.Repository != "shop/api" || api.Tag != "1.5.1" || len(api.Uses) != 1 || api.Uses[0].Provenance != ProvDerived || api.Uses[0].TemplateProvenance != ProvObserved || api.Uses[0].Until != nil || !api.Uses[0].Current ||
 		api.Uses[0].Previous != "shop/api:1.5.0" || api.Uses[0].ReleaseID != "rel-6" || api.Uses[0].Path != "/workloads/d-api" || api.Uses[0].ReportedImageID != "sha256:0101" {
 		t.Fatalf("%+v", api)
 	}
@@ -132,8 +132,20 @@ func TestImagesSayWhenOpsTideWasNotWatching(t *testing.T) {
 	if code := get(t, srv, "/api/v1/images?at="+url.QueryEscape(base.Add(-12*24*time.Hour).Format(time.RFC3339)), &before); code != 200 {
 		t.Fatal(code)
 	}
-	if before.Coverage.State != CovBeforeFirst || len(before.Notes) == 0 || len(before.Images) != 0 {
+	if before.Coverage.State != CovBeforeFirst || len(before.Notes) == 0 || len(before.Images) != 0 || len(before.NoteCodes) == 0 || before.NoteCodes[0].Code != "coverage" {
 		t.Fatalf("%+v", before)
+	}
+	// Not an empty answer: api (its held history starts at revision 5, 3 days ago) and the backup CronJob (adopted) ran
+	// something not known; web's first revision is held, created 5 days ago: nothing before it.
+	var unknown []string
+	for _, u := range before.Unknown {
+		unknown = append(unknown, u.Workload)
+		if u.Provenance != ProvUnknown {
+			t.Fatalf("%+v", u)
+		}
+	}
+	if strings.Join(unknown, ",") != "backup,api" {
+		t.Fatalf("unknown %v", unknown)
 	}
 	var old ImageList
 	if code := get(t, srv, "/api/v1/images?at="+url.QueryEscape(base.Add(-40*24*time.Hour).Format(time.RFC3339)), &old); code != 200 {
@@ -174,5 +186,32 @@ func TestImageHistoryAcrossWorkloadsAndValidation(t *testing.T) {
 		if code := get(t, srv, p, nil); code != 400 {
 			t.Errorf("%s: %d", p, code)
 		}
+	}
+}
+
+// The image detail carries the coverage state; a use still open in a namespace OpsTide no longer watches is not
+// called current; an image reference at the stored cap is flagged as possibly cut.
+func TestImageDetailCoverageUnwatchedNamespaceAndTruncation(t *testing.T) {
+	long := strings.Repeat("r", 510) + "/x:1"
+	srv := setupWith(t, base, nil, func(ctx context.Context, w *store.Writer) error {
+		for _, sc := range imageScopes {
+			if err := w.OpenInterval(ctx, sc, store.Healthy, base.Add(-10*24*time.Hour)); err != nil {
+				return err
+			}
+		}
+		if err := w.SetTemplateImages(ctx, "cj-old", "CronJob", "gone", "old", []store.TemplateContainer{{Name: "c", Image: "busybox:1"}}, store.OriginObserved, base.Add(-time.Hour), false); err != nil {
+			return err
+		}
+		return w.SetTemplateImages(ctx, "cj-long", "CronJob", "data", "long", []store.TemplateContainer{{Name: "c", Image: long[:512]}}, store.OriginObserved, base.Add(-time.Hour), false)
+	}, func(c *Config) { c.Namespaces = []string{"data"} })
+	var d ImageDetail
+	if code := get(t, srv, "/api/v1/images/"+EncodeImageRef("busybox:1"), &d); code != 200 {
+		t.Fatal(code)
+	}
+	if d.Coverage.State == "" || len(d.Uses) != 1 || d.Uses[0].Current || d.Current != 0 || d.Uses[0].UntilBasis != "unknown" || d.Uses[0].Provenance != ProvUnknown {
+		t.Fatalf("%+v", d)
+	}
+	if code := get(t, srv, "/api/v1/images/"+EncodeImageRef(long[:512]), &d); code != 200 || len(d.Uses) != 1 || !d.Uses[0].ImageTruncated {
+		t.Fatalf("%d %+v", code, d.Uses)
 	}
 }

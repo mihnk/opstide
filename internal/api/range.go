@@ -53,6 +53,9 @@ type Range struct {
 	Upcoming   []Upcoming  `json:"upcoming"`
 	// Maintenance is every occurrence of a configured maintenance window that overlaps the window, clipped to it.
 	Maintenance []MaintenanceSpan `json:"maintenance"`
+	// MaintenanceTruncated says more occurrences fall in the window than one question expands: Maintenance is then
+	// incomplete (records and exceptions are still marked correctly).
+	MaintenanceTruncated bool `json:"maintenanceTruncated,omitempty"`
 }
 
 // Counts sums the window's runs and expected times.
@@ -132,8 +135,8 @@ type Exception struct {
 	Operations int    `json:"operations,omitempty"`
 	Runs       int    `json:"expectedRuns,omitempty"`
 	Namespace  string `json:"namespace,omitempty"`
-	// Maintenance is the configured maintenance window the exception's time falls in, for its namespace (a gap: a
-	// cluster-wide window). It is still listed, after the exceptions outside any window.
+	// Maintenance is the configured maintenance window occurrence every member of the exception falls in, for its
+	// namespace; never set on a gap. It is still listed, styled as what it is, after the exceptions outside any window.
 	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
 }
 
@@ -220,7 +223,8 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 	}
 	d := Range{Schema: Schema, Cluster: s.cfg.Cluster, TimeZone: loc.String(), From: from, To: to, Now: now, Date: date,
 		BucketSeconds: int(time.Hour / time.Second), Gaps: []Span{}, Lanes: []Lane{}, Rollouts: []Rollout{}, Exceptions: []Exception{}, Upcoming: []Upcoming{},
-		Maintenance: s.maintenanceSpans(from, to, "")}
+	}
+	d.Maintenance, d.MaintenanceTruncated = s.maintenanceSpans(from, to, "")
 	mix := s.cfg.Maintenance.Index(from.Add(-24*time.Hour), to.Add(24*time.Hour))
 	if d.LastWrite, err = s.db.LastWrite(ctx); err != nil {
 		return d, err
@@ -320,12 +324,9 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 		end = now
 	}
 	d.Gaps = append(d.Gaps, cov.jobGaps(nsList, from, end)...)
-	for _, e := range gapExceptions(d.Gaps, unconf) {
-		if o, ok := mix.At(e.From, ""); ok {
-			e.Maintenance = markOf(o)
-		}
-		d.Exceptions = append(d.Exceptions, e)
-	}
+	// A stretch OpsTide was not watching is never marked or put after the others: maintenance does not explain what
+	// OpsTide could not see.
+	d.Exceptions = append(d.Exceptions, gapExceptions(d.Gaps, unconf)...)
 	sortExceptions(d.Exceptions)
 	sort.Slice(d.Upcoming, func(i, j int) bool { return d.Upcoming[i].At.Before(d.Upcoming[j].At) })
 	if len(d.Upcoming) > 8 {
@@ -440,17 +441,47 @@ type streak struct{ runs []store.Run }
 // and returns the expected times that fell in a gap.
 func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now time.Time, mix maintenance.Index) []unconfirmedAt {
 	op := v.op
+	// exc adds an exception as it is: a mark, when it has one, was set by the caller from every member's time.
 	exc := func(e Exception) {
 		e.OperationID, e.Name, e.Owner, e.RunbookURL, e.Namespace = op.ID, displayName(op), op.Owner, op.RunbookURL, op.Namespace
-		if e.Maintenance == nil && e.Kind != "missed" && e.Kind != "skipped" {
-			if o, ok := mix.At(e.At, op.Namespace); ok {
-				e.Maintenance = markOf(o)
-			}
-		}
 		if op.ExpectedDuration != nil {
 			e.Expected = int64(*op.ExpectedDuration / time.Second)
 		}
 		d.Exceptions = append(d.Exceptions, e)
+	}
+	// occKey names the maintenance occurrence a time falls in for this CronJob's namespace ("" outside any): name and
+	// start, so two nights of the same window are two occurrences.
+	occAt := func(t time.Time) (string, *maintenance.Occurrence) {
+		if o, ok := mix.At(t, op.Namespace); ok {
+			return o.Name + "\x00" + o.From.UTC().Format(time.RFC3339Nano), &o
+		}
+		return "", nil
+	}
+	// byOccurrence splits runs by the occurrence each one's time falls in, in order of first appearance, so an
+	// aggregate is marked only when every run in it is inside the same occurrence; the rest stay a part of their own,
+	// unmarked.
+	type runPart struct {
+		runs []store.Run
+		mark *MaintenanceMark
+	}
+	byOccurrence := func(rs []store.Run, at func(store.Run) time.Time) []runPart {
+		var parts []runPart
+		idx := map[string]int{}
+		for _, r := range rs {
+			k, o := occAt(at(r))
+			i, ok := idx[k]
+			if !ok {
+				i = len(parts)
+				idx[k] = i
+				p := runPart{}
+				if o != nil {
+					p.mark = markOf(*o)
+				}
+				parts = append(parts, p)
+			}
+			parts[i].runs = append(parts[i].runs, r)
+		}
+		return parts
 	}
 
 	runs := append([]store.Run(nil), v.runs...)
@@ -468,8 +499,13 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 	flush := func() {
 		if len(cur.runs) >= streakOf {
 			first, last := cur.runs[0], cur.runs[len(cur.runs)-1]
+			// A streak stays one entry; it is marked only when every failure in it is inside the same occurrence.
+			var mark *MaintenanceMark
+			if parts := byOccurrence(cur.runs, end); len(parts) == 1 {
+				mark = parts[0].mark
+			}
 			exc(Exception{Kind: "failing", At: end(last), From: first.CreatedAt, To: end(last), Count: len(cur.runs),
-				RunID: last.ID, ScheduledAt: last.ScheduledAt, Attempts: last.Attempts, Reason: last.StatusReason})
+				RunID: last.ID, ScheduledAt: last.ScheduledAt, Attempts: last.Attempts, Reason: last.StatusReason, Maintenance: mark})
 		} else {
 			failedRuns = append(failedRuns, cur.runs...)
 		}
@@ -499,19 +535,19 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 	}
 	flush()
 
-	if n := len(failedRuns); n > 0 {
-		last := failedRuns[n-1]
-		for _, r := range failedRuns {
+	for _, p := range byOccurrence(failedRuns, end) {
+		last := p.runs[len(p.runs)-1]
+		for _, r := range p.runs {
 			if end(r).After(end(last)) {
 				last = r
 			}
 		}
-		exc(Exception{Kind: "failed", At: end(last), Count: n, RunID: last.ID, ScheduledAt: last.ScheduledAt,
-			Seconds: runView(last, op.ExpectedDuration, now).Seconds, Attempts: last.Attempts, Reason: last.StatusReason})
+		exc(Exception{Kind: "failed", At: end(last), Count: len(p.runs), RunID: last.ID, ScheduledAt: last.ScheduledAt,
+			Seconds: runView(last, op.ExpectedDuration, now).Seconds, Attempts: last.Attempts, Reason: last.StatusReason, Maintenance: p.mark})
 	}
-	if n := len(slowRuns); n > 0 {
-		worst, latest := slowRuns[0], slowRuns[0]
-		for _, r := range slowRuns {
+	for _, p := range byOccurrence(slowRuns, end) {
+		worst, latest := p.runs[0], p.runs[0]
+		for _, r := range p.runs {
 			if runView(r, op.ExpectedDuration, now).Seconds > runView(worst, op.ExpectedDuration, now).Seconds {
 				worst = r
 			}
@@ -519,17 +555,17 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 				latest = r
 			}
 		}
-		exc(Exception{Kind: "slow", At: end(latest), Count: n, RunID: worst.ID, ScheduledAt: worst.ScheduledAt,
-			Seconds: runView(worst, op.ExpectedDuration, now).Seconds})
+		exc(Exception{Kind: "slow", At: end(latest), Count: len(p.runs), RunID: worst.ID, ScheduledAt: worst.ScheduledAt,
+			Seconds: runView(worst, op.ExpectedDuration, now).Seconds, Maintenance: p.mark})
 	}
-	if n := len(lostRuns); n > 0 {
-		last := lostRuns[0]
-		for _, r := range lostRuns {
+	for _, p := range byOccurrence(lostRuns, func(r store.Run) time.Time { return r.UpdatedAt }) {
+		last := p.runs[0]
+		for _, r := range p.runs {
 			if r.UpdatedAt.After(last.UpdatedAt) {
 				last = r
 			}
 		}
-		exc(Exception{Kind: "lost", At: last.UpdatedAt, Count: n, RunID: last.ID, ScheduledAt: last.ScheduledAt, Reason: last.StatusReason})
+		exc(Exception{Kind: "lost", At: last.UpdatedAt, Count: len(p.runs), RunID: last.ID, ScheduledAt: last.ScheduledAt, Reason: last.StatusReason, Maintenance: p.mark})
 	}
 
 	var unconf []unconfirmedAt
@@ -538,18 +574,16 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 		n           int
 		why         string
 	}
-	// Missed and skipped times are grouped apart by the maintenance window they fall in ("" outside any), so a run that
-	// did not start during planned work reads as "during maintenance" and the others do not.
+	// Missed and skipped times are grouped apart by the maintenance occurrence they fall in (name and start; "" outside
+	// any), so a run that did not start during planned work reads as "during maintenance", the others do not, and two
+	// nights of the same window are two entries.
 	missed, skipped := map[string]*group{}, map[string]*group{}
 	var order []string
 	marksOf := map[string]*MaintenanceMark{}
 	add := func(gs map[string]*group, sl schedule.Slot) {
-		key := ""
-		if o, ok := mix.At(sl.At, op.Namespace); ok {
-			key = o.Name
-			if marksOf[key] == nil {
-				marksOf[key] = markOf(o)
-			}
+		key, o := occAt(sl.At)
+		if o != nil && marksOf[key] == nil {
+			marksOf[key] = markOf(*o)
 		}
 		g := gs[key]
 		if g == nil {

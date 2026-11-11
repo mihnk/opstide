@@ -110,8 +110,9 @@ func TestLoadFile(t *testing.T) {
 }
 
 // A window at 02:30 local time every day in Europe/Berlin: the cron is read in the zone, so the UTC times move with
-// daylight saving, and on the night the clocks jump from 02:00 to 03:00 there is no 02:30 and no occurrence (the same
-// rule the CronJob controller follows).
+// daylight saving. On the night the clocks jump from 02:00 to 03:00 there is no 02:30: the window starts at the first
+// instant that exists after it, 03:00 CEST. In autumn 02:30 happens twice: the window starts once, at the first.
+// (The CronJob controller skips the first and fires twice on the second; a window is planned work, not a run.)
 func TestRecurringAcrossDaylightSaving(t *testing.T) {
 	s := mustParse(t, "windows: [{name: nightly, cron: '30 2 * * *', duration: 1h, timeZone: Europe/Berlin}]")
 	from := time.Date(2026, 3, 27, 0, 0, 0, 0, time.UTC)
@@ -123,12 +124,11 @@ func TestRecurringAcrossDaylightSaving(t *testing.T) {
 	for _, o := range occ {
 		got = append(got, o.From.Format("01-02T15:04")+"/"+o.To.Format("15:04"))
 	}
-	// 27 and 28 March at CET (UTC+1), 29 March skipped (02:00 -> 03:00), 30 March at CEST (UTC+2).
-	want := "03-27T01:30/02:30 03-28T01:30/02:30 03-30T00:30/01:30"
+	// 27 and 28 March at CET (UTC+1), 29 March at the jump (03:00 CEST, 01:00 UTC), 30 March at CEST (UTC+2).
+	want := "03-27T01:30/02:30 03-28T01:30/02:30 03-29T01:00/02:00 03-30T00:30/01:30"
 	if strings.Join(got, " ") != want {
 		t.Fatalf("got %v, want %s", got, want)
 	}
-	// In autumn the 02:30 hour happens twice; the duration is real time, an hour from each start.
 	occ, _ = s.Between(time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC))
 	got = nil
 	for _, o := range occ {
@@ -137,15 +137,80 @@ func TestRecurringAcrossDaylightSaving(t *testing.T) {
 		}
 		got = append(got, o.From.Format("01-02T15:04"))
 	}
-	if got[0] != "10-24T00:30" || got[len(got)-1] != "10-26T01:30" {
+	if strings.Join(got, " ") != "10-24T00:30 10-25T00:30 10-26T01:30" {
 		t.Fatalf("autumn: %v", got)
 	}
 	// At, in UTC, matches the local occurrence.
 	if o, ok := s.At(time.Date(2026, 3, 30, 1, 0, 0, 0, time.UTC), "any"); !ok || o.Name != "nightly" {
 		t.Fatal("covered at 03:00 CEST")
 	}
-	if _, ok := s.At(time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC), "any"); ok {
-		t.Fatal("no occurrence on the night 02:30 does not exist")
+	if o, ok := s.At(time.Date(2026, 3, 29, 1, 30, 0, 0, time.UTC), "any"); !ok || !o.From.Equal(time.Date(2026, 3, 29, 1, 0, 0, 0, time.UTC)) {
+		t.Fatal("on the night 02:30 does not exist, open from 03:00 CEST")
+	}
+	if _, ok := s.At(time.Date(2026, 10, 25, 1, 45, 0, 0, time.UTC), "any"); ok {
+		t.Fatal("the second 02:30 of the autumn night opens nothing")
+	}
+}
+
+// America/New_York: 30 2 * * * on the spring-forward day (8 March 2026) starts at 03:00 EDT; 30 1 * * * on the
+// fall-back day (1 November 2026) starts once, at 01:30 EDT.
+func TestRecurringDaylightSavingNewYork(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skip(err)
+	}
+	s := mustParse(t, `
+windows:
+  - {name: spring, cron: '30 2 * * *', duration: 30m, timeZone: America/New_York}
+  - {name: fall, cron: '30 1 * * *', duration: 2h, timeZone: America/New_York}
+`)
+	occ, _ := s.Between(time.Date(2026, 3, 8, 0, 0, 0, 0, ny), time.Date(2026, 3, 9, 0, 0, 0, 0, ny))
+	var spring []time.Time
+	for _, o := range occ {
+		if o.Name == "spring" {
+			spring = append(spring, o.From)
+		}
+	}
+	if len(spring) != 1 || !spring[0].Equal(time.Date(2026, 3, 8, 7, 0, 0, 0, time.UTC)) {
+		t.Fatalf("spring forward: %v", spring)
+	}
+	occ, _ = s.Between(time.Date(2026, 11, 1, 0, 0, 0, 0, ny), time.Date(2026, 11, 2, 0, 0, 0, 0, ny))
+	var fall []Occurrence
+	for _, o := range occ {
+		if o.Name == "fall" {
+			fall = append(fall, o)
+		}
+	}
+	if len(fall) != 1 || !fall[0].From.Equal(time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC)) || !fall[0].To.Equal(time.Date(2026, 11, 1, 7, 30, 0, 0, time.UTC)) {
+		t.Fatalf("fall back: %+v", fall)
+	}
+	// The second 01:30 (EST, 06:30 UTC) is inside the first occurrence, not the start of another.
+	if o, ok := s.At(time.Date(2026, 11, 1, 6, 45, 0, 0, time.UTC), ""); !ok || !o.From.Equal(fall[0].From) {
+		t.Fatalf("at: %+v", o)
+	}
+	if n := s.Windows()[1].Next(time.Date(2026, 10, 31, 12, 0, 0, 0, ny), 3); len(n) != 3 || n[1].From.Sub(n[0].From) != 25*time.Hour {
+		t.Fatalf("next: %+v", n)
+	}
+}
+
+// A recurring window may not overlap itself, and the error says where.
+func TestRecurringMustNotOverlapItself(t *testing.T) {
+	for _, c := range []string{
+		"windows: [{name: a, cron: '* * * * *', duration: 168h}]",
+		"windows: [{name: a, cron: '*/5 * * * *', duration: 6m}]",
+		"windows: [{name: a, cron: '0 2 * * 1,2', duration: 25h}]",
+		// 01:00 and 02:30 are 90 minutes apart, but on the spring-forward night 02:30 starts at 03:00 EDT, an hour after.
+		"windows: [{name: a, cron: '0 1 * * *\n', duration: 1h}]",
+	}[:3] {
+		if _, err := Parse([]byte(c)); err == nil || !strings.Contains(err.Error(), "occurrences would overlap") {
+			t.Errorf("%s: %v", c, err)
+		}
+	}
+	if _, err := Parse([]byte("windows: [{name: a, cron: '30 1,2 * * *', duration: 45m}]")); err != nil {
+		t.Error("in UTC there is no such night:", err)
+	}
+	if _, err := Parse([]byte("windows: [{name: a, cron: '0 1 * * *', duration: 24h}]")); err != nil {
+		t.Error("back to back is not an overlap:", err)
 	}
 }
 
@@ -188,6 +253,10 @@ windows:
 
 func TestExpansionIsBounded(t *testing.T) {
 	s := mustParse(t, "windows: [{name: every-minute, cron: '* * * * *', duration: 1m}]")
+	// A time inside: one schedule step, not an expansion.
+	if o, ok := s.At(time.Date(2026, 1, 1, 10, 0, 30, 0, time.UTC), ""); !ok || !o.From.Equal(time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Fatal(o)
+	}
 	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	occ, truncated := s.Between(from, from.Add(30*24*time.Hour))
 	if !truncated || len(occ) != MaxOccurrences {
@@ -228,5 +297,30 @@ windows:
 	}
 	if _, ok := nilSet.At(now, ""); ok {
 		t.Fatal("nil covers nothing")
+	}
+}
+
+// The index (binary search over the expanded occurrences) and the window-by-window lookup give the same answer,
+// including where windows of different lengths overlap.
+func TestIndexMatchesSetAt(t *testing.T) {
+	s := mustParse(t, `
+windows:
+  - {name: long, start: '2026-11-01T00:00:00Z', end: '2026-11-20T00:00:00Z', namespaces: [data]}
+  - {name: hourly, cron: '0 * * * *', duration: 10m}
+  - {name: nightly, cron: '30 2 * * *', duration: 3h, timeZone: Europe/Istanbul, namespaces: [shop]}
+`)
+	from, to := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	ix := s.Index(from, to)
+	if ix.Truncated() {
+		t.Fatal("truncated")
+	}
+	for at := from; at.Before(to); at = at.Add(7 * time.Minute) {
+		for _, ns := range []string{"", "data", "shop"} {
+			a, okA := ix.At(at, ns)
+			b, okB := s.At(at, ns)
+			if okA != okB || a.Name != b.Name || !a.From.Equal(b.From) {
+				t.Fatalf("%v %q: index %v %+v, set %v %+v", at, ns, okA, a, okB, b)
+			}
+		}
 	}
 }

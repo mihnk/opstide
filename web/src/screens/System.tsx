@@ -153,7 +153,8 @@ export function System({ tz }: { tz: string }) {
                     <td className="mono" style={{ fontSize: 13 }}>{w.kind === 'recurring'
                       ? <>{w.cron} <span className="muted">· {w.duration} · {w.timeZone}</span></>
                       : <>{w.start && hhmmss(w.start, tz)} → {w.end && hhmmss(w.end, tz)} <span className="muted" style={{ fontFamily: 'inherit' }}>· {t('once')}</span></>}</td>
-                    <td>{w.namespaces.length ? <span className="mono">{w.namespaces.join(', ')}</span> : <span className="muted">{t('the whole cluster')}</span>}</td>
+                    <td>{w.namespaces.length ? <span className="mono">{w.namespaces.join(', ')}</span> : <span className="muted">{t('the whole cluster')}</span>}
+                      {(w.unwatchedNamespaces?.length ?? 0) > 0 && <span className="fail" style={{ display: 'block', fontSize: 12 }}>{t('Not watched by OpsTide: {list}. Nothing is recorded there, so this window marks nothing in them.', { list: w.unwatchedNamespaces!.join(', ') })}</span>}</td>
                     <td className="mono" style={{ fontSize: 12 }}>{w.next.length === 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}>{t('none to come')}</span>
                       : w.next.map((o) => <span key={o.from} style={{ display: 'block' }}>{new Date(o.from).toLocaleString(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} – {hhmm(o.to, tz)}</span>)}</td>
                   </tr>

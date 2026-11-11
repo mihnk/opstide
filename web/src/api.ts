@@ -36,6 +36,8 @@ export interface MaintenanceWindow {
   note?: string
   active: boolean
   next: MaintenanceSpan[]
+  /** Namespaces the window names that OpsTide does not watch: it marks nothing there. */
+  unwatchedNamespaces?: string[]
 }
 
 export interface Pod {
@@ -153,6 +155,8 @@ export interface Range {
   exceptions: Exception[]
   upcoming: { at: string; operationId: string; name: string; namespace: string }[]
   maintenance?: MaintenanceSpan[]
+  /** More occurrences fall in the window than one question expands: maintenance is incomplete. */
+  maintenanceTruncated?: boolean
 }
 
 export interface Overview {
@@ -178,6 +182,9 @@ export interface DurationPeriod {
   /** Nearest-rank percentiles; null with no runs. */
   p50Seconds: number | null
   p95Seconds: number | null
+  /** The same percentiles in milliseconds (what the ratio is of), for runs shorter than a few seconds. */
+  p50Ms?: number | null
+  p95Ms?: number | null
   /** OpsTide watched Jobs throughout; when false, runs from the stretches not watched may be missing (not counted as absent). */
   whole: boolean
   notWatchedSeconds: number
@@ -199,7 +206,7 @@ export interface DurationTrend {
   longer: boolean
   basis?: string
   /** The latest runs' durations, oldest first (detail only). */
-  points?: { runId: string; startedAt: string; seconds: number; recent: boolean }[]
+  points?: { runId: string; startedAt: string; seconds: number; ms?: number; recent: boolean }[]
 }
 
 export interface OperationRow extends Operation {
@@ -709,22 +716,35 @@ export interface ImageUse {
   workload: string
   container: string
   init: boolean
-  since: string
-  sinceBasis: 'created' | 'observed' | 'first_recorded'
+  /** null when sinceBasis is unknown; sinceAfter is then a time it became current after. */
+  since: string | null
+  sinceBasis: 'created' | 'observed' | 'first_recorded' | 'unknown'
+  sinceAfter?: string
+  /** null: still current, unless untilBasis is unknown (ended, when not known; until is then a time by which it had). */
   until: string | null
-  untilBasis?: 'replaced' | 'container_removed' | 'workload_deleted'
+  untilBasis?: 'replaced' | 'container_removed' | 'workload_deleted' | 'unknown'
+  current: boolean
   fromRevision: string
   toRevision: string
   releaseId?: string
   latestReleaseId?: string
+  /** Of the stretch (since, until). */
   provenance: 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
+  /** Of "the template named this image". */
+  templateProvenance?: 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
   reportedImageId?: string
   previous?: string
   replacedBy?: string
   adopted: boolean
+  imageTruncated?: boolean
+  /** English text of notes, for API readers; the UI words notes from their codes. */
   note?: string
+  notes?: ImageNote[]
   path: string
 }
+/** A coded note: the UI words (and translates) it from code and params. */
+export interface ImageNote { code: string; params?: Record<string, string> }
+export interface UnknownWorkload { workloadId: string; kind: string; namespace: string; workload: string; heldSince: string; provenance: 'UNKNOWN'; path: string }
 export interface ImageGroup { image: string; ref: string; repository: string; tag?: string; digest?: string; namespaces: string[]; uses: ImageUse[] }
 export interface ImageCoverage {
   state: 'watching' | 'gap' | 'before_first_observation' | 'outside_retention'
@@ -747,6 +767,9 @@ export interface ImageList {
   truncated: boolean
   refEncoding: string
   notes: string[]
+  noteCodes?: ImageNote[]
+  /** Workloads whose held history starts after the time asked about: what they ran then is not known. */
+  unknown?: UnknownWorkload[]
 }
 export interface ImageDetail {
   schema: number
@@ -763,6 +786,7 @@ export interface ImageDetail {
   otherTags: { image: string; ref: string; current: number; uses: number }[]
   refEncoding: string
   notes: string[]
+  noteCodes?: ImageNote[]
 }
 
 /** An image reference as it goes in a path: unpadded base64url of its UTF-8 bytes (the API's encoding). */

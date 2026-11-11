@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -224,11 +225,16 @@ func cap32[T any](s []T) []T {
 	return s
 }
 
+// clip cuts s to maxText bytes on a character boundary, so a stored name or image stays valid UTF-8.
 func clip(s string) string {
-	if len(s) > maxText {
-		return s[:maxText]
+	if len(s) <= maxText {
+		return s
 	}
-	return s
+	n := maxText
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 func keys(m map[string]bool) []string {

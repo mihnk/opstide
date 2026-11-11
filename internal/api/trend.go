@@ -41,9 +41,12 @@ type DurationPeriod struct {
 	From time.Time `json:"from"`
 	To   time.Time `json:"to"`
 	Runs int       `json:"runs"` // succeeded runs with a known start and end that started in the period
-	// P50Seconds and P95Seconds are null when no run counts.
+	// P50Seconds and P95Seconds are null when no run counts; rounded to whole seconds. P50Ms and P95Ms are the same
+	// percentiles in milliseconds, for runs that take less than a few seconds (the ratio is of these exact values).
 	P50Seconds *int64 `json:"p50Seconds"`
 	P95Seconds *int64 `json:"p95Seconds"`
+	P50Ms      *int64 `json:"p50Ms"`
+	P95Ms      *int64 `json:"p95Ms"`
 	// Whole says OpsTide watched Jobs in the CronJob's namespace throughout the period (from when the CronJob existed).
 	// When it is false, runs from the stretches not watched may be missing from the numbers; they are not counted as absent.
 	Whole             bool  `json:"whole"`
@@ -57,6 +60,7 @@ type DurationPoint struct {
 	RunID     string    `json:"runId"`
 	StartedAt time.Time `json:"startedAt"`
 	Seconds   int64     `json:"seconds"`
+	Ms        int64     `json:"ms"`
 	Recent    bool      `json:"recent"` // in the recent period, else in the baseline
 }
 
@@ -86,8 +90,15 @@ func (s *Server) trendPeriods(now time.Time, loc *time.Location) (recent, baseli
 	recent = DurationPeriod{From: rf.UTC(), To: now.UTC()}
 	baseline = DurationPeriod{From: bf.UTC(), To: rf.UTC()}
 	if d := s.cfg.Retention.Days; d > 0 {
-		if b := now.AddDate(0, 0, -d).UTC(); b.After(baseline.From) {
-			baseline.From, baseline.ShortenedByRetention = b, true
+		// The retention boundary is compared in the reader's zone, like the period bounds: d calendar days back at the
+		// same wall time. In UTC it can sit an hour either side of a local midnight across a DST change, which made
+		// "shortened" flip with the hour of the day. The cut itself is the later of the two, so From never reaches
+		// into history that is not held.
+		if b := now.In(loc).AddDate(0, 0, -d); b.After(bf) {
+			if bu := now.UTC().AddDate(0, 0, -d); bu.After(b) {
+				b = bu
+			}
+			baseline.From, baseline.ShortenedByRetention = b.UTC(), true
 			if baseline.From.After(baseline.To) {
 				baseline.From = baseline.To
 			}
@@ -107,6 +118,11 @@ func secondsOf(d time.Duration) *int64 {
 	return &v
 }
 
+func msOf(d time.Duration) *int64 {
+	v := d.Milliseconds()
+	return &v
+}
+
 // fill sets the period's counts and percentiles from the durations of the runs in it.
 func (p *DurationPeriod) fill(ds []time.Duration) {
 	p.Runs = len(ds)
@@ -114,7 +130,9 @@ func (p *DurationPeriod) fill(ds []time.Duration) {
 		return
 	}
 	sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
-	p.P50Seconds, p.P95Seconds = secondsOf(nearestRank(ds, 0.5)), secondsOf(nearestRank(ds, 0.95))
+	p50, p95 := nearestRank(ds, 0.5), nearestRank(ds, 0.95)
+	p.P50Seconds, p.P95Seconds = secondsOf(p50), secondsOf(p95)
+	p.P50Ms, p.P95Ms = msOf(p50), msOf(p95)
 }
 
 // cover says whether Jobs in the operation's namespace were watched throughout the period, from when the CronJob
@@ -181,7 +199,7 @@ func splitRuns(runs []store.RunDuration, recent, baseline DurationPeriod) (rd, b
 		default:
 			continue
 		}
-		pts = append(pts, DurationPoint{RunID: r.RunID, StartedAt: r.StartedAt, Seconds: *secondsOf(r.Duration), Recent: in(recent)})
+		pts = append(pts, DurationPoint{RunID: r.RunID, StartedAt: r.StartedAt, Seconds: *secondsOf(r.Duration), Ms: r.Duration.Milliseconds(), Recent: in(recent)})
 	}
 	return rd, bd, pts
 }

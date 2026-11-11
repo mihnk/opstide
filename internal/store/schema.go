@@ -494,6 +494,15 @@ CREATE INDEX IF NOT EXISTS template_images_open ON template_images(workload_id) 
 CREATE INDEX IF NOT EXISTS template_images_ended ON template_images(ended_at) WHERE ended_at IS NOT NULL;
 INSERT OR REPLACE INTO meta (key, value) VALUES ('template_images_since', CAST(CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS TEXT));
 `,
+	// 13: why a CronJob template image row ended: replaced (the container names another image), container_removed,
+	// workload_deleted, or unknown (the change was found at the first sync after OpsTide was not watching, so when it
+	// happened is not known). Rows ended before this keep '' unless the CronJob's deletion matches their end.
+	`
+ALTER TABLE template_images ADD COLUMN end_reason TEXT NOT NULL DEFAULT '';
+UPDATE template_images SET end_reason = 'workload_deleted'
+WHERE ended_at IS NOT NULL AND EXISTS (SELECT 1 FROM operations o WHERE o.id = template_images.workload_id
+	AND o.deleted_at IS NOT NULL AND o.deleted_at BETWEEN template_images.ended_at - 1000 AND template_images.ended_at + 1000);
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

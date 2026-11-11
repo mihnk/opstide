@@ -223,6 +223,11 @@ func (c *Collector) cronJobGone(ctx context.Context, op store.Operation, now, de
 		if err := w.MarkOperationDeleted(ctx, op.ID, now); err != nil { // ends its references and images too
 			return err
 		}
+		if !seen { // gone while OpsTide was not watching: now is only when that was found
+			if err := w.MarkTemplateImagesEndUnknown(ctx, op.ID, now); err != nil {
+				return err
+			}
+		}
 		c.cfg.forgetRefs(op.ID)
 		c.images.forget(op.ID)
 		_, err := w.AddEvent(ctx, e)

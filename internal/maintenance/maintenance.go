@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/robfig/cron/v3"
 	"sigs.k8s.io/yaml"
 
 	"github.com/mihnk/opstide/internal/schedule"
@@ -28,11 +29,14 @@ const (
 	MaxNamespaces = 50
 	// MaxOccurrences bounds how many occurrences of one recurring window a single question expands.
 	MaxOccurrences = 1000
-	MaxOneOff      = 31 * 24 * time.Hour // the longest one-off window
-	MaxDuration    = 7 * 24 * time.Hour  // the longest occurrence of a recurring window
-	MinDuration    = time.Minute
-	maxFileBytes   = 1 << 20
-	maxNote        = 500
+	// MaxExpansion bounds how many occurrences of all windows together a single question expands (the per-request
+	// budget): past it the answer says it was truncated, and a time is looked up window by window instead.
+	MaxExpansion = 10_000
+	MaxOneOff    = 31 * 24 * time.Hour // the longest one-off window
+	MaxDuration  = 7 * 24 * time.Hour  // the longest occurrence of a recurring window
+	MinDuration  = time.Minute
+	maxFileBytes = 1 << 20
+	maxNote      = 500
 )
 
 // Spec is one window as written in the configuration file. Exactly one of {start, end} and {cron, duration} is set.
@@ -63,11 +67,12 @@ type Window struct {
 	Cron     string
 	TimeZone string
 	Duration time.Duration
-	sched    *schedule.Schedule
+	spec     cron.Schedule // read on the wall clock of loc (see next)
+	loc      *time.Location
 }
 
 // Recurring says whether the window repeats on a cron schedule.
-func (w Window) Recurring() bool { return w.sched != nil }
+func (w Window) Recurring() bool { return w.spec != nil }
 
 // Covers says whether the window applies to a record in this namespace ("" for a cluster-scoped record, which only a
 // cluster-wide window covers).
@@ -241,17 +246,110 @@ func validate(sp Spec) (Window, error) {
 		if tz == "" {
 			tz = "UTC"
 		}
+		// schedule.Parse checks the cron and the zone the way CronJobs are checked; the window keeps its own reading
+		// of the schedule (next), which treats daylight saving differently from the CronJob controller.
 		sc, err := schedule.Parse(sp.Cron, tz, time.UTC)
 		if err != nil {
 			return w, err
 		}
+		spec, err := cron.ParseStandard(sp.Cron)
+		if err != nil {
+			return w, fmt.Errorf("schedule %q: %w", sp.Cron, err)
+		}
+		w.Cron, w.TimeZone, w.Duration, w.spec, w.loc = strings.Join(strings.Fields(sp.Cron), " "), tz, d, spec, sc.Location()
 		// A cron that never fires (30 February) would be a window nobody can see; it is a mistake, not a choice.
-		if next := sc.Next(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)); next.IsZero() || next.After(time.Date(2004, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		if next := w.next(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)); next.IsZero() || next.After(time.Date(2004, 1, 1, 0, 0, 0, 0, time.UTC)) {
 			return w, fmt.Errorf("cron %q never fires", sp.Cron)
 		}
-		w.Cron, w.TimeZone, w.Duration, w.sched = strings.Join(strings.Fields(sp.Cron), " "), tz, d, sc
+		// An occurrence must end before the next one starts: a window that overlaps itself (* * * * * for 168h) says
+		// nothing more than a longer one, and would make every question expand without bound.
+		if gap, at := w.shortestInterval(); gap > 0 && d > gap {
+			return w, fmt.Errorf("duration %s is longer than the %s between two starts (%s): occurrences would overlap", d, gap, at.In(w.loc).Format("2006-01-02 15:04 MST"))
+		}
 	}
 	return w, nil
+}
+
+// shortestInterval is the shortest real time between two consecutive starts of a recurring window, over two sample
+// years (each zone's daylight-saving changes, which can bring two starts closer, happen once a year) and at most
+// intervalSample starts; at is the first start of that pair. Intervals of a week or more do not matter (the longest
+// duration is 168 hours), so a schedule whose starts are all that far apart is not walked to the end.
+func (w Window) shortestInterval() (gap time.Duration, at time.Time) {
+	const intervalSample = 400_000
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, w.loc)
+	end := from.AddDate(2, 0, 7)
+	prev := w.next(from)
+	for i := 0; i < intervalSample && !prev.IsZero() && prev.Before(end); i++ {
+		n := w.next(prev)
+		if n.IsZero() {
+			break
+		}
+		if d := n.Sub(prev); gap == 0 || d < gap {
+			gap, at = d, prev
+			if gap < w.Duration {
+				break // already too short: no need to look further
+			}
+		}
+		prev = n
+	}
+	return gap, at
+}
+
+// next is the first start of a recurring window strictly after t. The cron is matched on the wall clock of the
+// window's zone, then the wall time is placed in the zone:
+//
+//   - a wall time the clocks skip (02:30 on the spring-forward night in America/New_York) starts the window at the
+//     first instant that exists after it (03:00 EDT), so planned work is not dropped for a night;
+//   - a wall time that happens twice (01:30 on the fall-back night) starts it once, at its first occurrence.
+//
+// This differs on purpose from the CronJob controller (which skips the first and fires twice on the second): a window
+// is a declared stretch of planned work, not a run.
+func (w Window) next(t time.Time) time.Time {
+	lt := t.In(w.loc)
+	naive := time.Date(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), lt.Second(), lt.Nanosecond(), time.UTC)
+	// Each pass moves the wall clock forward by at least a minute; only the repeated hour of a fall-back night (wall
+	// times whose first occurrence is before t) takes more than one.
+	for i := 0; i < 2000; i++ {
+		n := w.spec.Next(naive)
+		if n.IsZero() {
+			return time.Time{}
+		}
+		if s := wallInstant(n, w.loc); s.After(t) {
+			return s.UTC()
+		}
+		naive = n
+	}
+	return time.Time{}
+}
+
+// wallInstant places a wall-clock time (given as a UTC time with those fields) in loc: the earliest instant showing
+// that wall time, or, for a wall time the clocks skip, the instant the clocks jump (the first valid one after it).
+func wallInstant(wall time.Time, loc *time.Location) time.Time {
+	sameWall := func(t time.Time) bool {
+		l := t.In(loc)
+		return l.Year() == wall.Year() && l.YearDay() == wall.YearDay() && l.Hour() == wall.Hour() && l.Minute() == wall.Minute() && l.Second() == wall.Second()
+	}
+	// The zone's offsets around this wall time: a change within a day either side is the only kind that matters.
+	_, before := wall.Add(-26 * time.Hour).In(loc).Zone()
+	_, after := wall.Add(26 * time.Hour).In(loc).Zone()
+	var best time.Time
+	for _, off := range []int{before, after} {
+		c := wall.Add(-time.Duration(off) * time.Second)
+		if sameWall(c) && (best.IsZero() || c.Before(best)) {
+			best = c
+		}
+	}
+	if !best.IsZero() {
+		return best
+	}
+	// A skipped wall time: read with the offset in force before the change it lands after the change; the start of
+	// that zone period is the jump itself.
+	c := wall.Add(-time.Duration(before) * time.Second)
+	start, _ := c.In(loc).ZoneBounds()
+	if start.IsZero() || start.After(c) {
+		return c
+	}
+	return start
 }
 
 // Len is how many windows are configured.
@@ -272,7 +370,7 @@ func (s *Set) Windows() []Window {
 
 func (w Window) occurrence(from time.Time) Occurrence {
 	o := Occurrence{Name: w.Name, Note: w.Note, Namespaces: w.Namespaces, Recurring: w.Recurring()}
-	if w.sched == nil {
+	if w.spec == nil {
 		o.From, o.To = w.Start, w.End
 	} else {
 		o.From, o.To = from, from.Add(w.Duration)
@@ -280,81 +378,102 @@ func (w Window) occurrence(from time.Time) Occurrence {
 	return o
 }
 
-// occurrences of one window overlapping [from, to), oldest first, at most MaxOccurrences.
-func (w Window) occurrences(from, to time.Time) (out []Occurrence, truncated bool) {
-	if w.sched == nil {
+// occurrences of one window overlapping [from, to), oldest first, at most MaxOccurrences and at most *budget (which
+// it spends). truncated says there were more.
+func (w Window) occurrences(from, to time.Time, budget *int) (out []Occurrence, truncated bool) {
+	if w.spec == nil {
 		if w.Start.Before(to) && w.End.After(from) {
 			out = append(out, w.occurrence(w.Start))
+			*budget--
 		}
 		return out, false
 	}
 	// Starts in (from - duration, to): every occurrence that is still open at from, or opens before to.
-	for t := w.sched.Next(from.Add(-w.Duration)); !t.IsZero() && t.Before(to); t = w.sched.Next(t) {
-		if len(out) == MaxOccurrences {
+	for t := w.next(from.Add(-w.Duration)); !t.IsZero() && t.Before(to); t = w.next(t) {
+		if len(out) == MaxOccurrences || *budget <= 0 {
 			return out, true
 		}
 		out = append(out, w.occurrence(t))
+		*budget--
 	}
 	return out, false
 }
 
 // Between lists the occurrences of every window that overlap [from, to), by start time. truncated says a recurring
-// window had more than MaxOccurrences in the range and the rest were not expanded.
+// window had more than MaxOccurrences in the range, or all of them more than MaxExpansion, and the rest were not
+// expanded: the list is then incomplete and must be said to be.
 func (s *Set) Between(from, to time.Time) (out []Occurrence, truncated bool) {
+	return s.BetweenIn(from, to, "")
+}
+
+// BetweenIn is Between for the windows that cover namespace ns (every window when ns is ""), so windows of other
+// namespaces do not spend the expansion budget.
+func (s *Set) BetweenIn(from, to time.Time, ns string) (out []Occurrence, truncated bool) {
 	if s == nil {
 		return nil, false
 	}
+	budget := MaxExpansion
 	for _, w := range s.windows {
-		o, tr := w.occurrences(from, to)
+		if ns != "" && !w.Covers(ns) {
+			continue
+		}
+		o, tr := w.occurrences(from, to, &budget)
 		out = append(out, o...)
 		truncated = truncated || tr
 	}
+	sortOccurrences(out)
+	return out, truncated
+}
+
+func sortOccurrences(out []Occurrence) {
 	sort.SliceStable(out, func(i, j int) bool {
 		if !out[i].From.Equal(out[j].From) {
 			return out[i].From.Before(out[j].From)
 		}
 		return out[i].Name < out[j].Name
 	})
-	return out, truncated
 }
 
-// At is the occurrence covering t in namespace ns, the first window declared winning when several do.
+// earlier says whether a wins over b when both cover a time: the earlier start, then the name (the same order as
+// Between, so Index.At and Set.At agree).
+func earlier(a, b Occurrence) bool {
+	if !a.From.Equal(b.From) {
+		return a.From.Before(b.From)
+	}
+	return a.Name < b.Name
+}
+
+// At is the occurrence covering t in namespace ns, the earliest-starting one when several do.
 func (s *Set) At(t time.Time, ns string) (Occurrence, bool) {
 	if s == nil {
 		return Occurrence{}, false
 	}
+	var best Occurrence
+	found := false
 	for _, w := range s.windows {
 		if !w.Covers(ns) {
 			continue
 		}
-		if o, ok := w.at(t); ok {
-			return o, true
+		if o, ok := w.at(t); ok && (!found || earlier(o, best)) {
+			best, found = o, true
 		}
 	}
-	return Occurrence{}, false
+	return best, found
 }
 
-// at is the occurrence of w open at t, if any.
+// at is the occurrence of w open at t, if any. Occurrences of one window do not overlap (validation refuses a duration
+// longer than the time between two starts), so the first start after t - duration is the only one that can cover t.
 func (w Window) at(t time.Time) (Occurrence, bool) {
-	if w.sched == nil {
+	if w.spec == nil {
 		if !t.Before(w.Start) && t.Before(w.End) {
 			return w.occurrence(w.Start), true
 		}
 		return Occurrence{}, false
 	}
-	// The latest start in (t - duration, t] opens an occurrence that covers t.
-	var last time.Time
-	n := 0
-	for s := w.sched.Next(t.Add(-w.Duration)); !s.IsZero() && !s.After(t); s = w.sched.Next(s) {
-		last = s
-		if n++; n > MaxOccurrences {
-			break
-		}
+	if s := w.next(t.Add(-w.Duration)); !s.IsZero() && !s.After(t) {
+		return w.occurrence(s), true
 	}
-	if last.IsZero() {
-		return Occurrence{}, false
-	}
-	return w.occurrence(last), true
+	return Occurrence{}, false
 }
 
 // Active says, for each window, whether it is open at now (in any namespace).
@@ -376,13 +495,13 @@ func (w Window) Next(now time.Time, n int) []Occurrence {
 	if o, ok := w.at(now); ok {
 		out = append(out, o)
 	}
-	if w.sched == nil {
+	if w.spec == nil {
 		if now.Before(w.Start) {
 			out = append(out, w.occurrence(w.Start))
 		}
 		return out
 	}
-	for t := w.sched.Next(now); !t.IsZero() && len(out) < n; t = w.sched.Next(t) {
+	for t := w.next(now); !t.IsZero() && len(out) < n; t = w.next(t) {
 		out = append(out, w.occurrence(t))
 	}
 	return out
@@ -390,16 +509,21 @@ func (w Window) Next(now time.Time, n int) []Occurrence {
 
 // Index answers At for many times in one range without expanding a schedule each time.
 type Index struct {
-	occ       []Occurrence
+	occ       []Occurrence // by start
+	longest   time.Duration
 	set       *Set
 	truncated bool
 }
 
 // Index expands the occurrences overlapping [from, to) once. truncated is as for Between: past the cap, a time is
-// looked up window by window instead (correct, only slower).
+// looked up window by window instead (correct, only slower), so a cut expansion never gives a wrong window.
 func (s *Set) Index(from, to time.Time) Index {
 	occ, tr := s.Between(from, to)
-	return Index{occ: occ, set: s, truncated: tr}
+	ix := Index{occ: occ, set: s, truncated: tr}
+	for _, o := range occ {
+		ix.longest = max(ix.longest, o.To.Sub(o.From))
+	}
+	return ix
 }
 
 // At is the occurrence covering t in ns, the earliest-starting one when several do.
@@ -407,16 +531,54 @@ func (ix Index) At(t time.Time, ns string) (Occurrence, bool) {
 	if ix.truncated {
 		return ix.set.At(t, ns)
 	}
-	for _, o := range ix.occ {
-		if o.From.After(t) {
-			break
-		}
-		if o.Covers(t, ns) {
-			return o, true
+	// The occurrences starting at or before t, found by binary search; only those that started within the longest
+	// occurrence before t can still be open. The earliest-starting match is the last one found walking back.
+	hi := sort.Search(len(ix.occ), func(i int) bool { return ix.occ[i].From.After(t) })
+	var best Occurrence
+	found := false
+	for i := hi - 1; i >= 0 && t.Sub(ix.occ[i].From) < ix.longest; i-- {
+		if ix.occ[i].Covers(t, ns) {
+			best, found = ix.occ[i], true
 		}
 	}
-	return Occurrence{}, false
+	return best, found
 }
+
+// Merge joins occurrences that overlap or touch and cover the same namespaces into one stretch each (names and notes
+// are the first one's), for leaving them out of a query: fewer, wider spans, the same set of times.
+func Merge(occ []Occurrence) []Occurrence {
+	byNS := map[string][]Occurrence{}
+	var keys []string
+	for _, o := range occ {
+		k := strings.Join(o.Namespaces, ",")
+		if _, ok := byNS[k]; !ok {
+			keys = append(keys, k)
+		}
+		byNS[k] = append(byNS[k], o)
+	}
+	var out []Occurrence
+	for _, k := range keys {
+		list := byNS[k]
+		sort.SliceStable(list, func(i, j int) bool { return list[i].From.Before(list[j].From) })
+		cur := list[0]
+		for _, o := range list[1:] {
+			if !o.From.After(cur.To) {
+				if o.To.After(cur.To) {
+					cur.To = o.To
+				}
+				continue
+			}
+			out = append(out, cur)
+			cur = o
+		}
+		out = append(out, cur)
+	}
+	sortOccurrences(out)
+	return out
+}
+
+// Truncated says the index's expansion was cut (Occurrences is then incomplete).
+func (ix Index) Truncated() bool { return ix.truncated }
 
 // Occurrences are the occurrences the index holds.
 func (ix Index) Occurrences() []Occurrence { return ix.occ }

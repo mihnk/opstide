@@ -146,6 +146,7 @@ function Before({ id, tz, hrefOf }: { id: string; tz: string; hrefOf?: (id: stri
           {data.maintenance
             ? <span style={{ fontSize: 12 }}><span className="chip maint">{t('maintenance: {name}', { name: data.maintenance.name })}</span> {t('This record falls inside a maintenance window declared in the configuration ({from}–{to}). That is context, not a cause.', { from: hhmmss(data.maintenance.from, tz), to: hhmmss(data.maintenance.to, tz) })}</span>
             : (data.maintenanceWindows?.length ?? 0) > 0 && <span className="muted" style={{ fontSize: 12 }}>{t('A maintenance window was open during part of this window: {list}. This record falls outside it.', { list: data.maintenanceWindows!.map((m) => `${m.name} ${hhmm(m.from, tz)}–${hhmm(m.to, tz)}`).join(', ') })}</span>}
+          {data.maintenanceWindowsTruncated && <span className="muted" style={{ fontSize: 12 }}>{t('More maintenance window occurrences overlap this window than are listed; the list shows only the first.')}</span>}
           <span className="muted" style={{ fontSize: 12 }}>
             {data.coverage.state === 'watching'
               ? t('Coverage: OpsTide was watching all of what these changes come from throughout the window.')

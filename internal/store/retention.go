@@ -113,8 +113,14 @@ func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retenti
 		// past retention: the newest release of each workload always stays, so a
 		// quiet Deployment is never left with nothing, and its Pods go with the
 		// releases that are removed. A finished Pod record also ends with retention.
-		if err := exec(&r.Releases, `DELETE FROM releases WHERE observed_at < ? AND id NOT IN (
-	SELECT id FROM releases r2 WHERE r2.revision_num = (SELECT max(revision_num) FROM releases r3 WHERE r3.workload_id = r2.workload_id))`, cut); err != nil {
+		// A release goes once it stopped being current before the cut (when it was
+		// superseded, else when the next release began; the later of its start and
+		// when OpsTide saw it), not by when it was first seen: a release current
+		// inside the kept history is held, so "what ran then" has an answer.
+		if err := exec(&r.Releases, `DELETE FROM releases WHERE id NOT IN (
+	SELECT id FROM releases r2 WHERE r2.revision_num = (SELECT max(revision_num) FROM releases r3 WHERE r3.workload_id = r2.workload_id))
+AND coalesce(superseded_at, (SELECT min(max(coalesce(n.started_at, 0), n.observed_at)) FROM releases n
+	WHERE n.workload_id = releases.workload_id AND n.revision_num > releases.revision_num)) < ?`, cut); err != nil {
 			return err
 		}
 		if err := exec(&r.Releases, `DELETE FROM release_pods WHERE (terminated_at IS NOT NULL AND terminated_at < ?)
@@ -126,9 +132,15 @@ func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retenti
 		// Kubernetes garbage collection, not past retention; the newest revision of a
 		// workload that still exists stays. Revisions of a workload that was deleted
 		// before the cut go with it, as do Job-Pod ownership and Nodes.
-		if err := exec(&r.Releases, `DELETE FROM workload_revisions WHERE (observed_at < ? AND id NOT IN (
+		// A revision goes once the next revision (by number) became current before
+		// the cut: the later of its creation and when OpsTide last changed it (a
+		// rollback renumbers a revision in place), so one current inside the kept
+		// history stays.
+		if err := exec(&r.Releases, `DELETE FROM workload_revisions WHERE (id NOT IN (
 	SELECT id FROM workload_revisions v2 WHERE v2.revision_num = (SELECT max(revision_num) FROM workload_revisions v3 WHERE v3.workload_id = v2.workload_id)
-	AND v2.workload_id IN (SELECT id FROM workloads WHERE deleted_at IS NULL)))
+	AND v2.workload_id IN (SELECT id FROM workloads WHERE deleted_at IS NULL))
+	AND (SELECT min(max(coalesce(n.created_at, 0), n.observed_at, n.updated_at)) FROM workload_revisions n
+		WHERE n.workload_id = workload_revisions.workload_id AND n.revision_num > workload_revisions.revision_num) < ?)
 	OR workload_id IN (SELECT id FROM workloads WHERE deleted_at IS NOT NULL AND deleted_at < ?)`, cut, cut); err != nil {
 			return err
 		}
