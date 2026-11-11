@@ -333,7 +333,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
             )}
           </section>
           <aside aria-label={t('Record details')} className={`drawer${rec ? ' open' : ''}`}>
-            {rec ? <RecordPanel key={rec} id={rec} tz={tz} close={() => set({ rec: null })} /> : <div className="empty">{t('Pick a record to see where it came from, what it is connected to, and the record as stored.')}</div>}
+            {rec ? <RecordPanel key={rec} id={rec} tz={tz} close={() => set({ rec: null })} hrefOf={(x) => withParams(params, { rec: x })} /> : <div className="empty">{t('Pick a record to see where it came from, what it is connected to, and the record as stored.')}</div>}
           </aside>
         </div>
       )}

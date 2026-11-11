@@ -387,7 +387,16 @@ func (s *Store) ScopeLastWatched(ctx context.Context, scope string, now time.Tim
 // then and not removed before it. "" when none or several qualify, so a Node recreated under the same name is
 // never taken for the earlier one, nor the earlier one for it.
 func (w *Writer) NodeIDByNameAt(ctx context.Context, name string, at time.Time) (string, error) {
-	rows, err := w.tx.QueryContext(ctx, `SELECT uid FROM nodes WHERE name = ? AND coalesce(created_at, first_seen_at) <= ?
+	return nodeIDByNameAt(ctx, w.tx, name, at)
+}
+
+// NodeIDByNameAt is the same lookup for readers: the one Node of this exact name that existed at the time, or "".
+func (s *Store) NodeIDByNameAt(ctx context.Context, name string, at time.Time) (string, error) {
+	return nodeIDByNameAt(ctx, s.db, name, at)
+}
+
+func nodeIDByNameAt(ctx context.Context, q queryer, name string, at time.Time) (string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT uid FROM nodes WHERE name = ? AND coalesce(created_at, first_seen_at) <= ?
 	AND (deleted_at IS NULL OR deleted_at >= ?)`, name, at.Add(nodeClockSkew).UnixMilli(), at.UnixMilli())
 	if err != nil {
 		return "", err

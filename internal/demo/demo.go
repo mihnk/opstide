@@ -183,6 +183,16 @@ func cronJobs(s *seeder) error {
 				if failed {
 					typ, sev, word = "job.failed", "error", "failed ("+reason+")"
 				}
+				if failed && j.id == "cj-ledger" {
+					// Someone's chart wrote the CronJob's spec twenty minutes before this run: it shows up in "What changed
+					// before this" on the failed run, side by side, with nothing said between them.
+					w := at.Add(-20 * time.Minute)
+					if err := s.log("cronjob.spec_written", "CronJob", j.id, j.name, j.ns, w, store.Observed, "info", fmt.Sprintf("CronJob %s/%s: written by helm (Update), a manager of its spec", j.ns, j.name),
+						map[string]string{"fieldManager": "helm", "operation": "Update", "writtenAt": w.Format(time.RFC3339), "seen": "recorded after OpsTide started watching"},
+						func(e *store.Event) { e.OperationID = j.id }); err != nil {
+						return err
+					}
+				}
 				if err := s.log(typ, "Job", id, run.JobName, j.ns, finished, store.Derived, sev,
 					fmt.Sprintf("%s %s", j.display, word), map[string]string{"seconds": fmt.Sprint(int(j.dur.Seconds())), "scheduledAt": at.Format(time.RFC3339), "scheduledBasis": "annotation", "attempts": fmt.Sprint(run.Attempts)},
 					func(e *store.Event) { e.RunID, e.OperationID = id, j.id }); err != nil {
@@ -286,8 +296,20 @@ func deployment(s *seeder) error {
 			return err
 		}
 	}
-	return s.log("pod.restarted", "Pod", "p-api-c3", "api-6-c3", "shop", s.ago(29*time.Hour), store.Observed, "warning", "Pod api-6-c3 restarted (OOMKilled)",
-		map[string]string{"reason": "OOMKilled", "delta": "1"}, func(e *store.Event) { e.WorkloadID, e.ReleaseID = id, "rel-api-6" })
+	if err := s.log("pod.restarted", "Pod", "p-api-c3", "api-6-c3", "shop", s.ago(29*time.Hour), store.Observed, "warning", "Pod api-6-c3 restarted (OOMKilled)",
+		map[string]string{"reason": "OOMKilled", "delta": "1"}, func(e *store.Event) { e.WorkloadID, e.ReleaseID = id, "rel-api-6" }); err != nil {
+		return err
+	}
+	// Forty minutes ago a current api Pod restarted, OOMKilled. In the hour before it, OpsTide recorded a write to the
+	// api Deployment's spec (its owner) and, in config below, one to the api-config ConfigMap its Pod template names:
+	// two relationship classes in "What changed before this", listed, not linked by cause.
+	if err := s.log("deployment.spec_written", "Deployment", id, "api", "shop", s.ago(47*time.Minute), store.Observed, "info", "Deployment shop/api: written by kubectl-edit (Update), a manager of its spec",
+		map[string]string{"fieldManager": "kubectl-edit", "operation": "Update", "writtenAt": s.ago(47 * time.Minute).Format(time.RFC3339), "seen": "recorded after OpsTide started watching"},
+		func(e *store.Event) { e.WorkloadID = id }); err != nil {
+		return err
+	}
+	return s.log("pod.restarted", "Pod", "p-api-b2", "api-7-b2", "shop", s.ago(40*time.Minute), store.Observed, "warning", "Pod api-7-b2 restarted (OOMKilled)",
+		map[string]string{"reason": "OOMKilled", "delta": "1"}, func(e *store.Event) { e.WorkloadID, e.ReleaseID = id, "rel-api-7" })
 }
 
 func statefulSets(s *seeder) error {
@@ -450,7 +472,7 @@ func events(s *seeder) error {
 }
 
 // config is the ConfigMap and Secret part of the story: the api's ConfigMap written by Argo CD a few minutes before an api
-// Pod restarted (side by side on the timeline, nothing said between them), a ConfigMap created and later relabelled, one
+// Pod restarted (twice: yesterday, and again in the last hour) (side by side on the timeline, nothing said between them), a ConfigMap created and later relabelled, one
 // deleted, and Secret metadata writes (the demo shows Secret metadata as turned on). No value appears anywhere.
 func config(s *seeder) error {
 	start := s.ago(4 * 24 * time.Hour)
@@ -498,6 +520,9 @@ func config(s *seeder) error {
 		{"configmap.data_written", "ConfigMap", "cm-api-config", "api-config", "shop", 29*time.Hour + 3*time.Minute,
 			"ConfigMap shop/api-config: data written by argocd-controller (Apply)",
 			written("argocd-controller", "Apply", 29*time.Hour+3*time.Minute, map[string]string{"contentChanged": "yes, since OpsTide's previous observation", "keysChanged": "CACHE_TTL, LOG_LEVEL"})},
+		{"configmap.data_written", "ConfigMap", "cm-api-config", "api-config", "shop", 52 * time.Minute,
+			"ConfigMap shop/api-config: data written by argocd-controller (Apply)",
+			written("argocd-controller", "Apply", 52*time.Minute, map[string]string{"contentChanged": "yes, since OpsTide's previous observation", "keysChanged": "CACHE_TTL"})},
 		{"configmap.created", "ConfigMap", "cm-web-flags", "web-flags", "shop", 2 * 24 * time.Hour,
 			"ConfigMap shop/web-flags created by helm (Update)", map[string]string{"fieldManager": "helm", "operation": "Update", "keyCount": "1", "keys": "new_checkout"}},
 		{"configmap.metadata_written", "ConfigMap", "cm-web-flags", "web-flags", "shop", 5 * time.Hour,

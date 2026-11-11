@@ -270,6 +270,9 @@ type ReleaseDetail struct {
 	Snapshot   release.Snapshot  `json:"snapshot"`
 	ImageIDs   map[string]string `json:"imageIds"`
 	Warnings   []string          `json:"warnings"`
+	// TroubleRecordID is the newest record that says this release stalled, failed, became unavailable or had rule
+	// findings: where "What changed before this" opens in the Explorer. Absent when there is none.
+	TroubleRecordID string `json:"troubleRecordId,omitempty"`
 }
 
 // WorkloadRef identifies the Deployment.
@@ -372,6 +375,7 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Assessment = Assessment{Verdict: v, WindowMinutes: wm, Windows: release.Windows, Stored: stored}
 	out.Workload = WorkloadRef{UID: rel.WorkloadID, Namespace: rel.Namespace, Name: rel.Workload}
+	out.TroubleRecordID = s.troubleRecordID(ctx, rel)
 	if del, err := s.db.WorkloadDeleted(ctx, rel.WorkloadID); err == nil {
 		out.Workload.DeletedAt = del
 	}

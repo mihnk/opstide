@@ -413,6 +413,8 @@ export interface ReleaseDetail {
   snapshot: Snapshot
   imageIds: Record<string, string>
   warnings: string[]
+  /** The newest record saying this release stalled, failed, became unavailable or had rule findings. */
+  troubleRecordId?: string
 }
 
 export interface PodContainer { name: string; init?: boolean; restarts: number; lastReason?: string; lastExit?: number; oomKilled: number; waiting: string[] }

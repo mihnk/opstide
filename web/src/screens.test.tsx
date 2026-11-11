@@ -137,3 +137,26 @@ describe('the workspace with records in it', () => {
     }
   })
 })
+
+describe('what changed before a failure', () => {
+  // A recorded failure-like record whose hour before holds changes from two relationship classes (the demo's api Pod
+  // restart: its owner's spec write and the ConfigMap its Pod template names).
+  const id = Object.entries(api).map(([k, v]) => {
+    const m = /^\/api\/v1\/explorer\/records\/([^/?]+)\/before\?window=1h$/.exec(k)
+    const classes = new Set(((v as { changes?: { classification: string }[] }).changes ?? []).map((c) => c.classification))
+    return m && classes.size >= 2 ? decodeURIComponent(m[1]) : null
+  }).find((x): x is string => !!x)
+  const page = fixtures.pages.find((p) => id && new URLSearchParams(p.split('?')[1]).get('rec') === id)
+
+  it.each([['en', 'Recorded before this', 'its owner', 'config it references'], ['tr', 'Bundan önce kaydedilenler', 'sahibi', 'başvurduğu yapılandırma']] as [Lang, string, string, string][])(
+    'lists them in time order with how each is related (%s)', async (l, title, owner, ref) => {
+      expect(page, 'a recorded page shows a failure with changes from two relationship classes before it').toBeDefined()
+      const { main, errors } = await draw(page!, l)
+      healthy(page!, main, errors)
+      const section = [...main.querySelectorAll('section')].find((s) => s.getAttribute('aria-label') === title)
+      expect(section, 'the section is drawn').toBeDefined()
+      expect(section!.textContent).toContain(owner)
+      expect(section!.textContent).toContain(ref)
+      expect(section!.querySelectorAll('p details').length, 'the Note is never inside a <p>').toBe(0)
+    })
+})

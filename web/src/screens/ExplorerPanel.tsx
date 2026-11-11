@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { query } from '../api'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
-import { classWords, explorerLink, provWord, typeWord, type ExplorerDetail, type ExplorerState, type Relationship } from '../explorer'
+import { beforeWindows, beforeWords, classWords, explorerLink, isFailureLike, provWord, typeWord, type BeforeChange, type BeforeWindow, type ExplorerBefore, type ExplorerDetail, type ExplorerState, type Relationship } from '../explorer'
 import { t } from '../i18n'
 import { useApi } from '../live'
 import { Link } from '../router'
@@ -62,7 +62,95 @@ function StateAt({ uid, kind, ns, at, tz }: { uid: string; kind: string; ns?: st
   )
 }
 
-export function RecordPanel({ id, tz, close }: { id: string; tz: string; close: () => void }) {
+const beforeTitle: Record<BeforeWindow, string> = {
+  get '15m'() { return t('Changes in the 15 minutes before, newest first') },
+  get '1h'() { return t('Changes in the hour before, newest first') },
+  get '6h'() { return t('Changes in the 6 hours before, newest first') },
+  get '24h'() { return t('Changes in the 24 hours before, newest first') },
+}
+
+// How a change was brought in, in the words of this list: the same resource, its owner, config it references, the Node
+// it ran on. The relationship class stays on the chip.
+function howRelated(c: { classification: string; subject: { kind: string } }): string {
+  switch (c.classification) {
+    case 'DIRECT': return t('same resource')
+    case 'OWNERSHIP': return t('its owner')
+    case 'REFERENCE': return t('config it references')
+    case 'SAME_RESOURCE_CONTEXT': return c.subject.kind === 'Node' ? t('the Node it ran on') : t('same resource context')
+  }
+  return t('unresolved')
+}
+
+function BeforeRow({ c, tz, hrefOf }: { c: BeforeChange; tz: string; hrefOf?: (id: string) => string }) {
+  const r = c.record
+  const s = c.subject
+  return (
+    <li style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--rule)', paddingTop: 6 }}>
+      <span>
+        <span className="mono">{hhmmss(r.at, tz)}</span> <span className="muted">· {beforeWords(c.secondsBefore)}</span>
+        <span className={`chip class-${c.classification.toLowerCase()}`} title={c.via}>{howRelated(c)}</span>
+      </span>
+      <span>{hrefOf ? <Link href={hrefOf(r.id)}>{r.summary}</Link> : r.summary}</span>
+      <span className="muted" style={{ fontSize: 12 }}>
+        {s.kind} <span className="mono">{s.namespace ? `${s.namespace}/` : ''}{s.name ?? ''}</span>
+        {c.writer ? <> · {t('written by {writer}', { writer: c.writer })}</> : null}
+        {' · '}<span className={`chip prov-${r.provenance.toLowerCase()}`}>{provWord(r.provenance)}</span>
+      </span>
+    </li>
+  )
+}
+
+// "What changed before this": the changes OpsTide recorded in a window before a failure-like record, on its resource and
+// on the resources related to it, with the window's coverage. A list of earlier records, never a cause.
+function Before({ id, tz, hrefOf }: { id: string; tz: string; hrefOf?: (id: string) => string }) {
+  const [win, setWin] = useState<BeforeWindow>('1h')
+  const { data, error } = useApi<ExplorerBefore>(`/api/v1/explorer/records/${encodeURIComponent(id)}/before${query({ window: win })}`, { keep: true })
+  const missing = data?.coverage.scopes.filter((sc) => sc.state !== 'watching') ?? []
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="muted" style={{ fontSize: 13 }}>{beforeTitle[win]}</span>
+        <span className="seg small" role="group" aria-label={t('Window before the record')}>
+          {beforeWindows.map((w) => <button key={w} type="button" aria-pressed={win === w} onClick={() => setWin(w)}>{w}</button>)}
+        </span>
+      </span>
+      {error && !data ? <p className="error" role="alert" style={{ margin: 0 }}>{error.message}</p> : !data ? <p className="muted" style={{ margin: 0 }}>{t('Loading…')}</p> : (
+        <>
+          {data.changes.length > 0 ? (
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+              {data.changes.map((c) => <BeforeRow key={c.record.id} c={c} tz={tz} hrefOf={hrefOf} />)}
+            </ul>
+          ) : (
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+              {data.empty?.kind === 'before_first_observation'
+                ? t('No changes recorded. This window reaches back before OpsTide first observed the cluster, so what happened then is not known.')
+                : data.empty?.kind === 'no_changes_recorded_with_gaps'
+                  ? t('No changes recorded, but some of the watches they come from had gaps in this window: a change there may not have been recorded.')
+                  : t('No changes recorded in this window, and OpsTide was watching all of what they come from throughout.')}
+            </p>
+          )}
+          {data.truncated && <span className="muted" style={{ fontSize: 12 }}>{t('Only the newest {n} are listed.', { n: data.changes.length })}</span>}
+          <span className="muted" style={{ fontSize: 12 }}>
+            {missing.length === 0
+              ? t('Coverage: OpsTide was watching all of what these changes come from throughout the window.')
+              : t('Coverage: not watched throughout the window: {list}.', { list: missing.map((sc) => `${t(sc.label)} (${t(sc.state.replace(/_/g, ' '))})`).join(', ') })}
+            {data.changes.length > 0 && data.coverage.state === 'before_first_observation' ? ` ${t('Part of the window is before OpsTide first observed the cluster.')}` : ''}
+          </span>
+          {data.related.length > 0 && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              {t('Looked at:')} {data.related.map((x, i) => (
+                <span key={i} title={x.via}>{i > 0 ? ', ' : ''}{x.kind}{x.name ? <span className="mono"> {x.name}</span> : null} ({howRelated({ classification: x.classification, subject: x })})</span>
+              ))}
+            </span>
+          )}
+        </>
+      )}
+      <Note more={t('These changes were recorded before this record, on it or on resources connected to it. Being earlier does not make any of them a cause: OpsTide does not say whether any of them had anything to do with it.')}>{t('Before, not because')}</Note>
+    </div>
+  )
+}
+
+export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string; close: () => void; hrefOf?: (id: string) => string }) {
   const { data: d, error } = useApi<ExplorerDetail>(`/api/v1/explorer/records/${encodeURIComponent(id)}`)
   if (error && !d) {
     return (
@@ -107,6 +195,12 @@ export function RecordPanel({ id, tz, close }: { id: string; tz: string; close: 
           {r.count && <><dt className="label">{t('Count')}</dt><dd className="mono">{r.count.value} <span className="muted" style={{ fontFamily: 'inherit' }}>({r.count.basis})</span></dd></>}
         </dl>
       </Section>
+
+      {isFailureLike(r) && (
+        <Section title={t('Recorded before this')}>
+          <Before key={r.id} id={r.id} tz={tz} hrefOf={hrefOf} />
+        </Section>
+      )}
 
       {f.fieldManager && (
         <Section title={t('Written by')}>

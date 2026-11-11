@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from 'react'
 import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
-import { explorerLink, rangeAround } from '../explorer'
+import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { t } from '../i18n'
 import { Legend, Timeline } from '../components/Timeline'
 import { useApi } from '../live'
@@ -166,6 +166,8 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
   if (!data) return <Loading />
   const r = data.run
   const when = r.scheduledAt ? t('The {time} run', { time: hhmm(r.scheduledAt, tz) }) : t('This run')
+  // The record that says this run failed, where "What changed before this" opens in the Explorer.
+  const failedEntry = r.status === 'failed' ? data.entries.find((e) => e.type === 'job.failed') : undefined
   const head = r.status === 'failed' ? t('Run failed') : r.status === 'running' ? t('Running') : r.status === 'unknown' ? t('Outcome unknown') : statusWord(r.status)
   return (
     <>
@@ -193,6 +195,10 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
             : t('Running for {took}.', { took: duration(r.seconds ?? 0) }))}
           {r.status === 'unknown' && t('The Job was removed before OpsTide saw it finish.')}
         </span>
+        {failedEntry && (
+          <Link className="button" style={{ alignSelf: 'flex-start', marginTop: 4 }} href={explorerLink({ rec: recordIdOf(failedEntry), ...rangeAround(failedEntry.at) })}
+            title={t('Changes OpsTide recorded before this run failed, on the CronJob and what it is connected to')}>{t('What changed before this')}</Link>
+        )}
       </div>
       <div className="tree">
         <span className="label">CronJob → Job → Pods</span>

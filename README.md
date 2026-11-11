@@ -193,6 +193,16 @@ Six pages, all reading the API below and updating live:
   per record, what OpsTide knew of a resource at a past time, a tab-only Investigation Workspace and a
   bounded JSON export. It shows evidence and interprets none of it. See
   [docs/M2.8-EXPLORER.md](docs/M2.8-EXPLORER.md).
+
+  **What changed before this.** A record that marks something going wrong (a failed run, a Pod restart, OOMKill,
+  eviction or wait, a release that stalled, failed, became unavailable or had rule findings, a Warning Kubernetes
+  Event, a Node condition change) shows *Recorded before this*: every change OpsTide recorded in the 15 minutes, hour
+  (the default), 6 or 24 hours before it, newest first, with how long before, the resource, the writer (field
+  manager) when known, provenance and how it is related: the same resource, its owner (Pod → ReplicaSet → Deployment,
+  Job → CronJob), a ConfigMap or Secret its Pod template references, or the Node the Pod ran on at that time. The
+  window's coverage comes with it, so "no changes recorded" with every watch whole is told apart from "no changes
+  recorded, but watches had gaps" and from a window before OpsTide first watched. Earlier is not a cause: the list
+  says what happened before, never why. A failed run on its CronJob's page and a troubled release link to it.
 - **Schedules**: every CronJob with its last 7 days, last run, next
   expected run, owner and criticality.
 - **Operation detail**: what a CronJob does and what is expected of it,
@@ -270,7 +280,7 @@ have missed runs, and the UI shows the gap.
 
 `make demo-local` (or `go run ./cmd/opstide -demo`) serves a made-up history from a temporary database: CronJobs
 with a failed run and an unwatched hour, a Deployment's three releases, a StatefulSet held at its partition,
-a DaemonSet, a Node that was recreated under the same name, Kubernetes Events, a collection gap and an object
+a DaemonSet, a Node that was recreated under the same name, an api Pod that restarted shortly after its Deployment's spec and its ConfigMap were written, Kubernetes Events, a collection gap and an object
 OpsTide gave up on. It needs no cluster, kubeconfig or Docker, collects nothing, and says so on every page. It is
 a snapshot, not a live view; to see real watching use kind below.
 
@@ -393,6 +403,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/releases/{id}/evidence`, `/workloads/{id}/scaling` | A release's evidence with how each record relates to it, the facts-only summary, and the autoscaler and replica-target context of its Deployment |
 | `GET /api/v1/workloads/{id}/history?config=none` | A workload's history; with the changes to the ConfigMaps and Secrets its Pod template names unless `config=none`, and the list of what it names (`references`) |
 | `GET /api/v1/explorer`, `/explorer/filters`, `/explorer/records/{id}`, `/explorer/context`, `/explorer/state`, `GET`+`POST /explorer/export`, `POST /explorer/lookup` | The Operational Evidence Explorer: one timeline of everything recorded with provenance, coverage and relationship classifications, a drilldown per record, state at a past time, and bounded JSON export (see docs/M2.8-EXPLORER.md) |
+| `GET /api/v1/explorer/records/{id}/before?window=1h` | The changes recorded in the window before a record (`15m`, `1h` (default), `6h` or `24h`; never more), newest first, on its resource and the resources related to it, each with its relationship class (`DIRECT`, `OWNERSHIP`, `REFERENCE`, `SAME_RESOURCE_CONTEXT`), writer and provenance; the related resources looked at; the coverage of the window per watch; and why an empty list is empty (`no_changes_recorded`, `no_changes_recorded_with_gaps`, `before_first_observation`). Before, not because |
 | `GET /api/v1/workloads`, `/workloads/{id}`, `/workloads/{id}/history`, `/revisions`, `/pods`, `/evidence`, `GET /api/v1/nodes`, `/nodes/{id}`, `/nodes/{id}/history`, `GET /api/v1/runs/{id}/evidence` | Workloads of every kind, their revisions, Pods and evidence; Node context; the Events linked to a run (see docs/M2.7-WORKLOADS.md) |
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Explorer's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage |

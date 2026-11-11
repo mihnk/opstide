@@ -160,6 +160,56 @@ export interface ExplorerSummary {
   dropped: number
 }
 
+/** The changes OpsTide recorded in a window before a record (GET /explorer/records/{id}/before). Newest first. */
+export type BeforeWindow = '15m' | '1h' | '6h' | '24h'
+export interface BeforeChange {
+  record: ExplorerRecord
+  secondsBefore: number
+  writer?: string
+  classification: Classification
+  via: string
+  subject: ResourceRef
+}
+export interface ExplorerBefore {
+  schema: number
+  record: ExplorerRecord
+  failureLike: boolean
+  window: BeforeWindow
+  from: string
+  to: string
+  order: 'newest_first'
+  orderBasis: string
+  changeTypes: string[]
+  related: (ResourceRef & { classification: Classification; via: string })[]
+  changes: BeforeChange[]
+  truncated: boolean
+  coverage: {
+    state: 'watching' | 'gap' | 'before_first_observation'
+    firstObservedAt: string | null
+    scopes: { scope: string; label: string; state: string; gaps: Span[]; note?: string }[]
+  }
+  empty?: { kind: 'no_changes_recorded' | 'no_changes_recorded_with_gaps' | 'before_first_observation'; message: string; detail: string[] }
+  note: string
+}
+
+export const beforeWindows: BeforeWindow[] = ['15m', '1h', '6h', '24h']
+
+const failureTypes = new Set(['job.failed', 'pod.restarted', 'pod.oomkilled', 'pod.evicted', 'pod.waiting', 'release.stalled', 'release.failed', 'release.unavailable', 'release.health.degraded', 'node.condition_changed'])
+
+/** Whether a record marks something going wrong, so "What changed before this" is offered on it (the API answers for any). */
+export function isFailureLike(r: { type: string; eventType?: string }): boolean {
+  return failureTypes.has(r.type) || (r.type === 'kubernetes.event' && r.eventType === 'Warning')
+}
+
+/** "14 min before", in the interface language. */
+export function beforeWords(seconds: number): string {
+  if (seconds < 60) return t('{n} s before', { n: seconds })
+  const m = Math.floor(seconds / 60)
+  if (m < 60) return t('{n} min before', { n: m })
+  const h = Math.floor(m / 60)
+  return m % 60 ? t('{h} h {m} min before', { h, m: m % 60 }) : t('{h} h before', { h })
+}
+
 export interface ExplorerLookup { schema: number; records: ExplorerRecord[]; missing: string[] }
 
 // The words below are read at render time (getters), so they follow the chosen language.
