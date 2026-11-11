@@ -181,14 +181,21 @@ export interface ExplorerBefore {
   orderBasis: string
   changeTypes: string[]
   related: (ResourceRef & { classification: Classification; via: string })[]
+  /** More resources were related than are looked at; the rest were not. */
+  subjectsCapped: boolean
   changes: BeforeChange[]
   truncated: boolean
   coverage: {
-    state: 'watching' | 'gap' | 'before_first_observation'
+    /** watching only when everything related was resolved, every watch was whole and every record of the window is held. */
+    state: 'watching' | 'gap' | 'unresolved' | 'outside_retention' | 'before_first_observation'
     firstObservedAt: string | null
-    scopes: { scope: string; label: string; state: string; gaps: Span[]; note?: string }[]
+    /** Records before this are no longer held (age limit or size budget); null when the whole window is. */
+    heldFrom: string | null
+    heldNote?: string
+    unresolved: ('unresolved_subject' | 'nothing_watched' | 'subjects_capped')[]
+    scopes: { scope: string; label: string; namespace?: string; state: string; gaps: Span[]; note?: string }[]
   }
-  empty?: { kind: 'no_changes_recorded' | 'no_changes_recorded_with_gaps' | 'before_first_observation'; message: string; detail: string[] }
+  empty?: { kind: 'no_changes_recorded' | 'no_changes_recorded_with_gaps' | 'unresolved' | 'outside_retention' | 'before_first_observation'; message: string; detail: string[] }
   note: string
 }
 

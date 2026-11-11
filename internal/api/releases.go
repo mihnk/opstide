@@ -273,6 +273,8 @@ type ReleaseDetail struct {
 	// TroubleRecordID is the newest record that says this release stalled, failed, became unavailable or had rule
 	// findings: where "What changed before this" opens in the Explorer. Absent when there is none.
 	TroubleRecordID string `json:"troubleRecordId,omitempty"`
+	// TroubleRecordAt is that record's time, so a link can open the Explorer on a range that holds it.
+	TroubleRecordAt *time.Time `json:"troubleRecordAt,omitempty"`
 }
 
 // WorkloadRef identifies the Deployment.
@@ -375,7 +377,9 @@ func (s *Server) release(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Assessment = Assessment{Verdict: v, WindowMinutes: wm, Windows: release.Windows, Stored: stored}
 	out.Workload = WorkloadRef{UID: rel.WorkloadID, Namespace: rel.Namespace, Name: rel.Workload}
-	out.TroubleRecordID = s.troubleRecordID(ctx, rel)
+	if id, at := s.troubleRecord(ctx, rel); id != "" {
+		out.TroubleRecordID, out.TroubleRecordAt = id, tp(at)
+	}
 	if del, err := s.db.WorkloadDeleted(ctx, rel.WorkloadID); err == nil {
 		out.Workload.DeletedAt = del
 	}

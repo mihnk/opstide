@@ -50,7 +50,7 @@ func (s *Store) LastWrite(ctx context.Context) (time.Time, error) {
 // Version changes whenever the record does: a new log entry, a run or an
 // operation written. Live views compare it to know when to refetch.
 func (s *Store) Version(ctx context.Context) (string, error) {
-	var seq, runs, ops, rel, pods, ev, hpa, wl, nodes, revs int64
+	var seq, runs, ops, rel, pods, ev, hpa, wl, nodes, revs, refs int64
 	err := s.db.QueryRowContext(ctx, `SELECT
 	(SELECT coalesce(max(seq), 0) FROM events),
 	(SELECT coalesce(max(updated_at), 0) FROM runs),
@@ -61,9 +61,10 @@ func (s *Store) Version(ctx context.Context) (string, error) {
 	(SELECT coalesce(max(updated_at), 0) FROM hpas),
 	(SELECT coalesce(max(updated_at), 0) FROM workload_state),
 	(SELECT coalesce(max(updated_at), 0) FROM nodes),
-	(SELECT coalesce(max(updated_at), 0) FROM workload_revisions)`).Scan(&seq, &runs, &ops, &rel, &pods, &ev, &hpa, &wl, &nodes, &revs)
+	(SELECT coalesce(max(updated_at), 0) FROM workload_revisions),
+	(SELECT count(*) + coalesce(max(first_seen_at), 0) + coalesce(max(ended_at), 0) FROM config_refs)`).Scan(&seq, &runs, &ops, &rel, &pods, &ev, &hpa, &wl, &nodes, &revs, &refs)
 	f := func(n int64) string { return strconv.FormatInt(n, 10) }
-	return f(seq) + "." + f(runs) + "." + f(ops) + "." + f(rel) + "." + f(pods) + "." + f(ev) + "." + f(hpa) + "." + f(wl) + "." + f(nodes) + "." + f(revs), err
+	return f(seq) + "." + f(runs) + "." + f(ops) + "." + f(rel) + "." + f(pods) + "." + f(ev) + "." + f(hpa) + "." + f(wl) + "." + f(nodes) + "." + f(revs) + "." + f(refs), err
 }
 
 // SetMeta stores a small value under key.

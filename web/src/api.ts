@@ -415,6 +415,8 @@ export interface ReleaseDetail {
   warnings: string[]
   /** The newest record saying this release stalled, failed, became unavailable or had rule findings. */
   troubleRecordId?: string
+  /** That record's time, so the Explorer opens on a range that holds it. */
+  troubleRecordAt?: string
 }
 
 export interface PodContainer { name: string; init?: boolean; restarts: number; lastReason?: string; lastExit?: number; oomKilled: number; waiting: string[] }

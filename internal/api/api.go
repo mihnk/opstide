@@ -117,7 +117,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/explorer/summary", heavy(s.explorerSummary))
 	mux.HandleFunc("GET /api/v1/explorer/state", s.explorerState)
 	mux.HandleFunc("GET /api/v1/explorer/records/{id}", s.explorerRecordOne)
-	mux.HandleFunc("GET /api/v1/explorer/records/{id}/before", s.explorerBefore)
+	mux.HandleFunc("GET /api/v1/explorer/records/{id}/before", heavy(s.explorerBefore)) // a window of history over many related resources
 	mux.HandleFunc("GET /api/v1/explorer/export", s.explorerExport)
 	mux.HandleFunc("POST /api/v1/explorer/export", s.explorerExportSelected)
 	mux.HandleFunc("POST /api/v1/explorer/lookup", s.explorerLookup)

@@ -459,6 +459,11 @@ UPDATE events SET type = 'secret.written' WHERE type IN ('secret.data_written', 
 CREATE INDEX config_objects_deleted ON config_objects(deleted_at) WHERE deleted_at IS NOT NULL;
 CREATE INDEX config_refs_ended ON config_refs(ended_at) WHERE ended_at IS NOT NULL;
 `,
+	// 10: the changes on a resource named by namespace, kind and name (a ConfigMap or Secret a Pod template names, the
+	// Explorer's name filter) are read on their own index, bounded by time, instead of scanning every entry of the types.
+	`
+CREATE INDEX IF NOT EXISTS events_name ON events(namespace, kind, resource_name, at) WHERE resource_name <> '';
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

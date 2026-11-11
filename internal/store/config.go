@@ -333,6 +333,30 @@ func (s *Store) ConfigReferrers(ctx context.Context, ns, kind, name string, at t
 	return out, rows.Err()
 }
 
+// ConfigRefsOf lists what the Pod templates of these workloads or CronJobs name or named, in one query, at most 1000.
+// A reference reopened after it ended starts again: first_seen_at is when it was last named again (see SetConfigRefs),
+// so the stretch it was named before that is not kept.
+func (s *Store) ConfigRefsOf(ctx context.Context, workloadIDs []string) ([]ConfigRef, error) {
+	if len(workloadIDs) == 0 {
+		return nil, nil
+	}
+	c, a := in("workload_id", workloadIDs)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+refCols+` FROM config_refs WHERE `+c+` ORDER BY workload_id, ref_kind, ref_name LIMIT 1000`, a...) //nolint:gosec // fixed clause, bound values
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ConfigRef
+	for rows.Next() {
+		x, err := scanRef(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 // WorkloadConfigRefs lists what a workload's Pod template names or named, open references first, then by kind and name.
 func (s *Store) WorkloadConfigRefs(ctx context.Context, workloadID string) ([]ConfigRef, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+refCols+` FROM config_refs WHERE workload_id = ? LIMIT 500`, workloadID)

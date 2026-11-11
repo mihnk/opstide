@@ -100,41 +100,58 @@ function BeforeRow({ c, tz, hrefOf }: { c: BeforeChange; tz: string; hrefOf?: (i
   )
 }
 
+const beforeEmptyWords: Record<NonNullable<ExplorerBefore['empty']>['kind'], string> = {
+  get no_changes_recorded() { return t('No changes recorded in this window, and OpsTide was watching all of what they come from throughout.') },
+  get no_changes_recorded_with_gaps() { return t('No changes recorded, but some of the watches they come from had gaps in this window: a change there may not have been recorded.') },
+  get unresolved() { return t('No changes recorded, but OpsTide could not resolve everything related to this record, so the changes of what it could not resolve were not looked for.') },
+  get outside_retention() { return t('No changes recorded, but part or all of this window is older than the records OpsTide still holds: a change then may have been removed.') },
+  get before_first_observation() { return t('No changes recorded. This window reaches back before OpsTide first observed the cluster, so what happened then is not known.') },
+}
+
+const unresolvedWords: Record<ExplorerBefore['coverage']['unresolved'][number], string> = {
+  get unresolved_subject() { return t('Some related resources could not be resolved, so their changes were not looked for.') },
+  get nothing_watched() { return t('Nothing related to this record names a watch its changes could come from.') },
+  get subjects_capped() { return t('Only the first {n} related resources were looked at.', { n: 100 }) },
+}
+
 // "What changed before this": the changes OpsTide recorded in a window before a failure-like record, on its resource and
 // on the resources related to it, with the window's coverage. A list of earlier records, never a cause.
 function Before({ id, tz, hrefOf }: { id: string; tz: string; hrefOf?: (id: string) => string }) {
   const [win, setWin] = useState<BeforeWindow>('1h')
-  const { data, error } = useApi<ExplorerBefore>(`/api/v1/explorer/records/${encodeURIComponent(id)}/before${query({ window: win })}`, { keep: true })
+  const { data, error, loading } = useApi<ExplorerBefore>(`/api/v1/explorer/records/${encodeURIComponent(id)}/before${query({ window: win })}`, { keep: true })
+  // The title and the list are the answer's own window: while another window loads, the old list says which it is.
+  const stale = loading || (data !== undefined && data.window !== win)
   const missing = data?.coverage.scopes.filter((sc) => sc.state !== 'watching') ?? []
+  const heldFrom = data?.coverage.heldFrom
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }} aria-busy={stale}>
       <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 13 }}>{beforeTitle[win]}</span>
+        <span className="muted" style={{ fontSize: 13 }}>{beforeTitle[data?.window ?? win]}</span>
         <span className="seg small" role="group" aria-label={t('Window before the record')}>
           {beforeWindows.map((w) => <button key={w} type="button" aria-pressed={win === w} onClick={() => setWin(w)}>{w}</button>)}
         </span>
+        {stale && data && <span className="muted" role="status" style={{ fontSize: 12 }}>{t('Loading the {window} window…', { window: win })}</span>}
       </span>
-      {error && !data ? <p className="error" role="alert" style={{ margin: 0 }}>{error.message}</p> : !data ? <p className="muted" style={{ margin: 0 }}>{t('Loading…')}</p> : (
+      {error && <p className="error" role="alert" style={{ margin: 0 }}>{data ? t('Could not refresh this list ({error}); what is shown is an earlier answer.', { error: error.message }) : error.message}</p>}
+      {!data ? (!error && <p className="muted" style={{ margin: 0 }}>{t('Loading…')}</p>) : (
         <>
           {data.changes.length > 0 ? (
-            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, opacity: stale ? 0.6 : 1 }}>
               {data.changes.map((c) => <BeforeRow key={c.record.id} c={c} tz={tz} hrefOf={hrefOf} />)}
             </ul>
           ) : (
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {data.empty?.kind === 'before_first_observation'
-                ? t('No changes recorded. This window reaches back before OpsTide first observed the cluster, so what happened then is not known.')
-                : data.empty?.kind === 'no_changes_recorded_with_gaps'
-                  ? t('No changes recorded, but some of the watches they come from had gaps in this window: a change there may not have been recorded.')
-                  : t('No changes recorded in this window, and OpsTide was watching all of what they come from throughout.')}
-            </p>
+            <p className="muted" style={{ margin: 0, fontSize: 13 }}>{beforeEmptyWords[data.empty?.kind ?? 'no_changes_recorded_with_gaps']}</p>
           )}
           {data.truncated && <span className="muted" style={{ fontSize: 12 }}>{t('Only the newest {n} are listed.', { n: data.changes.length })}</span>}
           <span className="muted" style={{ fontSize: 12 }}>
-            {missing.length === 0
+            {data.coverage.state === 'watching'
               ? t('Coverage: OpsTide was watching all of what these changes come from throughout the window.')
-              : t('Coverage: not watched throughout the window: {list}.', { list: missing.map((sc) => `${t(sc.label)} (${t(sc.state.replace(/_/g, ' '))})`).join(', ') })}
+              : missing.length > 0
+                ? t('Coverage: not watched throughout the window: {list}.', { list: missing.map((sc) => `${t(sc.label)}${sc.namespace ? ` (${sc.namespace})` : ''} (${t(sc.state.replace(/_/g, ' '))})`).join(', ') })
+                : t('Coverage: not complete for this window.')}
             {data.changes.length > 0 && data.coverage.state === 'before_first_observation' ? ` ${t('Part of the window is before OpsTide first observed the cluster.')}` : ''}
+            {heldFrom ? ` ${t('Records from before {time} are no longer held (age limit or size budget).', { time: hhmmss(heldFrom, tz) })}` : ''}
+            {data.coverage.unresolved.map((u) => ` ${unresolvedWords[u]}`).join('')}
           </span>
           {data.related.length > 0 && (
             <span className="muted" style={{ fontSize: 12 }}>

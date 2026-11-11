@@ -41,7 +41,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
           <ZoneSelect tz={tz} setTz={setTz} />
           <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ release: r.id, ...rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined) })}>{t('Records in Explorer')}</Link>
           {d.troubleRecordId && (
-            <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ rec: d.troubleRecordId, ...rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined) })}
+            <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ rec: d.troubleRecordId, ...(d.troubleRecordAt ? rangeAround(d.troubleRecordAt, d.troubleRecordAt) : rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined)) })}
               title={t('Changes OpsTide recorded before this release stalled, failed or had findings, on the Deployment and what it is connected to')}>{t('What changed before this')}</Link>
           )}
         </div>

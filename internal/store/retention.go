@@ -23,8 +23,25 @@ type PruneResult struct {
 // counts, Job creation, Helm's release records (ConfigMaps and Secrets named sh.helm.release.v1.*, one set per
 // upgrade) and the folded writes of a ConfigMap or Secret written again and again (a controller's status). They have
 // their own budget; everything else shares the rest.
-var routineEntries = `(substr(type, 1, 4) IN ('evid', 'hpa.') OR type IN ('pod.created', 'pod.ready', 'pod.terminated', 'job.created', 'statefulset.counts_changed', 'daemonset.counts_changed', '` +
-	strings.Join(ConfigRoutineTypes, "', '") + `'))`
+var routineEntries = `(substr(type, 1, 4) IN ('evid', 'hpa.') OR type IN ('` + strings.Join(routineBudgetTypes, "', '") + `'))`
+
+// routineBudgetTypes are the exact types (besides the evid* and hpa.* prefixes) budgeted as routine volume.
+var routineBudgetTypes = append([]string{"pod.created", "pod.ready", "pod.terminated", "job.created", "statefulset.counts_changed", "daemonset.counts_changed"}, ConfigRoutineTypes...)
+
+// RetentionSourceOf names the retention source ("routine" or "log") whose budget a Log entry of this type counts
+// against, the same rule as routineEntries: what a budget removed of that source says whether entries of this type
+// may be missing.
+func RetentionSourceOf(typ string) string {
+	if strings.HasPrefix(typ, "evid") || strings.HasPrefix(typ, "hpa.") {
+		return "routine"
+	}
+	for _, t := range routineBudgetTypes {
+		if t == typ {
+			return "routine"
+		}
+	}
+	return "log"
+}
 
 // Prune removes what is older than before, then the oldest entries beyond
 // maxEvents. Operations go only once their CronJob has been deleted before

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -380,5 +382,86 @@ func TestExplorerSeverityOwnerAndRoutine(t *testing.T) {
 	pg, _ := s.Explorer(ctx, ExplorerQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Limit: 100})
 	if pg.SuppressedRoutine != 2 || len(pg.Rows) != 3 {
 		t.Fatalf("job.created and reported counts are routine: suppressed %d, shown %d", pg.SuppressedRoutine, len(pg.Rows))
+	}
+}
+
+// The changes on a set of resources are read in one statement, each kind of key on its own index bounded by time; a
+// name is read on events_name, never by scanning every entry of the types.
+func TestChangesReadsEachKeyOnItsIndex(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		for i, e := range []Event{
+			{ID: "a", Type: "configmap.data_written", Namespace: "ns", Kind: KindConfigMap, ResourceUID: "cm", ResourceName: "cfg"},
+			{ID: "b", Type: "deployment.spec_written", Namespace: "ns", Kind: "Deployment", ResourceUID: "d", ResourceName: "api", WorkloadID: "d"},
+			{ID: "c", Type: "cronjob.spec_written", Namespace: "ns", Kind: "CronJob", ResourceUID: "cj", ResourceName: "cj", OperationID: "cj"},
+			{ID: "d", Type: "node.condition_changed", Kind: "Node", ResourceUID: "n", ResourceName: "node-a"},
+			{ID: "e", Type: "configmap.data_written", Namespace: "other", Kind: KindConfigMap, ResourceUID: "cm2", ResourceName: "cfg"},
+			{ID: "f", Type: "pod.restarted", Namespace: "ns", Kind: "Pod", ResourceUID: "p", ResourceName: "api-1", WorkloadID: "d"},
+		} {
+			e.OccurredAt, e.ObservedAt, e.Severity, e.Confidence, e.Summary = t0.Add(time.Duration(i)*time.Minute), t0, "info", Observed, e.ID
+			if _, err := w.AddEvent(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	q := ChangesQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Types: []string{"configmap.data_written", "deployment.spec_written", "cronjob.spec_written", "node.condition_changed"},
+		WorkloadIDs: []string{"d"}, OperationIDs: []string{"cj"}, UIDs: []string{"n"}, Names: []ResourceName{{"ns", KindConfigMap, "cfg"}}}
+	rows, more, err := s.Changes(ctx, q)
+	if err != nil || more {
+		t.Fatal(err, more)
+	}
+	var got []string
+	for _, r := range rows {
+		got = append(got, r.Event.ID)
+	}
+	if strings.Join(got, ",") != "d,c,b,a" {
+		t.Fatalf("newest first, each once, only the keys and types asked for: %v", got)
+	}
+	if rows, more, err := s.Changes(ctx, ChangesQuery{From: q.From, To: q.To, Types: q.Types, WorkloadIDs: q.WorkloadIDs, UIDs: q.UIDs, Limit: 1}); err != nil || !more || len(rows) != 1 {
+		t.Fatalf("the limit: %v %v %d", err, more, len(rows))
+	}
+	plan, err := s.db.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT seq FROM events WHERE namespace = ? AND kind = ? AND resource_name IN (?) AND resource_name <> '' AND at >= ? AND at < ? AND type IN (?)`,
+		"ns", KindConfigMap, "cfg", 0, 1, "configmap.data_written")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Close()
+	var detail []string
+	for plan.Next() {
+		var id, parent, unused int
+		var d string
+		if err := plan.Scan(&id, &parent, &unused, &d); err != nil {
+			t.Fatal(err)
+		}
+		detail = append(detail, d)
+	}
+	if !strings.Contains(strings.Join(detail, ";"), "events_name") {
+		t.Fatalf("a name is read on its index: %v", detail)
+	}
+}
+
+// A database of schema 9 is backed up and gains the name index.
+func TestSchema10AddsTheNameIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opstide.db")
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_name; PRAGMA user_version = 9`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'events_name'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("%v %d", err, n)
+	}
+	if _, err := os.Stat(path + ".pre-v9"); err != nil {
+		t.Fatalf("backed up first: %v", err)
 	}
 }

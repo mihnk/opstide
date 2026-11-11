@@ -491,21 +491,12 @@ func (s *Store) Explorer(ctx context.Context, q ExplorerQuery) (ExplorerPage, er
 			return ExplorerPage{}, err
 		}
 		for rs.Next() {
-			var at int64
-			var e Event
-			var occurred sql.NullInt64
-			var observed, recorded int64
-			var conf, facts string
-			if err := rs.Scan(&e.Seq, &e.ID, &e.Type, &e.Namespace, &e.Kind, &e.ResourceUID, &e.ResourceName, &e.OperationID, &e.RunID, &occurred, &observed, &recorded,
-				&e.Severity, &conf, &e.Summary, &facts, &e.ReleaseID, &e.Reason, &e.WorkloadID, &at); err != nil {
+			row, err := scanEventRow(rs)
+			if err != nil {
 				rs.Close()
 				return ExplorerPage{}, err
 			}
-			e.OccurredAt, e.ObservedAt, e.RecordedAt = fromMS(occurred), time.UnixMilli(observed).UTC(), time.UnixMilli(recorded).UTC()
-			e.Confidence = Confidence(conf)
-			_ = json.Unmarshal([]byte(facts), &e.Facts)
-			ev := e
-			rows = append(rows, ExplorerRow{ID: eventRID(e.Seq), Key: time.UnixMilli(at).UTC(), Event: &ev})
+			rows = append(rows, row)
 		}
 		err = rs.Err()
 		rs.Close()
@@ -556,6 +547,108 @@ func (s *Store) Explorer(ctx context.Context, q ExplorerQuery) (ExplorerPage, er
 		page.SuppressedRoutine = n
 	}
 	return page, nil
+}
+
+// scanEventRow scans eventCols followed by the record time.
+func scanEventRow(rs *sql.Rows) (ExplorerRow, error) {
+	var at int64
+	var e Event
+	var occurred sql.NullInt64
+	var observed, recorded int64
+	var conf, facts string
+	if err := rs.Scan(&e.Seq, &e.ID, &e.Type, &e.Namespace, &e.Kind, &e.ResourceUID, &e.ResourceName, &e.OperationID, &e.RunID, &occurred, &observed, &recorded,
+		&e.Severity, &conf, &e.Summary, &facts, &e.ReleaseID, &e.Reason, &e.WorkloadID, &at); err != nil {
+		return ExplorerRow{}, err
+	}
+	e.OccurredAt, e.ObservedAt, e.RecordedAt = fromMS(occurred), time.UnixMilli(observed).UTC(), time.UnixMilli(recorded).UTC()
+	e.Confidence = Confidence(conf)
+	_ = json.Unmarshal([]byte(facts), &e.Facts)
+	return ExplorerRow{ID: eventRID(e.Seq), Key: time.UnixMilli(at).UTC(), Event: &e}, nil
+}
+
+// ResourceName names a resource by namespace, kind and name.
+type ResourceName struct{ Namespace, Kind, Name string }
+
+// ChangesQuery selects the Log entries of some types recorded in [From, To) about any of a set of resources: by
+// workload, by CronJob (operation), by resource UID, or by namespace, kind and name.
+type ChangesQuery struct {
+	From, To                        time.Time
+	Types                           []string // required
+	WorkloadIDs, OperationIDs, UIDs []string
+	Names                           []ResourceName
+	Limit                           int // default 500, at most 2000
+}
+
+// Changes reads, in one statement, the entries of q, newest first (record time, then id, as the Explorer orders them).
+// Each kind of key is its own branch on its own index, bounded by the time range, so the work grows with what is
+// related, not with the history. more says entries beyond the limit were left out.
+func (s *Store) Changes(ctx context.Context, q ChangesQuery) (rows []ExplorerRow, more bool, err error) {
+	if !q.To.After(q.From) || len(q.Types) == 0 {
+		return nil, false, errors.New("a time range and types are required")
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	limit = min(limit, 2000)
+	ty, tyArgs := in("type", q.Types)
+	bound := " AND at >= ? AND at < ? AND " + ty
+	var branches []string
+	var args []any
+	branch := func(cond string, a ...any) {
+		branches = append(branches, "SELECT seq FROM events WHERE "+cond+bound)
+		args = append(append(append(args, a...), q.From.UnixMilli(), q.To.UnixMilli()), tyArgs...)
+	}
+	if len(q.WorkloadIDs) > 0 {
+		c, a := in("workload_id", q.WorkloadIDs)
+		branch(c+" AND workload_id <> ''", a...)
+	}
+	if len(q.OperationIDs) > 0 {
+		c, a := in("operation_id", q.OperationIDs)
+		branch(c+" AND operation_id <> ''", a...)
+	}
+	if len(q.UIDs) > 0 {
+		c, a := in("resource_uid", q.UIDs)
+		branch(c+" AND resource_uid <> ''", a...)
+	}
+	byNK := map[[2]string][]string{}
+	var nks [][2]string
+	for _, n := range q.Names {
+		if n.Name == "" {
+			continue
+		}
+		k := [2]string{n.Namespace, n.Kind}
+		if _, ok := byNK[k]; !ok {
+			nks = append(nks, k)
+		}
+		byNK[k] = append(byNK[k], n.Name)
+	}
+	for _, k := range nks {
+		c, a := in("resource_name", byNK[k])
+		branch("namespace = ? AND kind = ? AND "+c+" AND resource_name <> ''", append([]any{k[0], k[1]}, a...)...)
+	}
+	if len(branches) == 0 {
+		return nil, false, nil
+	}
+	rs, err := s.db.QueryContext(ctx, `SELECT `+eventCols+`, at FROM events WHERE seq IN (`+strings.Join(branches, " UNION ")+`) ORDER BY at DESC, seq DESC LIMIT ?`, append(args, limit+1)...) //nolint:gosec // fixed clauses, bound values
+	if err != nil {
+		return nil, false, err
+	}
+	defer rs.Close()
+	for rs.Next() {
+		row, err := scanEventRow(rs)
+		if err != nil {
+			return nil, false, err
+		}
+		rows = append(rows, row)
+	}
+	if err := rs.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(rows) > limit {
+		return rows[:limit], true, nil
+	}
+	return rows, false, nil
 }
 
 // scanEvidenceKeyed scans an evidence row followed by its record-time key.
