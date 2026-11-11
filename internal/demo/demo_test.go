@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,5 +99,54 @@ func TestSeedTellsTheWholeStory(t *testing.T) {
 	wls, err := db.Workloads(ctx, store.WorkloadQuery{Limit: 20})
 	if err != nil || len(wls.Rows) != 4 {
 		t.Fatalf("%v %+v", err, wls)
+	}
+}
+
+// The demo's maintenance window covers a failure and a restart of the story, and its images show a replacement and an
+// image shared by two workloads.
+func TestDemoMaintenanceAndImages(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "opstide.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 11, 6, 12, 7, 0, 0, time.UTC)
+	if err := Seed(ctx, db, now); err != nil {
+		t.Fatal(err)
+	}
+	m := Maintenance(now)
+	if _, ok := m.At(now.Add(-29*time.Hour), "shop"); !ok {
+		t.Error("yesterday's occurrence covers the api Pod's restart")
+	}
+	runs, err := db.RunsBetween(ctx, now.Add(-8*time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := false
+	for _, r := range runs {
+		if r.Status == store.RunFailed && r.OperationID == "cj-ledger" {
+			_, covered = m.At(r.FinishedAt, "payments")
+		}
+	}
+	if !covered {
+		t.Error("today's occurrence covers the failed ledger run")
+	}
+	revs, err := db.ImageRevisions(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipper := map[string]bool{}
+	for _, r := range revs {
+		if strings.Contains(r.Snapshot, "shop/log-shipper:1.2") {
+			shipper[r.WorkloadID] = true
+		}
+	}
+	if len(shipper) != 2 {
+		t.Errorf("the log shipper runs in two workloads: %v", shipper)
+	}
+	ti, err := db.TemplateImages(ctx, "")
+	if err != nil || len(ti) != 5 {
+		t.Errorf("CronJob images: %d %v", len(ti), err)
 	}
 }

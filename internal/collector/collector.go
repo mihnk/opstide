@@ -101,6 +101,7 @@ type Collector struct {
 	started time.Time
 	// cfg is what ConfigMap and Secret observation remembers between two looks; the watches are on when asked for.
 	cfg                           configState
+	images                        imageSeen // what each CronJob's template images were when last saved
 	watchConfigMaps, watchSecrets bool
 	cfgEvery                      time.Duration
 	retentionDays                 int

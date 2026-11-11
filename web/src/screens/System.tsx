@@ -138,6 +138,33 @@ export function System({ tz }: { tz: string }) {
         </dl>
       </section>
 
+      <section aria-label={t('Maintenance windows')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h2 className="label section-title">{t('Maintenance windows')} <span className="note">· {t('declared in the configuration (Helm values), not here')}</span></h2>
+        {(data.maintenance?.windows.length ?? 0) === 0 ? (
+          <div className="empty">{t('No maintenance window is declared. Set maintenance.windows in the Helm values to mark planned work.')}</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data compact" style={{ minWidth: 760 }}>
+              <thead><tr><th className="label">{t('Window')}</th><th className="label">{t('When')}</th><th className="label">{t('Namespaces')}</th><th className="label">{t('Now and next')}</th></tr></thead>
+              <tbody>
+                {data.maintenance!.windows.map((w) => (
+                  <tr key={w.name}>
+                    <td><span style={{ fontWeight: 500 }}>{w.name}</span>{w.active && <span className="chip maint">{t('open now')}</span>}{w.note && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{w.note}</span>}</td>
+                    <td className="mono" style={{ fontSize: 13 }}>{w.kind === 'recurring'
+                      ? <>{w.cron} <span className="muted">· {w.duration} · {w.timeZone}</span></>
+                      : <>{w.start && hhmmss(w.start, tz)} → {w.end && hhmmss(w.end, tz)} <span className="muted" style={{ fontFamily: 'inherit' }}>· {t('once')}</span></>}</td>
+                    <td>{w.namespaces.length ? <span className="mono">{w.namespaces.join(', ')}</span> : <span className="muted">{t('the whole cluster')}</span>}</td>
+                    <td className="mono" style={{ fontSize: 12 }}>{w.next.length === 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}>{t('none to come')}</span>
+                      : w.next.map((o) => <span key={o.from} style={{ display: 'block' }}>{new Date(o.from).toLocaleString(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} – {hhmm(o.to, tz)}</span>)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {data.maintenance && <span className="muted" style={{ fontSize: 12 }}>{t('A record inside a window is marked with it, never hidden: it is still listed and counted. opstide_maintenance_active says which window is open, for alert rules.')}</span>}
+      </section>
+
       <section aria-label={t('Evidence')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h2 className="label section-title">{t('Evidence')} <span className="note">· {t('Kubernetes Events and autoscalers')}</span></h2>
         <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>

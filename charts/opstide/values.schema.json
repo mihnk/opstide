@@ -5,89 +5,250 @@
     "image": {
       "type": "object",
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string", "description": "A whole-number tag like 2 needs --set-string, or Helm turns it into a number." },
-        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "description": "A whole-number tag like 2 needs --set-string, or Helm turns it into a number."
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
       }
     },
-    "clusterName": { "type": "string" },
+    "clusterName": {
+      "type": "string"
+    },
     "namespaces": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
       "description": "A list: --set 'namespaces={payments,data}'."
     },
     "nodes": {
       "type": "object",
-      "properties": { "observe": { "type": "boolean" } }
+      "properties": {
+        "observe": {
+          "type": "boolean"
+        }
+      }
     },
     "watch": {
       "type": "object",
       "properties": {
-        "configMaps": { "type": "boolean" },
-        "secretMetadata": { "type": "boolean", "description": "Grants list and watch on Secrets; OpsTide requests their metadata only." }
+        "configMaps": {
+          "type": "boolean"
+        },
+        "secretMetadata": {
+          "type": "boolean",
+          "description": "Grants list and watch on Secrets; OpsTide requests their metadata only."
+        }
       }
     },
     "releases": {
       "type": "object",
-      "properties": { "observationMinutes": { "enum": [5, 10, 15, 30] } }
+      "properties": {
+        "observationMinutes": {
+          "enum": [
+            5,
+            10,
+            15,
+            30
+          ]
+        }
+      }
     },
     "retention": {
       "type": "object",
       "properties": {
-        "days": { "type": "integer", "minimum": 1 },
-        "maxEntries": { "type": "integer", "minimum": 1000, "description": "A whole number of at least 1000 (write 10000000, not 1e7)." }
+        "days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxEntries": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "A whole number of at least 1000 (write 10000000, not 1e7)."
+        }
       }
     },
-    "logLevel": { "enum": ["debug", "info", "warn", "error"] },
+    "logLevel": {
+      "enum": [
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ]
+    },
     "persistence": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "size": { "type": "string" },
-        "accessModes": { "type": "array", "items": { "type": "string" } }
+        "enabled": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "string"
+        },
+        "accessModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
     "networkPolicy": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "ingressFrom": { "type": "array" },
-        "dnsNamespace": { "type": "string", "minLength": 1 },
-        "extraEgress": { "type": "array" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "ingressFrom": {
+          "type": "array"
+        },
+        "dnsNamespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extraEgress": {
+          "type": "array"
+        },
         "apiServer": {
           "type": "object",
           "properties": {
-            "cidrs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-            "ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "minItems": 1 }
+            "cidrs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "minItems": 1
+            }
           }
         }
       }
     },
-    "publicURL": { "type": "string", "pattern": "^(https?://[^\\s/?#]+(/[^\\s?#]*)?)?$" },
+    "publicURL": {
+      "type": "string",
+      "pattern": "^(https?://[^\\s/?#]+(/[^\\s?#]*)?)?$"
+    },
     "clustrail": {
       "type": "object",
-      "properties": { "url": { "type": "string", "pattern": "^((https?://[^\\s/?#{}]+([/?#][^\\s]*)?)|(clustrail://[^\\s]*))?$" } }
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^((https?://[^\\s/?#{}]+([/?#][^\\s]*)?)|(clustrail://[^\\s]*))?$"
+        }
+      }
     },
     "auth": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "existingSecret": { "type": "string", "description": "A Secret in the release namespace with the token under the key \"token\"." }
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "A Secret in the release namespace with the token under the key \"token\"."
+        }
       }
     },
     "serviceMonitor": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "namespace": { "type": "string" },
-        "interval": { "type": "string", "minLength": 1 },
-        "scrapeTimeout": { "type": "string", "minLength": 1 },
-        "labels": { "type": "object" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "interval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "minLength": 1
+        },
+        "labels": {
+          "type": "object"
+        }
       }
     },
     "ingress": {
       "type": "object",
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "maintenance": {
+      "type": "object",
+      "properties": {
+        "windows": {
+          "type": "array",
+          "maxItems": 100,
+          "description": "Planned work. Each: name, and start+end (RFC 3339) or cron (5 fields)+duration (90m, 2h) with an optional timeZone; optional namespaces (empty: the whole cluster) and note. OpsTide validates them strictly at start and refuses to start on a bad one.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              },
+              "cron": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "string"
+              },
+              "timeZone": {
+                "type": "string"
+              },
+              "namespaces": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "maxItems": 50
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

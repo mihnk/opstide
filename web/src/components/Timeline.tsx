@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { Bucket, Mark, Span } from '../api'
+import type { Bucket, MaintenanceSpan, Mark, Span } from '../api'
 import { markLabel, place, tickList } from '../geometry'
 import { t } from '../i18n'
 import { Link } from '../router'
@@ -19,6 +19,8 @@ export interface TimelineLane {
   bucketMs?: number
   /** Overrides the words for this lane's marks. */
   markTitle?: (m: Mark) => string
+  /** Declared maintenance windows that cover this lane, drawn as a tinted band (not the "not watching" hatch). */
+  maintenance?: MaintenanceSpan[]
 }
 
 interface Props {
@@ -75,6 +77,15 @@ export function Timeline({ label, from, to, tz, now, gaps, lanes, markHref, comp
                 <span className="tl-name"><LaneName lane={lane} /></span>
               )}
               <div className="tl-track">
+                {lane.maintenance?.map((w) => {
+                  const p = place(w.from, w.to, lf, lt)
+                  const title = t('Maintenance window {name}, {from}–{to}: declared in the configuration; what happened in it is still shown', { name: w.name, from: hhmm(w.from, tz), to: hhmm(w.to, tz) })
+                  return p && (
+                    <span key={`m${w.name}${w.from}`} className="tl-maint" title={title} style={{ left: `${p.left}%`, width: `${p.width}%` }}>
+                      {p.width > 8 && <span className="tl-maintlabel mono">{w.name}</span>}
+                    </span>
+                  )
+                })}
                 {laneGaps.map((g) => {
                   const p = place(g.from, g.to, lf, lt)
                   return p && <span key={g.from} className="tl-gap" style={{ left: `${p.left}%`, width: `${p.width}%` }} />
@@ -82,7 +93,8 @@ export function Timeline({ label, from, to, tz, now, gaps, lanes, markHref, comp
                 {lane.marks.map((m, i) => {
                   const p = place(m.start, m.end, lf, lt)
                   if (!p) return null
-                  const text = lane.markTitle?.(m) ?? markLabel(m, (t) => hhmm(t, tz), duration)
+                  const base = lane.markTitle?.(m) ?? markLabel(m, (t) => hhmm(t, tz), duration)
+                  const text = m.maintenance ? `${base} · ${t('during maintenance {name}', { name: m.maintenance })}` : base
                   const cls = `mark ${m.state}${m.slow ? ' slow' : ''}`
                   const st = { left: `${p.left}%`, width: `${p.width}%` }
                   const href = markHref?.(m, lane)
@@ -177,7 +189,7 @@ function LaneName({ lane }: { lane: TimelineLane }) {
   )
 }
 
-export function Legend({ note, items, before }: { note?: string; items?: ('succeeded' | 'failed' | 'running' | 'expected' | 'missed' | 'gap' | 'slow')[]; before?: boolean }) {
+export function Legend({ note, items, before, maintenance }: { note?: string; items?: ('succeeded' | 'failed' | 'running' | 'expected' | 'missed' | 'gap' | 'slow')[]; before?: boolean; maintenance?: boolean }) {
   const all = items ?? ['succeeded', 'failed', 'running', 'expected', 'missed', 'gap']
   // English keys; drawn through t().
   const text: Record<string, string> = {
@@ -198,6 +210,11 @@ export function Legend({ note, items, before }: { note?: string; items?: ('succe
           {t(text[k])}
         </span>
       ))}
+      {maintenance && (
+        <span>
+          <i style={{ width: 14, background: 'var(--maint-bg)', borderTop: '2px solid var(--maint)' }} />{t('maintenance window, as declared: what happened in it is still shown')}
+        </span>
+      )}
       {before && (
         <span>
           <i style={{ background: 'repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 6px)' }} />{t('OpsTide was not watching yet')}

@@ -34,6 +34,25 @@ namespaces: []
 releases:
   observationMinutes: 10
 
+# Maintenance windows: planned work (a Saturday node upgrade, a database migration), so missed runs and restarts in
+# it read as planned. Records inside a window are marked "inside maintenance window <name>" and listed after the
+# others; nothing is hidden or deleted. Declared here only (never edited in the UI); a bad entry stops OpsTide from
+# starting, with the reason in its log. At most 100. Each is one-off (start and end, RFC 3339) or recurring (a
+# 5-field cron, a duration such as 2h, and an optional IANA timeZone; UTC when empty). namespaces narrows it (empty:
+# the whole cluster, cluster-scoped records included). The metric opstide_maintenance_active{name} is 1 while one is open.
+#   windows:
+#     - name: Saturday node upgrade
+#       cron: "0 2 * * 6"
+#       duration: 2h
+#       timeZone: Europe/Istanbul
+#       note: Node pool upgrade by the platform team
+#     - name: orders-db migration
+#       start: "2026-11-21T22:00:00Z"
+#       end: "2026-11-22T01:00:00Z"
+#       namespaces: [data]
+maintenance:
+  windows: []
+
 # Node conditions and scheduling changes. Nodes are cluster-scoped, so this needs
 # list and watch on nodes cluster-wide (a small ClusterRole is added); it is off by default,
 # also for installs limited to some namespaces. Capacity, labels, taints and images are not read.

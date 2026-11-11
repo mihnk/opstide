@@ -14,6 +14,7 @@ import { Release } from './screens/Release'
 import { Releases } from './screens/Releases'
 import { Workload } from './screens/Workload'
 import { Workloads } from './screens/Workloads'
+import { Image, Images } from './screens/Images'
 import { Workspace } from './screens/Workspace'
 import { Onboarding, onboarded } from './screens/Onboarding'
 import { LANG_EVENT, t } from './i18n'
@@ -45,9 +46,9 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/schedules': 'Schedules', '/system': 'System' }
+    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/images': 'Images', '/schedules': 'Schedules', '/system': 'System' }
     const intro = path === '/welcome' || (path === '/' && !onboarded() && params.toString() === '')
-    document.title = `${t(intro ? 'Welcome' : names[path] ?? 'Operation')} · OpsTide${cluster ? ` · ${cluster}` : ''}`
+    document.title = `${t(intro ? 'Welcome' : names[path] ?? (path.startsWith('/images/') ? 'Image' : 'Operation'))} · OpsTide${cluster ? ` · ${cluster}` : ''}`
   }, [path, params, cluster])
 
   let screen
@@ -55,6 +56,7 @@ export function App() {
   const rel = /^\/releases\/([^/]+)$/.exec(path)
   const wl = /^\/workloads\/([^/]+)$/.exec(path)
   const node = /^\/nodes\/([^/]+)$/.exec(path)
+  const img = /^\/images\/([A-Za-z0-9_-]+)$/.exec(path)
   // The first visit in a browser starts with the introduction; it is one click away afterwards, from System. A link
   // that names a window (/?date=…) is someone sharing what they saw: it opens that, not the introduction.
   const intro = path === '/welcome' || (path === '/' && params.toString() === '' && !onboarded())
@@ -66,6 +68,8 @@ export function App() {
   else if (rel) screen = <Release key={rel[1]} id={decodeURIComponent(rel[1])} params={params} tz={tz} setTz={setTz} />
   else if (path === '/workloads') screen = <Workloads params={params} tz={tz} />
   else if (wl) screen = <Workload key={wl[1]} id={decodeURIComponent(wl[1])} params={params} tz={tz} />
+  else if (path === '/images') screen = <Images params={params} tz={tz} />
+  else if (img) screen = <Image key={img[1]} refId={img[1]} tz={tz} />
   else if (node) screen = <Node key={node[1]} id={decodeURIComponent(node[1])} tz={tz} />
   else if (path === '/log') screen = <LogMoved params={params} />
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />

@@ -171,6 +171,10 @@ func (s *Store) PruneBudgets(ctx context.Context, before time.Time, keep Retenti
 		AND (workload_kind <> 'Deployment' OR ended_at IS NOT NULL))`, cut, cut); err != nil {
 			return err
 		}
+		// A CronJob's template images that ended before the cut go with retention; the open ones stay however old.
+		if err := exec(&r.Releases, `DELETE FROM template_images WHERE ended_at IS NOT NULL AND ended_at < ?`, cut); err != nil {
+			return err
+		}
 		for src, n := range r.Capped {
 			if n == 0 {
 				continue

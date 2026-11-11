@@ -138,11 +138,40 @@ type ExplorerQuery struct {
 	Provenance []string // observed | derived | unknown
 	Text       string   // names, reasons and summaries only; never Event messages
 	Routine    bool     // include routine records
-	Cursor     string
-	Limit      int  // default 100, at most 500
-	Asc        bool // oldest first (exports)
+	// Exclude leaves out records whose record time falls in one of these stretches, in one of its namespaces (all
+	// namespaces, cluster-scoped records included, when it names none): "outside maintenance windows only".
+	Exclude []ExcludeSpan
+	Cursor  string
+	Limit   int  // default 100, at most 500
+	Asc     bool // oldest first (exports)
 
 	routineOnly bool // counting the routine records a query leaves out
+}
+
+// ExcludeSpan is a stretch of record time, [From, To), optionally limited to some namespaces.
+type ExcludeSpan struct {
+	From, To   time.Time
+	Namespaces []string
+}
+
+// excludeClause is NOT (inside any of the spans), on the given time column.
+func excludeClause(c *clause, col string, spans []ExcludeSpan) {
+	if len(spans) == 0 {
+		return
+	}
+	var ors []string
+	var args []any
+	for _, sp := range spans {
+		part := "(" + col + " >= ? AND " + col + " < ?"
+		args = append(args, sp.From.UnixMilli(), sp.To.UnixMilli())
+		if len(sp.Namespaces) > 0 {
+			cond, a := in("namespace", sp.Namespaces)
+			part += " AND " + cond
+			args = append(args, a...)
+		}
+		ors = append(ors, part+")")
+	}
+	c.add("NOT ("+strings.Join(ors, " OR ")+")", args...)
 }
 
 // ExplorerRow is a record as stored. Exactly one of Event and Evidence is set.
@@ -341,6 +370,7 @@ func (q ExplorerQuery) eventsClause(cursor *explorerCursor) clause {
 		s, a := in("type", routineTypes)
 		c.add("NOT ("+s+")", a...)
 	}
+	excludeClause(&c, "at", q.Exclude)
 	if cursor != nil {
 		c.cursor("at", "printf('e.%012d', seq)", *cursor, q.Asc)
 	}
@@ -419,6 +449,7 @@ AND `+evidenceKey+` >= ?`, q.ReleaseReplicaSet, q.ReleaseWorkload, q.ReleaseFrom
 	if !q.Routine {
 		c.add("event_type <> 'Normal'")
 	}
+	excludeClause(&c, evidenceKey, q.Exclude)
 	if cursor != nil {
 		c.cursor(evidenceKey, "('k.' || id)", *cursor, q.Asc)
 	}

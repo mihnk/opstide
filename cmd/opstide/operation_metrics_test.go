@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/metrics"
 	"github.com/mihnk/opstide/internal/store"
 	"k8s.io/client-go/kubernetes/fake"
@@ -49,7 +50,14 @@ func TestMetricsGiveEachCronJobItsLastSuccessAndFailure(t *testing.T) {
 	}
 	col := collector.New(fake.NewClientset(), db, collector.Options{})
 	reg := &metrics.Registry{}
-	reg.Add(ownMetrics(db, col, "test", "c", now))
+	maint, err := maintenance.New([]maintenance.Spec{
+		{Name: "always open", Cron: "* * * * *", Duration: "1h", Namespaces: []string{"data"}},
+		{Name: "db-migration", Start: "2020-01-01T00:00:00Z", End: "2020-01-01T02:00:00Z"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.Add(ownMetrics(db, col, "test", "c", now, maint))
 	rec := httptest.NewRecorder()
 	reg.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
@@ -59,6 +67,8 @@ func TestMetricsGiveEachCronJobItsLastSuccessAndFailure(t *testing.T) {
 		`opstide_operation_last_failure_timestamp_seconds{cronjob_namespace="data",cronjob="report"}`,
 		`opstide_operation_suspended{cronjob_namespace="data",cronjob="report"} 1`,
 		"opstide_operations 2",
+		`opstide_maintenance_active{name="always open"} 1`,
+		`opstide_maintenance_active{name="db-migration"} 0`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in:\n%s", want, body)

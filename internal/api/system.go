@@ -36,6 +36,8 @@ type System struct {
 	Workloads WorkloadsSystem `json:"workloads"`
 	// Config is the state of ConfigMap and Secret observation.
 	Config ConfigSystem `json:"config"`
+	// Maintenance lists the configured maintenance windows and their next occurrences.
+	Maintenance MaintenanceSystem `json:"maintenance"`
 	// Dropped counts objects OpsTide gave up recording after repeated failures since it started. Each is a gap in
 	// coverage over the stretch its changes may have been lost, and a Log entry says which.
 	// Demo says the data is made up and nothing is being collected.
@@ -148,7 +150,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 	from, _ := dayBounds(now, loc)
 	out := System{Schema: Schema, Version: s.cfg.Version, Cluster: s.cfg.Cluster, StartedAt: s.cfg.StartedAt, Now: now,
 		Synced: s.w.Synced(ctx) == nil, Namespaces: append([]string{}, s.cfg.Namespaces...), TimeZone: loc.String(),
-		From: from.UTC(), Scopes: []Scope{}}
+		From: from.UTC(), Scopes: []Scope{}, Maintenance: s.maintenanceSystem(now)}
 	if out.LastWrite, err = s.db.LastWrite(ctx); err != nil {
 		reply(w, r, s.log, nil, err)
 		return

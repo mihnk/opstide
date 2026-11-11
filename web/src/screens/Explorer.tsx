@@ -39,7 +39,7 @@ function Row({ r, tz, selected, onPick }: { r: ExplorerRecord; tz: string; selec
       <span className="when mono">{hhmm(r.at, tz)}</span>
       <span className="label etype" title={r.type}>{r.group === 'events' ? (r.eventType ?? 'Event') : t(r.group)}</span>
       <button type="button" className="ebody" aria-pressed={selected} onClick={onPick}>
-        <span>{r.summary}</span>
+        <span>{r.summary}{r.maintenance && <> <span className="chip maint" title={`${r.maintenance.statement} · ${provWord(r.maintenance.provenance)}`}>{t('maintenance: {name}', { name: r.maintenance.name })}</span></>}</span>
         <span className="ref mono">
           {[r.severity === 'error' || r.severity === 'warning' ? t(r.severity) : '', r.resource.name ? `${r.resource.kind} ${r.resource.namespace ? `${r.resource.namespace}/` : ''}${r.resource.name}` : '', r.count && r.count.value > 1 ? `×${r.count.value}` : '', r.type !== 'kubernetes.event' ? r.type : ''].filter(Boolean).join(' · ')}
         </span>
@@ -58,6 +58,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
     range, from: get('from'), to: get('to'), q: get('q'), namespace: get('namespace'), kind: get('kind'), name: get('name'), uid: get('uid'), workload: get('workload'),
     release: get('release'), run: get('run'), operation: get('operation'), node: get('node'), group: get('group'), type: get('type'), reason: get('reason'),
     source: get('source'), provenance: get('provenance'), severity: get('severity'), outcome: get('outcome'), owner: get('owner'), preset: get('preset'), routine: get('routine'),
+    maintenance: get('maintenance'),
   }
   const rec = get('rec')
   const groupBy = get('by') === 'resource'
@@ -127,14 +128,14 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
     set({ [key]: next.join(',') || null })
   }
   const scopeChips = scopeKeys.filter((k) => filter[k])
-  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || filter.severity || filter.outcome || filter.owner || filter.preset || scopeChips.length)
+  const filtered = !!(filter.q || filter.group || filter.type || filter.reason || filter.source || filter.provenance || filter.severity || filter.outcome || filter.owner || filter.preset || filter.maintenance || scopeChips.length)
   // The owners that exist (deleted CronJobs included), fetched once.
   const [ownerList, setOwnerList] = useState<string[]>([])
   useEffect(() => {
     getJSON<{ owners: string[] }>('/api/v1/owners').then((o) => setOwnerList(o.owners)).catch(() => {})
   }, [])
   const owners = filter.owner && !ownerList.includes(filter.owner) ? [...ownerList, filter.owner] : ownerList
-  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, severity: null, outcome: null, owner: null, preset: null, routine: null, rec: null })
+  const clearAll = withParams(params, { q: null, namespace: null, kind: null, name: null, uid: null, workload: null, release: null, run: null, operation: null, node: null, group: null, type: null, reason: null, source: null, provenance: null, severity: null, outcome: null, owner: null, preset: null, routine: null, maintenance: null, rec: null })
   const wsIds = useWorkspace()
 
   // Custom range inputs: wall-clock in the chosen zone.
@@ -271,6 +272,10 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title={t('Only records that say something was changed: a spec written (and by which client), a revision, a replica target, a schedule or suspension, a cordon')}>
           <input type="checkbox" checked={filter.preset === 'changes'} onChange={(e) => set({ preset: e.target.checked ? 'changes' : null })} />
           {t('Changes only')}
+        </label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title={t('Leaves out the records inside a maintenance window declared in the configuration. They are still recorded, and shown when this is off.')}>
+          <input type="checkbox" checked={filter.maintenance === 'outside'} onChange={(e) => set({ maintenance: e.target.checked ? 'outside' : null })} />
+          {t('Outside maintenance only')}
         </label>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <input type="checkbox" checked={groupBy} onChange={(e) => set({ by: e.target.checked ? 'resource' : null, rec })} />

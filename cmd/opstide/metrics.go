@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/metrics"
 	"github.com/mihnk/opstide/internal/store"
 )
@@ -17,7 +18,7 @@ const maxOperationSeries = 1000
 // ownMetrics describes OpsTide itself: is it ready, how fresh is its
 // record, which watches fail, how big is the database. Reading the event
 // count walks a table, so the storage figures are reused for 30 s.
-func ownMetrics(db *store.Store, col *collector.Collector, version, cluster string, started time.Time) metrics.Source {
+func ownMetrics(db *store.Store, col *collector.Collector, version, cluster string, started time.Time, maint *maintenance.Set) metrics.Source {
 	var (
 		mu     sync.Mutex
 		stats  store.Stats
@@ -117,6 +118,12 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPADesired), "type", "hpa_desired_replicas_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPACondition), "type", "hpa_condition_changed")
 		w.Counter("opstide_scaling_entries_total", "Scaling entries written, by type.", float64(ev.HPATarget), "type", "workload_replica_target_changed")
+		// One series per configured maintenance window (at most 100), 1 while it is open, so an alert rule can hold back
+		// during planned work: `unless on() opstide_maintenance_active{name="..."} == 1`. Declared, not observed.
+		active := maint.Active(time.Now())
+		for _, mw := range maint.Windows() {
+			w.Gauge("opstide_maintenance_active", "1 while a maintenance window declared in OpsTide's configuration is open, else 0; the window's name is a label.", b2f(active[mw.Name]), "name", mw.Name)
+		}
 		if wc, err := db.WorkloadCounts(ctx); err == nil {
 			for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet"} {
 				w.Gauge("opstide_workloads", "Live workloads recorded, by kind.", float64(wc[k]), "kind", k)

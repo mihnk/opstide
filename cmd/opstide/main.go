@@ -60,7 +60,7 @@ func main() {
 
 func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	started := time.Now()
-	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces)
+	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces, "maintenanceWindows", cfg.Maintenance.Len())
 
 	kube, where, err := kubeConfig(cfg.Kubeconfig, cfg.Context)
 	if err != nil {
@@ -126,14 +126,14 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		log.Warn("no token is set and the address is not loopback: anyone who can reach it can read the record; set -token-file or put an authenticating proxy in front", "listen", cfg.Listen)
 	}
 	reg := &metrics.Registry{}
-	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started))
+	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started, cfg.Maintenance))
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	guard.Register(mux)
 	mux.Handle("/metrics", reg.Handler())
 	api.New(db, col, api.Config{
 		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, PublicURL: cfg.PublicURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
-		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata,
+		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Maintenance: cfg.Maintenance,
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
 	}, log).Register(mux)
 	mux.Handle("/", webui.Handler())

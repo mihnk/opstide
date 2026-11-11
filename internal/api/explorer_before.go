@@ -125,6 +125,12 @@ type ExplorerBefore struct {
 	// Empty: no_changes_recorded | no_changes_recorded_with_gaps | unresolved | outside_retention | before_first_observation
 	Empty *ExplorerEmpty `json:"empty,omitempty"`
 	Note  string         `json:"note"`
+	// Maintenance is the configured maintenance window the record falls in (as record.maintenance), and
+	// MaintenanceWindows every occurrence that overlaps the window looked at, for the record's namespace. Context only:
+	// planned work is not a cause either.
+	Maintenance        *MaintenanceMark  `json:"maintenance,omitempty"`
+	MaintenanceWindows []MaintenanceSpan `json:"maintenanceWindows"`
+	MaintenanceNote    string            `json:"maintenanceNote,omitempty"`
 }
 
 // beforeSubject is a related resource and how its changes are found: by workload, by CronJob, by UID or by name. A
@@ -203,11 +209,19 @@ func inSpans(spans []Span, t time.Time) bool {
 
 func (s *Server) before(ctx context.Context, row store.ExplorerRow, win string) (ExplorerBefore, error) {
 	rec := recordOfRow(row, false)
+	rec.Maintenance = s.maintenanceAt(rec.At, rec.Resource.Namespace)
 	d, _ := parseSpan(win)
 	to := rec.At
 	from := to.Add(-d)
 	out := ExplorerBefore{Schema: Schema, Record: rec, FailureLike: failureLike(rec), Window: win, From: from, To: to, Order: "newest_first", OrderBasis: beforeOrderBasis,
-		ChangeTypes: beforeTypes, Related: []BeforeSubject{}, Changes: []BeforeChange{}, Note: beforeDisclaimer}
+		ChangeTypes: beforeTypes, Related: []BeforeSubject{}, Changes: []BeforeChange{}, Note: beforeDisclaimer, Maintenance: rec.Maintenance,
+		MaintenanceWindows: s.recordSpans(from, to.Add(time.Millisecond), rec.Resource.Namespace)}
+	if rec.Maintenance != nil {
+		out.MaintenanceNote = "This record falls inside maintenance window " + rec.Maintenance.Name + " (" + rec.Maintenance.From.UTC().Format(time.RFC3339) + " to " +
+			rec.Maintenance.To.UTC().Format(time.RFC3339) + "), as configured. That is context, not a cause."
+	} else if len(out.MaintenanceWindows) > 0 {
+		out.MaintenanceNote = "A maintenance window was open during part of the window looked at (see maintenanceWindows); this record falls outside it."
+	}
 	subs, capped, err := s.beforeSubjects(ctx, row, rec, from, to)
 	if err != nil {
 		return out, err
@@ -283,6 +297,14 @@ func (s *Server) before(ctx context.Context, row store.ExplorerRow, win string) 
 		best.SecondsBefore = int64(to.Sub(best.Record.At) / time.Second)
 		best.Writer = e.Facts["fieldManager"]
 		out.Changes = append(out.Changes, *best)
+	}
+	recs := make([]ExplorerRecord, len(out.Changes))
+	for i := range out.Changes {
+		recs[i] = out.Changes[i].Record
+	}
+	s.markRecords(recs)
+	for i := range out.Changes {
+		out.Changes[i].Record = recs[i]
 	}
 	cs := out.Changes
 	sort.SliceStable(cs, func(i, j int) bool {

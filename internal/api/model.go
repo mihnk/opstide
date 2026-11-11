@@ -153,6 +153,9 @@ type Mark struct {
 	Slow   bool      `json:"slow,omitempty"`
 	Manual bool      `json:"manual,omitempty"`
 	Why    string    `json:"why,omitempty"`
+	// Maintenance names the configured maintenance window the mark's time falls in (DERIVED context; the mark is
+	// drawn and counted all the same).
+	Maintenance string `json:"maintenance,omitempty"`
 }
 
 // Run is a run as the API shows it.

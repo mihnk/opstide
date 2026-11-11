@@ -27,6 +27,9 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
   if (!data) return <div className="page"><Loading /></div>
   const filter = tabs.find(([k]) => k === tab)?.[2] ?? (() => true)
   const rows = data.operations.filter(filter)
+  // Under "Needs a look", what needs one only for what happened during a declared maintenance window comes after the
+  // rest. It is still listed.
+  if (tab === 'attention') rows.sort((a, b) => Number(!!a.maintenance) - Number(!!b.maintenance))
 
   return (
     <div className="page" style={{ gap: 20 }}>
@@ -73,7 +76,8 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       <Link href={href} style={{ display: 'flex', flexDirection: 'column', color: 'var(--ink)', textDecoration: 'none' }}>
                         <span style={{ fontWeight: 500, color: o.displayName ? undefined : 'var(--muted)' }}>{o.displayName || o.name}</span>
                         <span className="mono muted" style={{ fontSize: 12 }}>{o.namespace}/{o.name}</span>
-                        {!!o.attention?.length && <span className="fail" style={{ fontSize: 12 }}>{o.attention.map((w) => t(w)).join(' · ')}</span>}
+                        {!!o.attention?.length && <span className={o.maintenance ? 'muted' : 'fail'} style={{ fontSize: 12 }}>{o.attention.map((w) => t(w)).join(' · ')}</span>}
+                        {o.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={o.maintenance.statement}>{t('during maintenance {name}', { name: o.maintenance.name })}</span></span>}
                       </Link>
                     </td>
                     <td>

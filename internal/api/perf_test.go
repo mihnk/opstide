@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/store"
 )
 
@@ -134,7 +135,12 @@ func TestPerfLargeCluster(t *testing.T) {
 	}
 	t.Logf("analyze took %s", time.Since(an).Round(time.Millisecond))
 
-	s := New(db, watcher{}, Config{Version: "perf", Cluster: "big", Retention: store.Retention{Days: days, MaxEvents: 2_000_000}, StartedAt: start}, nil)
+	// Two maintenance windows, one daily and cluster-wide: every mark and exception of a range is looked up in them.
+	maint, err := maintenance.New([]maintenance.Spec{{Name: "nightly", Cron: "0 2 * * *", Duration: "2h"}, {Name: "weekly", Cron: "30 4 * * 0", Duration: "3h", Namespaces: []string{"ns-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(db, watcher{}, Config{Version: "perf", Cluster: "big", Retention: store.Retention{Days: days, MaxEvents: 2_000_000}, StartedAt: start, Maintenance: maint}, nil)
 	mux := http.NewServeMux()
 	s.Register(mux)
 	srv := httptest.NewServer(mux)

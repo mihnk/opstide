@@ -23,6 +23,8 @@
   --now: #f4f1ea;
   --now-glow: rgba(244, 241, 234, 0.45);
   --sel: #15252b;
+  --maint: #b49be0;    /* a declared maintenance window: context, not a gap */
+  --maint-bg: rgba(180, 155, 224, 0.12);
 }
 
 :root[data-theme='light'] {
@@ -42,6 +44,8 @@
   --now: #17222d;
   --now-glow: rgba(23, 34, 45, 0.25);
   --sel: #dcebee;
+  --maint: #6a4fa3;
+  --maint-bg: rgba(106, 79, 163, 0.10);
 }
 
 * { box-sizing: border-box; }
@@ -164,6 +168,13 @@ a.tl-name:hover span:first-child { text-decoration: underline; }
   background: rgba(142, 151, 156, 0.16); border-left: 1px dashed var(--hatch); border-right: 1px dashed var(--hatch);
 }
 .tl-gaplabel { position: absolute; top: 4px; left: 6px; font-size: 10px; color: var(--muted); white-space: nowrap; }
+/* A declared maintenance window: a tinted band with a solid top rule, unlike the dashed, grey "not watching" gap. */
+.tl-maint {
+  position: absolute; top: 0; bottom: 0; min-width: 3px; pointer-events: auto;
+  background: var(--maint-bg); border-top: 2px solid var(--maint);
+}
+.tl-maintlabel { position: absolute; bottom: 2px; left: 4px; font-size: 10px; color: var(--maint); white-space: nowrap; overflow: hidden; max-width: calc(100% - 6px); pointer-events: none; }
+.chip.maint { border-color: var(--maint); color: var(--maint); text-transform: none; letter-spacing: 0; }
 .tl-before {
   position: absolute; top: 0; bottom: 0; opacity: 0.5; pointer-events: none;
   background: repeating-linear-gradient(135deg, var(--line) 0 2px, transparent 2px 6px);

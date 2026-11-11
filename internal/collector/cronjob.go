@@ -129,7 +129,13 @@ func (c *Collector) syncCronJob(ctx context.Context, it item) error {
 		if !ok {
 			// Never recorded as an operation, but its template may have been recorded as naming config.
 			at := c.now()
-			return c.db.Update(ctx, func(w *store.Writer) error { return c.endConfigRefs(ctx, w, string(it.uid), at) })
+			c.images.forget(string(it.uid))
+			return c.db.Update(ctx, func(w *store.Writer) error {
+				if err := w.EndTemplateImages(ctx, string(it.uid), at); err != nil {
+					return err
+				}
+				return c.endConfigRefs(ctx, w, string(it.uid), at)
+			})
 		}
 		return c.cronJobGone(ctx, op, c.now(), msTime(it.deletedAt), !it.tombstone)
 	}
@@ -138,6 +144,9 @@ func (c *Collector) syncCronJob(ctx context.Context, it item) error {
 		return err
 	}
 	if err := c.recordConfigRefs(ctx, string(cj.UID), "CronJob", cj.Namespace, cj.Name, configRefsOf(cj.Spec.JobTemplate.Spec.Template)); err != nil {
+		return err
+	}
+	if err := c.recordTemplateImages(ctx, cj); err != nil {
 		return err
 	}
 	now := c.now()
@@ -211,10 +220,11 @@ func (c *Collector) cronJobGone(ctx context.Context, op store.Operation, now, de
 		e.Summary = label(op) + " is no longer in the cluster; it was removed while OpsTide was not watching"
 	}
 	return c.db.Update(ctx, func(w *store.Writer) error {
-		if err := w.MarkOperationDeleted(ctx, op.ID, now); err != nil { // ends its references too
+		if err := w.MarkOperationDeleted(ctx, op.ID, now); err != nil { // ends its references and images too
 			return err
 		}
 		c.cfg.forgetRefs(op.ID)
+		c.images.forget(op.ID)
 		_, err := w.AddEvent(ctx, e)
 		return err
 	})

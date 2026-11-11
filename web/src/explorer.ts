@@ -3,6 +3,7 @@
 
 import { createElement, Fragment, type ReactNode } from 'react'
 import { t } from './i18n'
+import type { MaintenanceMark, MaintenanceSpan } from './api'
 
 export type Provenance = 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
 export type Classification = 'DIRECT' | 'OWNERSHIP' | 'SAME_RESOURCE_CONTEXT' | 'UNRESOLVED' | 'REFERENCE'
@@ -29,6 +30,8 @@ export interface ExplorerRecord {
   refs: { workloadId?: string; releaseId?: string; runId?: string; operationId?: string; nodeId?: string; replicaSetUid?: string; hpaUid?: string }
   message?: string
   messageTruncated?: boolean
+  /** The configured maintenance window the record's time falls in (DERIVED context; the record is not hidden). */
+  maintenance?: MaintenanceMark
 }
 
 export type EmptyKind = 'no_matches' | 'source_unavailable' | 'outside_retention' | 'before_first_observation' | 'collection_gap'
@@ -197,6 +200,10 @@ export interface ExplorerBefore {
   }
   empty?: { kind: 'no_changes_recorded' | 'no_changes_recorded_with_gaps' | 'unresolved' | 'outside_retention' | 'before_first_observation'; message: string; detail: string[] }
   note: string
+  /** The maintenance window the record falls in, and every occurrence that overlaps the window looked at. */
+  maintenance?: MaintenanceMark
+  maintenanceWindows?: MaintenanceSpan[]
+  maintenanceNote?: string
 }
 
 export const beforeWindows: BeforeWindow[] = ['15m', '1h', '6h', '24h']

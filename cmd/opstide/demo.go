@@ -31,7 +31,8 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	defer db.Close()
-	if err := demo.Seed(ctx, db, time.Now()); err != nil {
+	now := time.Now()
+	if err := demo.Seed(ctx, db, now); err != nil {
 		return err
 	}
 	// Keeps the "last write" heartbeat fresh so the header reads as alive; the history itself is a snapshot.
@@ -52,8 +53,8 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	auth.New("").Register(mux) // no login: the session endpoint still answers
-	api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: time.Now(), Demo: true, ReleaseWindow: 10 * time.Minute,
-		WatchConfigMaps: true, WatchSecretMetadata: true,
+	api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: now, Demo: true, ReleaseWindow: 10 * time.Minute,
+		WatchConfigMaps: true, WatchSecretMetadata: true, Maintenance: demo.Maintenance(now),
 		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}}, log).Register(mux)
 	mux.Handle("/", webui.Handler())
 	log.Info("demo: made-up data, no cluster; open the address below", "url", "http://"+listen)

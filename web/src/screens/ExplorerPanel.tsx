@@ -5,7 +5,7 @@ import { beforeWindows, beforeWords, classWords, explorerLink, isFailureLike, pr
 import { t } from '../i18n'
 import { useApi } from '../live'
 import { Link } from '../router'
-import { hhmmss } from '../time'
+import { hhmm, hhmmss } from '../time'
 import { Note } from '../components/Note'
 
 // The drilldown of one record: what it is, when it was observed, where the fact comes from, what it is connected to,
@@ -143,6 +143,9 @@ function Before({ id, tz, hrefOf }: { id: string; tz: string; hrefOf?: (id: stri
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>{beforeEmptyWords[data.empty?.kind ?? 'no_changes_recorded_with_gaps']}</p>
           )}
           {data.truncated && <span className="muted" style={{ fontSize: 12 }}>{t('Only the newest {n} are listed.', { n: data.changes.length })}</span>}
+          {data.maintenance
+            ? <span style={{ fontSize: 12 }}><span className="chip maint">{t('maintenance: {name}', { name: data.maintenance.name })}</span> {t('This record falls inside a maintenance window declared in the configuration ({from}–{to}). That is context, not a cause.', { from: hhmmss(data.maintenance.from, tz), to: hhmmss(data.maintenance.to, tz) })}</span>
+            : (data.maintenanceWindows?.length ?? 0) > 0 && <span className="muted" style={{ fontSize: 12 }}>{t('A maintenance window was open during part of this window: {list}. This record falls outside it.', { list: data.maintenanceWindows!.map((m) => `${m.name} ${hhmm(m.from, tz)}–${hhmm(m.to, tz)}`).join(', ') })}</span>}
           <span className="muted" style={{ fontSize: 12 }}>
             {data.coverage.state === 'watching'
               ? t('Coverage: OpsTide was watching all of what these changes come from throughout the window.')
@@ -198,6 +201,18 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
           {res.uid && <Link className="button" href={explorerLink({ uid: res.uid, range: '7d' })} title={t('Everything recorded about this exact resource (by UID)')}>{t('This resource in Explorer')}</Link>}
         </span>
       </div>
+
+      {r.maintenance && (
+        <Section title={t('Maintenance window')}>
+          <p style={{ margin: 0 }}>
+            <span className="chip maint">{t('maintenance: {name}', { name: r.maintenance.name })}</span> <span className={`chip prov-${r.maintenance.provenance.toLowerCase()}`}>{provWord(r.maintenance.provenance)}</span>
+          </p>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            {t('Inside maintenance window {name} ({from}–{to}), as declared in the configuration. The record is shown as recorded; the window is context, not a cause.', { name: r.maintenance.name, from: hhmmss(r.maintenance.from, tz), to: hhmmss(r.maintenance.to, tz) })}
+            {r.maintenance.note ? ` ${r.maintenance.note}` : ''}
+          </p>
+        </Section>
+      )}
 
       <Section title={t('Observation')}>
         <dl className="facts" style={{ gridTemplateColumns: '130px minmax(0, 1fr)' }}>

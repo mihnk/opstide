@@ -22,6 +22,7 @@ if (!base || !out) {
   const ops = opsAnswer.operations || []
   const recs = (await j('/api/v1/explorer?range=24h&limit=100')).records || []
   const nodes = (await j('/api/v1/nodes')).nodes || []
+  const imgs = (await j('/api/v1/images')).images || []
 
   const pick = (kind) => wl.find((x) => x.kind === kind)
   const pages = ['/', '/welcome', '/explorer?range=24h', '/explorer?range=24h&preset=changes', '/workloads', '/releases', '/schedules', '/system', '/workspace']
@@ -32,6 +33,18 @@ if (!base || !out) {
     for (const t of ['overview', 'timeline', 'pods', 'evidence', 'changes', 'context']) pages.push(`/releases/${encodeURIComponent(r.id)}?tab=${t}`)
   }
   for (const n of nodes.slice(0, 2)) pages.push(`/nodes/${encodeURIComponent(n.id)}`)
+  // The image inventory now, at a time in the past (the api's previous image was current then), and the image that runs
+  // in the most workloads (its history and the other tags of its repository).
+  const pastAt = new Date(Date.parse(opsAnswer.now) - 30 * 3600e3).toISOString().replace('.000Z', 'Z')
+  pages.push('/images', `/images?at=${encodeURIComponent(pastAt)}`)
+  const shared = [...imgs].sort((a, b) => b.uses.length - a.uses.length)[0]
+  if (!shared || shared.uses.length < 2) {
+    console.error('no image runs in two workloads: the demo no longer shows a shared image')
+    process.exit(1)
+  }
+  pages.push(`/images/${shared.ref}`)
+  const apiImage = imgs.find((x) => x.image.startsWith('shop/api:'))
+  if (apiImage) pages.push(`/images/${apiImage.ref}`)
   const op = ops[0]
   if (op) {
     pages.push(`/operations/${encodeURIComponent(op.id)}`)

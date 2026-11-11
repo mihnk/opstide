@@ -11,6 +11,7 @@ const sections = [
   { href: '/', label: 'Overview', match: (p: string) => p === '/' },
   { href: '/explorer', label: 'Explorer', match: (p: string) => p.startsWith('/explorer') || p.startsWith('/workspace') },
   { href: '/workloads', label: 'Workloads', match: (p: string) => p.startsWith('/workloads') || p.startsWith('/nodes') },
+  { href: '/images', label: 'Images', match: (p: string) => p.startsWith('/images') },
   { href: '/releases', label: 'Releases', match: (p: string) => p.startsWith('/releases') },
   { href: '/schedules', label: 'Schedules', match: (p: string) => p.startsWith('/schedules') || p.startsWith('/operations') },
   { href: '/system', label: 'System', match: (p: string) => p.startsWith('/system') },

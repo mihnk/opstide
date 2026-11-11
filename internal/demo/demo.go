@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/release"
 	"github.com/mihnk/opstide/internal/store"
 )
@@ -30,7 +31,7 @@ func (Watcher) Problems() []collector.Problem { return nil }
 // scopes OpsTide "watches" in the demo story, all from the start of the history.
 var scopes = []string{"cronjobs", "jobs", "pods", "deployments", "replicasets", "deploypods", "events", "hpas", "statefulsets", "daemonsets", "controllerrevisions", "workloadpods", "configmaps", "secrets"}
 
-func snap(image, mem string, replicas int32) string {
+func snap(image, mem string, replicas int32, more ...corev1.Container) string {
 	c := corev1.Container{Name: "app", Image: image}
 	if mem != "" {
 		c.Resources.Limits = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mem)}
@@ -39,7 +40,32 @@ func snap(image, mem string, replicas int32) string {
 	if replicas > 0 {
 		d = &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Replicas: &replicas}}
 	}
-	return release.FromTemplate(corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{c}}}, d).Encode()
+	spec := corev1.PodSpec{Containers: []corev1.Container{c}}
+	for _, m := range more {
+		if m.Name == "migrate" {
+			spec.InitContainers = append(spec.InitContainers, m)
+		} else {
+			spec.Containers = append(spec.Containers, m)
+		}
+	}
+	return release.FromTemplate(corev1.PodTemplateSpec{Spec: spec}, d).Encode()
+}
+
+// logShipper is a sidecar the api Deployment and the web StatefulSet both run: one image, two workloads.
+var logShipper = corev1.Container{Name: "log-shipper", Image: "shop/log-shipper:1.2"}
+
+// Maintenance is the demo's maintenance window: a daily one, placed so that today's occurrence covers the failed
+// ledger run a few hours ago and yesterday's the api Pod that restarted under revision 6.
+func Maintenance(now time.Time) *maintenance.Set {
+	start := now.UTC().Truncate(time.Second).Add(-6*time.Hour - 10*time.Minute).Truncate(5 * time.Minute)
+	set, err := maintenance.New([]maintenance.Spec{{
+		Name: "Platform upgrade", Cron: fmt.Sprintf("%d %d * * *", start.Minute(), start.Hour()), Duration: "2h20m", TimeZone: "UTC",
+		Namespaces: []string{"payments", "shop"}, Note: "Node pool and database upgrades by the platform team; restarts and late runs are expected.",
+	}})
+	if err != nil {
+		panic(err) // a fixed, valid declaration
+	}
+	return set
 }
 
 func fingerprint(s string) string {
@@ -137,7 +163,17 @@ func coverage(s *seeder) error {
 // has a baseline to compare with.
 const jobsWatched = 21 * 24 * time.Hour
 
+// templateImages are the demo CronJobs' images, oldest first.
+var templateImages = map[string][]string{
+	"cj-ledger": {"payments/reconciler:3.2"}, "cj-report": {"data/sales-report:1.0"}, "cj-backup": {"postgres:16.4"},
+	"cj-archive": {"data/archiver:0.8", "data/archiver:0.9"},
+}
+
 func cronJobs(s *seeder) error {
+	// CronJob images were recorded from when OpsTide began watching CronJobs.
+	if err := s.w.SetMeta(s.ctx, "template_images_since", fmt.Sprint(s.ago(jobsWatched).UnixMilli())); err != nil {
+		return err
+	}
 	type job struct {
 		id, ns, name, display, owner, crit, desc string
 		every                                    time.Duration
@@ -164,6 +200,16 @@ func cronJobs(s *seeder) error {
 			ExpectedDuration: &exp, Schedule: j.schedule, ConcurrencyPolicy: "Forbid", SuccessfulHistory: 3, FailedHistory: 1,
 			CreatedAt: s.ago(60 * 24 * time.Hour), FirstSeenAt: s.ago(jobsWatched), LastSeenAt: s.now}); err != nil {
 			return err
+		}
+		// The job template's images: already named when OpsTide began; the archiver's moved to 0.9 two days ago.
+		img := templateImages[j.id]
+		if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[0]}}, store.OriginAdopted, s.ago(jobsWatched)); err != nil {
+			return err
+		}
+		if len(img) > 1 {
+			if err := s.w.SetTemplateImages(s.ctx, j.id, "CronJob", j.ns, j.name, []store.TemplateContainer{{Name: "main", Image: img[1]}}, store.OriginObserved, s.ago(48*time.Hour)); err != nil {
+				return err
+			}
 		}
 		// Scheduled times: every `every`, aligned to the schedule, since Jobs were first watched, skipping the Jobs gap and the future.
 		// (Truncate counts from year 1, so a week lands on a Monday 00:00 UTC, the weekly schedule's day.)
@@ -252,7 +298,11 @@ func deployment(s *seeder) error {
 	}
 	prev := ""
 	for _, r := range rels {
-		sn := snap(r.image, r.mem, 3)
+		more := []corev1.Container{logShipper}
+		if r.n == 7 {
+			more = append(more, corev1.Container{Name: "migrate", Image: "shop/api-migrate:1.5.1"})
+		}
+		sn := snap(r.image, r.mem, 3, more...)
 		rid := fmt.Sprintf("rel-api-%d", r.n)
 		row := store.Release{ID: rid, WorkloadID: id, Namespace: "shop", Workload: "api", Revision: fmt.Sprint(r.n), RevisionNum: r.n, ReplicaSetUID: fmt.Sprintf("rs-api-%d", r.n),
 			ReplicaSetName: fmt.Sprintf("api-%d", r.n), TemplateHash: fmt.Sprintf("6c9d%d", r.n), Fingerprint: fingerprint(sn), PrevID: prev, Origin: r.origin, ObservedAt: r.at, StartedAt: r.at,
@@ -337,7 +387,7 @@ func deployment(s *seeder) error {
 }
 
 func statefulSets(s *seeder) error {
-	snapA, snapB := snap("shop/web:2.0", "256Mi", 0), snap("shop/web:2.1", "512Mi", 0)
+	snapA, snapB := snap("shop/web:2.0", "256Mi", 0, logShipper), snap("shop/web:2.1", "512Mi", 0, logShipper)
 	part := 2
 	for _, wl := range []store.Workload{
 		{ID: "sts-web", Kind: store.KindStatefulSet, Origin: store.OriginObserved, Namespace: "shop", Name: "web", FirstSeen: s.ago(4 * 24 * time.Hour), LastSeen: s.now},
@@ -348,6 +398,10 @@ func statefulSets(s *seeder) error {
 			return err
 		}
 	}
+	adopted := func(r store.WorkloadRevision, seen time.Time) store.WorkloadRevision {
+		r.Origin, r.ObservedAt = store.OriginAdopted, seen
+		return r
+	}
 	rev := func(id, wl, kind, name, hash string, n int64, sn string, at time.Time) store.WorkloadRevision {
 		return store.WorkloadRevision{ID: id, WorkloadID: wl, Kind: kind, Name: name, Hash: hash, Number: n, ControllerRevisionUID: "u-" + id, CreatedAt: at, ObservedAt: at, Origin: store.OriginObserved, Fingerprint: fingerprint(sn), Snapshot: sn}
 	}
@@ -356,6 +410,8 @@ func statefulSets(s *seeder) error {
 		rev("wr-web-2", "sts-web", store.KindStatefulSet, "web-7d21", "7d21", 2, snapB, s.ago(2*time.Hour)),
 		rev("wr-agent-1", "ds-agent", store.KindDaemonSet, "node-agent-5c", "5c", 1, snap("shop/agent:3.0", "", 0), s.ago(4*24*time.Hour)),
 		rev("wr-agent-2", "ds-agent", store.KindDaemonSet, "node-agent-8e", "8e", 2, snap("shop/agent:3.1", "", 0), s.ago(20*time.Hour)),
+		// Already there when OpsTide began: the database runs the image the nightly backup's template names too.
+		adopted(rev("wr-db-3", "sts-db", store.KindStatefulSet, "orders-db-3a", "3a", 3, snap("postgres:16.4", "2Gi", 0), s.ago(19*24*time.Hour)), s.ago(4*24*time.Hour)),
 	} {
 		if _, err := s.w.AddRevision(s.ctx, r); err != nil {
 			return err

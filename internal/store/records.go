@@ -119,6 +119,9 @@ func (w *Writer) MarkOperationDeleted(ctx context.Context, id string, at time.Ti
 	if _, err := w.tx.ExecContext(ctx, `UPDATE operations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, ms(at), id); err != nil {
 		return err
 	}
+	if err := w.EndTemplateImages(ctx, id, at); err != nil { // nor runs any image
+		return err
+	}
 	return w.EndConfigRefs(ctx, id, at) // a CronJob that is gone names nothing any more
 }
 

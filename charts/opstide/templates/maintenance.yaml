@@ -1,0 +1,12 @@
+{{- if .Values.maintenance.windows }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opstide.fullname" . }}-maintenance
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+data:
+  # Read once at start (-maintenance-file); a change restarts the pod through the checksum on the Deployment.
+  maintenance.yaml: |
+    {{- toYaml (dict "windows" .Values.maintenance.windows) | nindent 4 }}
+{{- end }}

@@ -471,6 +471,29 @@ CREATE INDEX IF NOT EXISTS events_name ON events(namespace, kind, resource_name,
 CREATE INDEX IF NOT EXISTS runs_op_durations ON runs(operation_id, created_at, started_at, finished_at)
 	WHERE status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL;
 `,
+	// 12: the image inventory. Deployments' releases and StatefulSets' and DaemonSets' ControllerRevisions already keep
+	// their containers' images in their snapshots; a CronJob's job template has no revision history in Kubernetes, so
+	// OpsTide keeps one row per container and image it saw the template name, with when it first saw it and when the
+	// template stopped naming it. Image references only: never a command, an argument or an environment value.
+	// template_images_since is when this began: before it, OpsTide holds no CronJob image at all.
+	`
+CREATE TABLE IF NOT EXISTS template_images (
+	workload_id   TEXT NOT NULL,            -- the CronJob's UID
+	workload_kind TEXT NOT NULL,            -- CronJob
+	namespace     TEXT NOT NULL,
+	workload_name TEXT NOT NULL,
+	container     TEXT NOT NULL,
+	init          INTEGER NOT NULL DEFAULT 0, -- 1 for an init container
+	image         TEXT NOT NULL,
+	origin        TEXT NOT NULL,            -- observed (the template changed while watched) | adopted (already named when first seen)
+	first_seen_at INTEGER NOT NULL,
+	ended_at      INTEGER,                  -- when the template stopped naming it, or the CronJob went
+	PRIMARY KEY (workload_id, init, container, first_seen_at)
+);
+CREATE INDEX IF NOT EXISTS template_images_open ON template_images(workload_id) WHERE ended_at IS NULL;
+CREATE INDEX IF NOT EXISTS template_images_ended ON template_images(ended_at) WHERE ended_at IS NOT NULL;
+INSERT OR REPLACE INTO meta (key, value) VALUES ('template_images_since', CAST(CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS TEXT));
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

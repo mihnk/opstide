@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/schedule"
 	"github.com/mihnk/opstide/internal/store"
 )
@@ -50,6 +51,8 @@ type Range struct {
 	Rollouts   []Rollout   `json:"rollouts"`
 	Exceptions []Exception `json:"exceptions"`
 	Upcoming   []Upcoming  `json:"upcoming"`
+	// Maintenance is every occurrence of a configured maintenance window that overlaps the window, clipped to it.
+	Maintenance []MaintenanceSpan `json:"maintenance"`
 }
 
 // Counts sums the window's runs and expected times.
@@ -126,8 +129,12 @@ type Exception struct {
 	RunbookURL  string    `json:"runbookUrl,omitempty"`
 	Why         string    `json:"why,omitempty"`
 	// For a gap: how many operations and expected runs fell inside it.
-	Operations int `json:"operations,omitempty"`
-	Runs       int `json:"expectedRuns,omitempty"`
+	Operations int    `json:"operations,omitempty"`
+	Runs       int    `json:"expectedRuns,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	// Maintenance is the configured maintenance window the exception's time falls in, for its namespace (a gap: a
+	// cluster-wide window). It is still listed, after the exceptions outside any window.
+	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
 }
 
 // Upcoming is an operation's next expected time.
@@ -212,7 +219,9 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 		return Range{}, err
 	}
 	d := Range{Schema: Schema, Cluster: s.cfg.Cluster, TimeZone: loc.String(), From: from, To: to, Now: now, Date: date,
-		BucketSeconds: int(time.Hour / time.Second), Gaps: []Span{}, Lanes: []Lane{}, Rollouts: []Rollout{}, Exceptions: []Exception{}, Upcoming: []Upcoming{}}
+		BucketSeconds: int(time.Hour / time.Second), Gaps: []Span{}, Lanes: []Lane{}, Rollouts: []Rollout{}, Exceptions: []Exception{}, Upcoming: []Upcoming{},
+		Maintenance: s.maintenanceSpans(from, to, "")}
+	mix := s.cfg.Maintenance.Index(from.Add(-24*time.Hour), to.Add(24*time.Hour))
 	if d.LastWrite, err = s.db.LastWrite(ctx); err != nil {
 		return d, err
 	}
@@ -275,10 +284,18 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 		if marks := v.marks(slots, from, to, now); markCount(marks) > denseAbove {
 			lane.Mode, lane.Buckets = "hourly", buckets(v.runs, slots, from, to, loc)
 		} else {
+			for i := range marks {
+				if marks[i].State == string(schedule.Expected) {
+					continue
+				}
+				if o, ok := mix.At(marks[i].Start, op.Namespace); ok {
+					marks[i].Maintenance = o.Name
+				}
+			}
 			lane.Marks = marks
 		}
 		d.Lanes = append(d.Lanes, lane)
-		unconf = append(unconf, s.tally(&d, v, slots, from, to, now)...)
+		unconf = append(unconf, s.tally(&d, v, slots, from, to, now, mix)...)
 	}
 	sort.SliceStable(d.Lanes, func(i, j int) bool {
 		a, b := d.Lanes[i], d.Lanes[j]
@@ -303,15 +320,29 @@ func (s *Server) buildRange(r *http.Request) (Range, error) {
 		end = now
 	}
 	d.Gaps = append(d.Gaps, cov.jobGaps(nsList, from, end)...)
-	d.Exceptions = append(d.Exceptions, gapExceptions(d.Gaps, unconf)...)
-
-	sort.SliceStable(d.Exceptions, func(i, j int) bool { return d.Exceptions[i].At.After(d.Exceptions[j].At) })
+	for _, e := range gapExceptions(d.Gaps, unconf) {
+		if o, ok := mix.At(e.From, ""); ok {
+			e.Maintenance = markOf(o)
+		}
+		d.Exceptions = append(d.Exceptions, e)
+	}
+	sortExceptions(d.Exceptions)
 	sort.Slice(d.Upcoming, func(i, j int) bool { return d.Upcoming[i].At.Before(d.Upcoming[j].At) })
 	if len(d.Upcoming) > 8 {
 		d.Upcoming = d.Upcoming[:8]
 	}
 	d.Rollouts, err = s.rollouts(ctx, from, to)
 	return d, err
+}
+
+// sortExceptions puts the exceptions outside any maintenance window first, then those inside one; newest first in each.
+func sortExceptions(es []Exception) {
+	sort.SliceStable(es, func(i, j int) bool {
+		if (es[i].Maintenance == nil) != (es[j].Maintenance == nil) {
+			return es[i].Maintenance == nil
+		}
+		return es[i].At.After(es[j].At)
+	})
 }
 
 // markCount is how many marks a lane would draw; an expected stretch merged
@@ -407,10 +438,15 @@ type streak struct{ runs []store.Run }
 
 // tally adds one operation's window to the counts, exceptions and upcoming,
 // and returns the expected times that fell in a gap.
-func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now time.Time) []unconfirmedAt {
+func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now time.Time, mix maintenance.Index) []unconfirmedAt {
 	op := v.op
 	exc := func(e Exception) {
-		e.OperationID, e.Name, e.Owner, e.RunbookURL = op.ID, displayName(op), op.Owner, op.RunbookURL
+		e.OperationID, e.Name, e.Owner, e.RunbookURL, e.Namespace = op.ID, displayName(op), op.Owner, op.RunbookURL, op.Namespace
+		if e.Maintenance == nil && e.Kind != "missed" && e.Kind != "skipped" {
+			if o, ok := mix.At(e.At, op.Namespace); ok {
+				e.Maintenance = markOf(o)
+			}
+		}
 		if op.ExpectedDuration != nil {
 			e.Expected = int64(*op.ExpectedDuration / time.Second)
 		}
@@ -502,8 +538,27 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 		n           int
 		why         string
 	}
-	var missed, skipped group
-	add := func(g *group, sl schedule.Slot) {
+	// Missed and skipped times are grouped apart by the maintenance window they fall in ("" outside any), so a run that
+	// did not start during planned work reads as "during maintenance" and the others do not.
+	missed, skipped := map[string]*group{}, map[string]*group{}
+	var order []string
+	marksOf := map[string]*MaintenanceMark{}
+	add := func(gs map[string]*group, sl schedule.Slot) {
+		key := ""
+		if o, ok := mix.At(sl.At, op.Namespace); ok {
+			key = o.Name
+			if marksOf[key] == nil {
+				marksOf[key] = markOf(o)
+			}
+		}
+		g := gs[key]
+		if g == nil {
+			g = &group{}
+			gs[key] = g
+			if !has(order, key) {
+				order = append(order, key)
+			}
+		}
 		if g.n == 0 {
 			g.first, g.why = sl.At, sl.Why
 		}
@@ -522,10 +577,10 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 			unconf = append(unconf, unconfirmedAt{op.ID, sl.At, sl.At.Add(startWindow)})
 		case schedule.Missed:
 			d.Counts.Missed++
-			add(&missed, sl)
+			add(missed, sl)
 		case schedule.Skipped:
 			d.Counts.Skipped++
-			add(&skipped, sl)
+			add(skipped, sl)
 		case schedule.Due, schedule.Expected:
 			d.Counts.StillDue++
 			if sl.State == schedule.Expected && next.IsZero() {
@@ -533,11 +588,13 @@ func (s *Server) tally(d *Range, v opView, slots []schedule.Slot, from, to, now 
 			}
 		}
 	}
-	if missed.n > 0 {
-		exc(Exception{Kind: "missed", At: missed.last, From: missed.first, To: missed.last, Count: missed.n, Why: missed.why})
-	}
-	if skipped.n > 0 {
-		exc(Exception{Kind: "skipped", At: skipped.last, From: skipped.first, To: skipped.last, Count: skipped.n, Why: skipped.why})
+	for _, key := range order {
+		if g := missed[key]; g != nil {
+			exc(Exception{Kind: "missed", At: g.last, From: g.first, To: g.last, Count: g.n, Why: g.why, Maintenance: marksOf[key]})
+		}
+		if g := skipped[key]; g != nil {
+			exc(Exception{Kind: "skipped", At: g.last, From: g.first, To: g.last, Count: g.n, Why: g.why, Maintenance: marksOf[key]})
+		}
 	}
 	if !next.IsZero() {
 		d.Upcoming = append(d.Upcoming, Upcoming{At: next, OperationID: op.ID, Name: displayName(op), Namespace: op.Namespace})

@@ -2,7 +2,10 @@ package config
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +111,30 @@ func TestPublicURL(t *testing.T) {
 		if _, err := Load([]string{"-public-url", bad}, env(nil)); err == nil {
 			t.Errorf("%q accepted", bad)
 		}
+	}
+}
+
+func TestMaintenanceFile(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.yaml")
+	if err := os.WriteFile(good, []byte("windows:\n  - {name: upgrade, cron: '0 2 * * 6', duration: 2h, timeZone: Europe/Istanbul}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(nil, env(map[string]string{"OPSTIDE_MAINTENANCE_FILE": good}))
+	if err != nil || c.MaintenanceFile != good || c.Maintenance.Len() != 1 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	if c, err := Load(nil, env(nil)); err != nil || c.Maintenance.Len() != 0 {
+		t.Fatalf("none by default: %v", err)
+	}
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("windows:\n  - {name: upgrade, cron: '0 2 * * 6', duration: 2 hours}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load([]string{"-maintenance-file", bad}, env(nil)); err == nil || !strings.Contains(err.Error(), "upgrade") {
+		t.Fatalf("a bad window refuses to start, naming it: %v", err)
+	}
+	if _, err := Load([]string{"-maintenance-file", filepath.Join(dir, "missing.yaml")}, env(nil)); err == nil {
+		t.Fatal("a missing file refuses to start")
 	}
 }

@@ -16,6 +16,26 @@ export interface Mark {
   slow?: boolean
   manual?: boolean
   why?: string
+  /** The configured maintenance window the mark's time falls in. */
+  maintenance?: string
+}
+
+/** A configured maintenance window a record falls in: DERIVED context, never a reason to hide it. */
+export interface MaintenanceMark { name: string; note?: string; from: string; to: string; provenance: 'DERIVED'; statement: string }
+/** One occurrence of a configured maintenance window. */
+export interface MaintenanceSpan { name: string; note?: string; from: string; to: string; namespaces: string[]; recurring: boolean }
+export interface MaintenanceWindow {
+  name: string
+  kind: 'recurring' | 'one-off'
+  cron?: string
+  duration?: string
+  timeZone?: string
+  start?: string
+  end?: string
+  namespaces: string[]
+  note?: string
+  active: boolean
+  next: MaintenanceSpan[]
 }
 
 export interface Pod {
@@ -107,6 +127,8 @@ export interface Exception {
   why?: string
   operations?: number
   expectedRuns?: number
+  namespace?: string
+  maintenance?: MaintenanceMark
 }
 
 export interface Range {
@@ -130,6 +152,7 @@ export interface Range {
   rollouts: { at: string; namespace: string; name: string; revision: string; summary: string }[]
   exceptions: Exception[]
   upcoming: { at: string; operationId: string; name: string; namespace: string }[]
+  maintenance?: MaintenanceSpan[]
 }
 
 export interface Overview {
@@ -184,6 +207,7 @@ export interface OperationRow extends Operation {
   lastRun?: Run
   next?: string
   attention?: string[]
+  maintenance?: MaintenanceMark
   duration: DurationTrend
 }
 
@@ -270,6 +294,7 @@ export interface System {
     degraded: string[]
   }
   config: { configMaps: boolean; secretMetadata: boolean; configMapCount: number; secretCount: number; configMapNote: string; secretNote: string; degraded: string[] }
+  maintenance?: { windows: MaintenanceWindow[]; note: string }
 }
 
 export interface EvidenceSystem {
@@ -674,3 +699,76 @@ export interface NodeDetail {
 }
 export interface NodeHistory { schema: number; entries: Entry[]; nextCursor?: string; records: EvidenceRecord[] }
 export interface RunEvidence { schema: number; records: EvidenceRecord[]; notes: string[]; provenance: { eventsApi: string; notes: string[] } }
+
+// ---- the image inventory (/api/v1/images) ----
+
+export interface ImageUse {
+  workloadId: string
+  kind: string
+  namespace: string
+  workload: string
+  container: string
+  init: boolean
+  since: string
+  sinceBasis: 'created' | 'observed' | 'first_recorded'
+  until: string | null
+  untilBasis?: 'replaced' | 'container_removed' | 'workload_deleted'
+  fromRevision: string
+  toRevision: string
+  releaseId?: string
+  latestReleaseId?: string
+  provenance: 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
+  reportedImageId?: string
+  previous?: string
+  replacedBy?: string
+  adopted: boolean
+  note?: string
+  path: string
+}
+export interface ImageGroup { image: string; ref: string; repository: string; tag?: string; digest?: string; namespaces: string[]; uses: ImageUse[] }
+export interface ImageCoverage {
+  state: 'watching' | 'gap' | 'before_first_observation' | 'outside_retention'
+  note: string
+  scopes: string[]
+  cronJobImagesSince: string | null
+  retentionDays: number
+  boundaryAt: string | null
+}
+export interface ImageList {
+  schema: number
+  at: string
+  now: string
+  current: boolean
+  namespace?: string
+  q?: string
+  coverage: ImageCoverage
+  images: ImageGroup[]
+  total: number
+  truncated: boolean
+  refEncoding: string
+  notes: string[]
+}
+export interface ImageDetail {
+  schema: number
+  image: string
+  ref: string
+  repository: string
+  tag?: string
+  digest?: string
+  now: string
+  coverage: ImageCoverage
+  uses: ImageUse[]
+  current: number
+  workloads: number
+  otherTags: { image: string; ref: string; current: number; uses: number }[]
+  refEncoding: string
+  notes: string[]
+}
+
+/** An image reference as it goes in a path: unpadded base64url of its UTF-8 bytes (the API's encoding). */
+export function imageRef(image: string): string {
+  const bytes = new TextEncoder().encode(image)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}

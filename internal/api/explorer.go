@@ -63,6 +63,9 @@ type ExplorerRecord struct {
 	// Message is Kubernetes' own text of an Event. Lists and exports leave it out unless asked; the drilldown shows it.
 	Message          *string `json:"message,omitempty"`
 	MessageTruncated bool    `json:"messageTruncated,omitempty"`
+	// Maintenance is the configured maintenance window the record's time falls in, for its namespace: DERIVED context
+	// added to the answer, not part of the stored record. Absent outside every window.
+	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
 }
 
 func provenanceOf(c store.Confidence) string {
@@ -221,7 +224,13 @@ type explorerFilters struct {
 	Owner      string   `json:"owner,omitempty"`
 	Text       string   `json:"text,omitempty"`
 	Routine    bool     `json:"includeRoutine"`
+	// Maintenance is "outside" when records inside maintenance windows are left out of this list (they are not
+	// removed from the record).
+	Maintenance string `json:"maintenance,omitempty"`
 }
+
+// maxExcludedOccurrences bounds the maintenance occurrences one Explorer query leaves out.
+const maxExcludedOccurrences = 500
 
 // parseExplorer reads and validates every filter. A name that is not understood is an error, not ignored.
 func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFilters, error) {
@@ -234,7 +243,7 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 	v := r.URL.Query()
 	known := map[string]bool{"range": true, "from": true, "to": true, "namespace": true, "kind": true, "name": true, "uid": true, "workload": true, "release": true, "run": true,
 		"operation": true, "node": true, "group": true, "type": true, "reason": true, "source": true, "provenance": true, "q": true, "routine": true, "cursor": true, "limit": true,
-		"order": true, "messages": true, "tz": true, "preset": true, "severity": true, "outcome": true, "owner": true}
+		"order": true, "messages": true, "tz": true, "preset": true, "severity": true, "outcome": true, "owner": true, "maintenance": true}
 	for k := range v {
 		if !known[k] {
 			return q, f, badRequest("unknown parameter " + fmt.Sprintf("%.40q", k))
@@ -349,6 +358,20 @@ func (s *Server) parseExplorer(r *http.Request) (store.ExplorerQuery, explorerFi
 	q.Namespace, q.Kind, q.Name, q.UID, q.WorkloadID, q.RunID, q.OperationID, q.NodeID = f.Namespace, f.Kind, f.Name, f.UID, f.Workload, f.Run, f.Operation, f.Node
 	q.Groups, q.Types, q.Reason, q.Sources, q.Provenance, q.Text, q.Routine = f.Groups, f.Types, f.Reason, f.Sources, f.Provenance, f.Text, f.Routine
 	q.Severities, q.Owner = f.Severity, f.Owner
+	switch m := v.Get("maintenance"); m {
+	case "":
+	case "outside":
+		f.Maintenance = m
+		occ, truncated := s.cfg.Maintenance.Between(q.From, q.To)
+		if truncated || len(occ) > maxExcludedOccurrences {
+			return q, f, badRequest("too many maintenance window occurrences in this range to leave out; narrow the range")
+		}
+		for _, o := range occ {
+			q.Exclude = append(q.Exclude, store.ExcludeSpan{From: o.From, To: o.To, Namespaces: o.Namespaces})
+		}
+	default:
+		return q, f, badRequest("maintenance takes outside")
+	}
 	if c := v.Get("cursor"); c != "" {
 		if !cursorRe.MatchString(c) {
 			return q, f, badRequest("cursor is not one this API gave")
@@ -422,6 +445,7 @@ func (s *Server) explorer(w http.ResponseWriter, r *http.Request) {
 	for _, row := range pg.Rows {
 		out.Records = append(out.Records, recordOfRow(row, false))
 	}
+	s.markRecords(out.Records)
 	if q.Cursor == "" {
 		ctx, err := s.buildContext(r.Context(), q.From, q.To, q.Namespace)
 		if err != nil {

@@ -195,6 +195,7 @@ func (s *Server) explorerRecordOne(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) detailOf(ctx context.Context, row store.ExplorerRow) (ExplorerDetail, error) {
 	rec := recordOfRow(row, true)
+	rec.Maintenance = s.maintenanceAt(rec.At, rec.Resource.Namespace)
 	d := ExplorerDetail{Schema: Schema, Record: rec, Relationships: relationshipsOf(row), Limitations: []string{}}
 	if err := s.resolve(ctx, d.Relationships); err != nil {
 		return d, err

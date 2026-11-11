@@ -31,6 +31,8 @@ const (
 	annoFailure = "failure"
 	annoGap     = "gap"
 	annoNotice  = "notice" // the answer was cut at the limit: a region over the part whose records are not in it
+	// annoMaintenance is a configured maintenance window, a region: planned work, declared in configuration.
+	annoMaintenance = "maintenance"
 )
 
 // Annotation is one mark for Grafana. time and timeEnd are epoch milliseconds; timeEnd is set on a region (a gap, or
@@ -43,7 +45,7 @@ type Annotation struct {
 	Tags    []string `json:"tags"`
 	// TagList is Tags joined with commas, for JSON data sources that hand Grafana an array as text (Infinity does).
 	TagList    string `json:"tagList"`
-	Kind       string `json:"kind"`                 // change | failure | gap | notice
+	Kind       string `json:"kind"`                 // change | failure | gap | notice | maintenance
 	RecordID   string `json:"recordId,omitempty"`   // the Explorer record (changes and failures)
 	Provenance string `json:"provenance,omitempty"` // OBSERVED | DERIVED | UNKNOWN, for records
 	Namespace  string `json:"namespace,omitempty"`
@@ -72,6 +74,7 @@ func annotationTime(r *http.Request, name string) (time.Time, error) {
 type annotationQuery struct {
 	from, to                time.Time
 	changes, failures, gaps bool
+	maintenance             bool
 	namespace, workload     string
 	limit                   int
 }
@@ -109,7 +112,7 @@ func (s *Server) parseAnnotations(r *http.Request) (annotationQuery, error) {
 	}
 	kinds := splitList(v.Get("kinds"))
 	if len(kinds) == 0 {
-		kinds = []string{"changes", "failures", "gaps"}
+		kinds = []string{"changes", "failures", "gaps", "maintenance"}
 	}
 	for _, k := range kinds {
 		switch k {
@@ -119,8 +122,10 @@ func (s *Server) parseAnnotations(r *http.Request) (annotationQuery, error) {
 			q.failures = true
 		case "gaps":
 			q.gaps = true
+		case "maintenance":
+			q.maintenance = true
 		default:
-			return q, badRequest("kinds takes changes, failures and gaps")
+			return q, badRequest("kinds takes changes, failures, gaps and maintenance")
 		}
 	}
 	q.namespace, q.workload = strings.TrimSpace(v.Get("namespace")), strings.TrimSpace(v.Get("workload"))
@@ -197,6 +202,7 @@ func (s *Server) buildAnnotations(r *http.Request) ([]Annotation, error) {
 		if cut {
 			recs = recs[:q.limit]
 		}
+		s.markRecords(recs)
 		for i := len(recs) - 1; i >= 0; i-- { // oldest first
 			out = append(out, s.recordAnnotation(recs[i]))
 		}
@@ -215,6 +221,9 @@ func (s *Server) buildAnnotations(r *http.Request) ([]Annotation, error) {
 			return nil, err
 		}
 		out = append(out, gs...)
+	}
+	if q.maintenance {
+		out = append(out, s.maintenanceAnnotations(q)...)
 	}
 	for i := range out {
 		out[i].TagList = strings.Join(out[i].Tags, ",")
@@ -255,6 +264,9 @@ func (s *Server) recordAnnotation(rec ExplorerRecord) Annotation {
 		tags = append(tags, "reason:"+rec.Reason)
 	}
 	tags = append(tags, strings.ToLower(rec.Provenance))
+	if rec.Maintenance != nil {
+		tags = append(tags, "maintenance:"+rec.Maintenance.Name)
+	}
 	link := s.publicLink(explorerPath(rec.At.Add(-time.Hour), rec.At.Add(time.Hour), "", "", rec.ID))
 	text := html.EscapeString(res + " · " + rec.Provenance + " · " + rec.Source + ". Recorded by OpsTide; an annotation marks when, not why.")
 	if s.cfg.PublicURL != "" {
@@ -374,6 +386,35 @@ func (s *Server) gapAnnotation(sp Span, q annotationQuery, title, text string) A
 		tags = append(tags, "namespace:"+q.namespace)
 	}
 	return Annotation{Time: sp.From.UnixMilli(), TimeEnd: sp.To.UnixMilli(), Title: title, Text: t, Tags: tags, Kind: annoGap, Namespace: q.namespace, URL: link}
+}
+
+// maintenanceAnnotations are the configured maintenance windows open in the range, one region per occurrence (for a
+// namespace, the windows that cover it). They say work was planned then, as declared; not what it did.
+func (s *Server) maintenanceAnnotations(q annotationQuery) []Annotation {
+	var out []Annotation
+	for _, sp := range s.maintenanceSpans(q.from, q.to, q.namespace) {
+		where := "the whole cluster"
+		if len(sp.Namespaces) > 0 {
+			where = "namespaces " + strings.Join(sp.Namespaces, ", ")
+		}
+		text := "Maintenance window " + sp.Name + ", declared in OpsTide's configuration, for " + where + "."
+		if sp.Note != "" {
+			text += " " + sp.Note
+		}
+		text += " Records inside it are marked, not hidden."
+		link := s.publicLink(explorerPath(sp.From, sp.To, q.namespace, "", ""))
+		t := html.EscapeString(text)
+		if s.cfg.PublicURL != "" {
+			t += ` <a href="` + html.EscapeString(link) + `">Open in OpsTide</a>`
+		}
+		tags := []string{"opstide", annoMaintenance, "maintenance:" + sp.Name}
+		for _, ns := range sp.Namespaces {
+			tags = append(tags, "namespace:"+ns)
+		}
+		out = append(out, Annotation{Time: sp.From.UnixMilli(), TimeEnd: sp.To.UnixMilli(), Title: "Maintenance: " + sp.Name, Text: t, Tags: tags,
+			Kind: annoMaintenance, Provenance: ProvDerived, Namespace: q.namespace, URL: link})
+	}
+	return out
 }
 
 // explorerPath is the Explorer over [from, to), with a record selected when rec is set.

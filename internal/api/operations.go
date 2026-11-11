@@ -20,6 +20,9 @@ type OperationRow struct {
 	LastRun   *Run      `json:"lastRun,omitempty"`
 	Next      time.Time `json:"next,omitzero"` // predicted from the schedule
 	Attention []string  `json:"attention,omitempty"`
+	// Maintenance is set when every reason in Attention that has a time happened inside a configured maintenance
+	// window (DERIVED context): the row is still under "Needs a look", after the others, labelled with the window.
+	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
 	// Duration compares the recent run durations with the baseline (see DurationTrend); no per-run points here.
 	Duration DurationTrend `json:"duration"`
 }
@@ -105,7 +108,7 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 		if v.sched != nil && !op.Suspend {
 			row.Next = v.sched.Next(now)
 		}
-		row.Attention = attention(v, slots, row.LastRun, now)
+		row.Attention, row.Maintenance = s.attention(v, slots, row.LastRun, now)
 		d := durs[op.ID]
 		row.Duration = durationTrend(op, d.After, d.Before, recentP, baselineP, cov, nil)
 		out.Operations = append(out.Operations, row)
@@ -159,45 +162,92 @@ func week(days []string, loc *time.Location, slots []schedule.Slot, runs []store
 	return cells
 }
 
-// attention says why an operation needs a look, if it does.
-func attention(v opView, slots []schedule.Slot, last *Run, now time.Time) []string {
+// attention says why an operation needs a look, if it does. A reason with a time (a failed run, a run that did not
+// start) that happened inside a maintenance window covering the CronJob's namespace says so; when every reason with a
+// time did, and there is no other, the window is returned too.
+func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.Time) ([]string, *MaintenanceMark) {
 	var why []string
+	var mark *MaintenanceMark
+	timed, inside := 0, 0
+	during := func(t time.Time) bool {
+		timed++
+		if m := s.maintenanceAt(t, v.op.Namespace); m != nil {
+			inside++
+			if mark == nil {
+				mark = m
+			}
+			return true
+		}
+		return false
+	}
+	untimed := 0
 	if v.schedErr != "" {
 		why = append(why, "schedule cannot be read")
+		untimed++
 	}
 	dayAgo := now.Add(-24 * time.Hour)
 	if last != nil && (last.Status == string(store.RunFailed) || last.Status == string(store.RunUnknown)) {
-		why = append(why, "last run "+last.Status)
+		at := last.FinishedAt
+		if at.IsZero() {
+			at = last.CreatedAt
+		}
+		if during(at) {
+			why = append(why, "last run "+last.Status+" during maintenance")
+		} else {
+			why = append(why, "last run "+last.Status)
+		}
 	} else {
 		for _, r := range v.runs {
 			if r.Status == store.RunFailed && r.FinishedAt.After(dayAgo) {
-				why = append(why, "failed in the last 24 h")
+				if during(r.FinishedAt) {
+					why = append(why, "failed during maintenance in the last 24 h")
+				} else {
+					why = append(why, "failed in the last 24 h")
+				}
 				break
 			}
 		}
 	}
-	var missed, unconfirmed int
+	var missed, missedInside, unconfirmed, unconfirmedInside int
 	for _, sl := range slots {
 		if sl.At.Before(dayAgo) {
 			continue
 		}
 		switch sl.State {
 		case schedule.Missed:
-			missed++
+			if during(sl.At) {
+				missedInside++
+			} else {
+				missed++
+			}
 		case schedule.Unconfirmed:
-			unconfirmed++
+			if during(sl.At) {
+				unconfirmedInside++
+			} else {
+				unconfirmed++
+			}
 		}
 	}
 	if missed > 0 {
 		why = append(why, "missed in the last 24 h")
 	}
+	if missedInside > 0 {
+		why = append(why, "missed during maintenance in the last 24 h")
+	}
 	if unconfirmed > 0 {
 		why = append(why, "not confirmed in the last 24 h")
 	}
+	if unconfirmedInside > 0 {
+		why = append(why, "not confirmed during maintenance in the last 24 h")
+	}
 	if len(v.op.MetadataProblems) > 0 {
 		why = append(why, "annotations need fixing")
+		untimed++
 	}
-	return why
+	if timed == 0 || inside < timed || untimed > 0 {
+		mark = nil
+	}
+	return why, mark
 }
 
 // OperationDetail is the Operation detail screen.

@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/mihnk/opstide/internal/maintenance"
 )
 
 // Config is the collector's runtime configuration.
@@ -59,6 +61,10 @@ type Config struct {
 	// WatchSecretMetadata records Secrets being created, deleted and written, through the metadata-only API (off by
 	// default). Their data is never requested.
 	WatchSecretMetadata bool
+	// MaintenanceFile is a YAML (or JSON) file declaring maintenance windows (the chart renders it from values into a
+	// ConfigMap). Empty: none. Maintenance is what it declares, validated at start: a bad entry refuses to start.
+	MaintenanceFile string
+	Maintenance     *maintenance.Set
 	// Demo serves a made-up history from a temporary database, with no cluster, kubeconfig or Docker. Nothing is
 	// collected, and the UI says so on every page.
 	Demo bool
@@ -122,6 +128,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.BoolVar(&c.Demo, "demo", false, "serve a made-up history from a temporary database, with no cluster needed; nothing is collected")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
 	fs.StringVar(&c.PublicURL, "public-url", env("PUBLIC_URL", ""), "the address readers open OpsTide at, e.g. https://opstide.example.com, for links in Grafana annotations; empty gives paths (OPSTIDE_PUBLIC_URL)")
+	fs.StringVar(&c.MaintenanceFile, "maintenance-file", env("MAINTENANCE_FILE", ""), "YAML file declaring maintenance windows (windows: [{name, cron, duration, timeZone, namespaces, note} or {name, start, end, ...}]); empty declares none (OPSTIDE_MAINTENANCE_FILE)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -157,6 +164,9 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("max events must be at least 1000")
 	case c.MaxRoutineEvents < 0 || c.MaxRoutineEvents > c.MaxEvents:
 		return Config{}, errors.New("max routine events must be between 0 and max events")
+	}
+	if c.Maintenance, err = maintenance.LoadFile(c.MaintenanceFile); err != nil {
+		return Config{}, err
 	}
 	if c.MaxRoutineEvents == 0 {
 		c.MaxRoutineEvents = c.MaxEvents / 2

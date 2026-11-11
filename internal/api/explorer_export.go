@@ -337,6 +337,7 @@ func (s *Server) explorerLookup(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		out.Records = append(out.Records, recordOfRow(row, false))
 	}
+	s.markRecords(out.Records)
 	sortRecords(out.Records, true)
 	reply(w, r, s.log, out, nil)
 }

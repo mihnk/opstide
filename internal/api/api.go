@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mihnk/opstide/internal/collector"
+	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/store"
 )
 
@@ -52,6 +53,8 @@ type Config struct {
 	ClustrailURL string
 	// PublicURL is where readers open OpsTide (no trailing slash), for links handed to other tools; empty gives paths.
 	PublicURL string
+	// Maintenance is the configured maintenance windows (nil: none). Records inside one are marked, never hidden.
+	Maintenance *maintenance.Set
 	// Demo says the data is made up (opstide -demo); the UI shows it on every page.
 	Demo bool
 }
@@ -106,6 +109,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/workloads/{id}/revisions", s.workloadRevisions)
 	mux.HandleFunc("GET /api/v1/workloads/{id}/pods", s.workloadPods)
 	mux.HandleFunc("GET /api/v1/workloads/{id}/evidence", s.workloadEvidence)
+	mux.HandleFunc("GET /api/v1/images", heavy(s.images))         // every revision's images, over the whole record
+	mux.HandleFunc("GET /api/v1/images/{ref}", heavy(s.imageOne)) // one image's history; ref is base64url, see ImageRefEncoding
 	mux.HandleFunc("GET /api/v1/nodes", s.nodeList)
 	mux.HandleFunc("GET /api/v1/nodes/{id}", s.nodeOne)
 	mux.HandleFunc("GET /api/v1/nodes/{id}/history", s.nodeHistory)
