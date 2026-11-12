@@ -114,7 +114,7 @@ type ImageList struct {
 	Truncated bool          `json:"truncated"` // more images matched than limit
 	Encoding  string        `json:"refEncoding"`
 	Notes     []string      `json:"notes"`
-	// NoteCodes are Notes as codes with values (see the note codes in the README), for clients that word them.
+	// NoteCodes are Notes as codes with values (see the note codes in docs/image-inventory.md), for clients that word them.
 	NoteCodes []inventory.Note `json:"noteCodes"`
 	// Unknown lists, for an answer about a past time, the workloads whose held history starts after it while they
 	// may have existed then: what they ran is not known. Never an empty answer for them.
