@@ -1,0 +1,12 @@
+// The OpsTide website as Cloudflare Workers static assets: no Worker script, only files.
+// Deploy from this folder with `npx wrangler deploy` (see README.md). .assetsignore keeps
+// README.md, this file and scripts/ out of the upload.
+{
+  "name": "opstide-website",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": ".",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
+  }
+}

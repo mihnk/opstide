@@ -667,6 +667,12 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/annotations?from=&to=&kinds=changes,failures,gaps,maintenance&namespace=&workload=&limit=` | Changes, failures, the stretches OpsTide was not watching and the configured maintenance windows, as a flat array for Grafana annotations (see [Grafana annotations](#grafana-annotations)). `from`/`to` in epoch ms or RFC 3339, at most 31 days; `limit` at most 1,000 |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |
 
+## Website
+
+The project's website is static files in [website/](website/) (English and Turkish, no external requests):
+`make website-serve` previews it on http://127.0.0.1:8000. See [website/README.md](website/README.md) for
+refreshing its screenshots from the demo and deploying it.
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).

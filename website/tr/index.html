@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="tr" data-copied="Kopyalandı" data-copy-failed="Kopyalanamadı">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>OpsTide — Kubernetes cluster’ınızın geçmişi</title>
+<meta name="description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; hiçbir şey cluster’dan çıkmaz.">
+<meta name="theme-color" content="#0f1214">
+<link rel="alternate" hreflang="en" href="/">
+<link rel="alternate" hreflang="tr" href="/tr/">
+<link rel="alternate" hreflang="x-default" href="/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpsTide">
+<meta property="og:title" content="OpsTide — Kubernetes cluster’ınızın geçmişi">
+<meta property="og:description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; hiçbir şey cluster’dan çıkmaz.">
+<meta property="og:url" content="/tr/">
+<meta property="og:image" content="/assets/img/hero-tr.webp">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1500">
+<meta property="og:image:alt" content="Koyu temada OpsTide Explorer: son 24 saatin histogramı, kayıt türüne göre filtreler, kayıt listesi ve OOMKill sonrası yeniden başlayan bir Pod’un paneli. Öncesinde sekmesi açık; ondan önceki bir saatte kaydedilen Deployment spec yazımını ve ConfigMap yazımını listeliyor.">
+<meta property="og:locale" content="tr_TR">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/assets/fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<script src="/assets/site.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">İçeriğe geç</a>
+
+<header class="site-header on-night">
+  <div class="wrap">
+    <a class="brand" href="/tr/" aria-label="OpsTide ana sayfa">
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false"><path d="M3 20c4 0 4-4 8.5-4S16 20 20.5 20 25 16 29 16" stroke="#4cc9a0" stroke-width="2.6" stroke-linecap="round"/><path d="M3 26c4 0 4-4 8.5-4S16 26 20.5 26 25 22 29 22" stroke="#6fb7ff" stroke-width="2.6" stroke-linecap="round" opacity=".7"/><path d="M16 4v9" stroke="#e8e6e1" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="4" r="2.4" fill="#e8e6e1"/></svg>
+      <span class="brand-name" aria-hidden="true">OpsTide</span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menü</span></button>
+    <nav class="site-nav" id="site-nav" aria-label="Site">
+      <ul>
+          <li><a href="#how">Nasıl çalışır</a></li>
+          <li><a href="#features">Özellikler</a></li>
+          <li><a href="#integrations">Entegrasyonlar</a></li>
+          <li><a href="#security">Güvenlik</a></li>
+          <li><a href="#install">Kurulum</a></li>
+      </ul>
+    </nav>
+    <div class="header-tools">
+      <nav class="lang" aria-label="Dil">
+        <ul>
+          <li><a href="/" hreflang="en" lang="en">EN</a></li>
+          <li><a href="/tr/" hreflang="tr" lang="tr" aria-current="page">TR</a></li>
+        </ul>
+      </nav>
+      <a class="btn-outline" href="https://github.com/mihnk/opstide"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg><span class="label">GitHub</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero on-night" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="pill">Açık kaynak · Kubernetes · salt okunur</p>
+      <h1 id="hero-title">Cluster’ınızda<br> ne olduğunu bilin.</h1>
+      <p class="lead">OpsTide neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder; izlemediği aralıkları da işaretler. Böylece sessiz bir saat asla sakin bir saat gibi okunmaz.</p>
+      <div class="hero-actions">
+        <div class="cmd">
+          <div class="cmd-text" role="region" aria-label="Kurulum komutu" tabindex="0"><span class="prompt" aria-hidden="true">$</span><code id="cmd-helm-tr">helm install opstide oci://ghcr.io/mihnk/charts/opstide -n opstide --create-namespace</code></div>
+          <button class="copy" type="button" data-copy="cmd-helm-tr" aria-label="Kurulum komutunu kopyala"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+        </div>
+        <a class="btn-primary" href="#demo">Demoyu deneyin — cluster gerekmez <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div>
+    </div>
+    <figure class="window">
+      <div class="window-bar" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">opstide.internal/explorer</span></div>
+      <img src="/assets/img/hero-tr.webp" width="2400" height="1500" alt="Koyu temada OpsTide Explorer: son 24 saatin histogramı, kayıt türüne göre filtreler, kayıt listesi ve OOMKill sonrası yeniden başlayan bir Pod’un paneli. Öncesinde sekmesi açık; ondan önceki bir saatte kaydedilen Deployment spec yazımını ve ConfigMap yazımını listeliyor." fetchpriority="high" decoding="async">
+    </figure>
+  </div>
+</section>
+
+<section class="facts" aria-label="Bir bakışta">
+  <ul class="wrap">
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><div><strong>Yalnızca list ve watch</strong><span>Cluster’a asla yazmaz</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Hiçbir şey dışarı çıkmaz</strong><span>Geçmiş cluster’ınızda kalır</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg><div><strong>Tek pod, tek dosya</strong><span>SQLite ile tek bir binary</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 15V9M12 15V5M17 15v-4"/></svg><div><strong>Apache 2.0</strong><span>Açık kaynak, hesap gerekmez</span></div></li>
+  </ul>
+</section>
+
+<section class="principles wrap" id="how" aria-labelledby="how-title">
+  <p class="eyebrow">Hüküm değil, kanıt</p>
+  <h2 id="how-title">Ne olduğunu yazar. Nedenine karar vermek size kalır.</h2>
+  <ol>
+      <li>
+        <span class="tag-observed">GÖZLENDİ</span>
+        <h3>Her kayıt nasıl bilindiğini söyler</h3>
+        <p>API’den gözlendi, belgelenmiş bir kuralla türetildi ya da bilinmiyor. Hiçbir şey olduğundan daha kesinmiş gibi gösterilmez.</p>
+      </li>
+      <li>
+        <span class="tag-hatch" aria-hidden="true"></span>
+        <h3>Boşluklar gizlenmez, çizilir</h3>
+        <p>İzlemediği zamanlar (bir yeniden başlatma, eksik bir yetki) taralı gösterilir. Sessiz bir aralık asla sakin bir aralık sanılmaz.</p>
+      </li>
+      <li>
+        <span class="tag-link">bağlantı, neden değil</span>
+        <h3>Bağlar, asla suçlamaz</h3>
+        <p>Bir hatadan önce neyin değiştiğini gösterir (workload’da, yapılandırmasında, Node’unda) ve sonucu size ya da ajanınıza bırakır.</p>
+      </li>
+  </ol>
+</section>
+
+<section class="feature wrap" id="features" aria-labelledby="ov-title">
+  <div class="feature-copy">
+    <p class="num">01 · Genel bakış</p>
+    <h2 id="ov-title">Gününüz, tek bir çizelgede.</h2>
+    <p>Her CronJob’un çalışmaları kendi satırında, başarısızlar kırmızı, hâlâ beklenenler yalnızca çerçeveyle. Zamanda gezinmek için beş günlük bir şerit, bakılması gerekenler ve planlı bakım: alarm olarak değil, bir bant olarak.</p>
+    <ul class="checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Kaçırılan ve uzun süren çalışmalar, gruplanmış</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Her CronJob’un çalışma süresi kendi referans dönemine göre: “%34 daha uzun”</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Kendi saat diliminiz ya da UTC; Türkçe ya da İngilizce</span></li>
+    </ul>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/overview-tr.webp" width="2400" height="1500" alt="Açık temada Genel bakış: son 24 saatin sayıları, kesintili izlemeler, başarısızların kırmızı olduğu beş günlük saatlik çalışma şeridi ve bugünün CronJob çizelgesi." loading="lazy" decoding="async">
+  </figure>
+</section>
+
+<section class="feature feature--reverse wrap" aria-labelledby="ex-title">
+  <div class="feature-copy">
+    <p class="num">02 · Explorer</p>
+    <h2 id="ex-title">Her kayıt, bir arama uzağınızda.</h2>
+    <p>Log aracınızda yaptığınız gibi filtreleyin (<code class="chip chip--ns">namespace:shop</code> <code class="chip chip--sev">önem:uyarı</code>), sonra bir hatayı açın ve ondan önceki bir saatte neyin kaydedildiğini görün.</p>
+    <div class="before">
+      <h3 class="eyebrow" id="before-title">Bundan önce kaydedilenler</h3>
+      <ul aria-labelledby="before-title">
+          <li><span class="ago">7 dk</span> · Deployment spec’ini <b>kubectl-edit</b> yazdı</li>
+          <li><span class="ago">12 dk</span> · Başvurduğu ConfigMap’i <b>argocd-controller</b> değiştirdi</li>
+      </ul>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/explorer-tr.webp" width="2400" height="1500" alt="Açık temada Explorer: arama çubuğunda iki filtre etiketi (namespace shop ve önem uyarı), son 24 saatin histogramı ve eşleşen kayıtlar: OOMKill sonrası yeniden başlayan bir Pod, bir Warning Event ve izlenmeyen bir aralık." loading="lazy" decoding="async">
+  </figure>
+</section>
+
+<section class="keeps" aria-labelledby="keeps-title">
+  <div class="wrap">
+    <h2 id="keeps-title">Sizin için neleri saklar</h2>
+    <ul>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg>
+          <h3>Kim değiştirdi</h3>
+          <p>Her spec yazımı, onu yapan istemciyle birlikte (argocd, helm, kubectl); Kubernetes’in kendi field manager kayıtlarından.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>
+          <h3>Yapılandırma değişiklikleri, değerler olmadan</h3>
+          <p>ConfigMap yazımları ve değişen anahtarlar; değerleri asla. Secret’lar: yalnızca metadata ve yalnızca siz açarsanız.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+          <h3>Release’ler ve revision’lar</h3>
+          <p>Her rollout; Pod’ları, şablonda neyin değiştiği ve sabit bir kuralın bulgularıyla. Bir sağlık puanı değil.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <h3>Herhangi bir an, yeniden</h3>
+          <p>Geçen salı saat 10:00’da hangi imajın nerede çalıştığı ve OpsTide’ın o sırada izleyip izlemediği.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4M12 8v4l3 2"/></svg>
+          <h3>Zamanlanmış işler, dürüstçe</h3>
+          <p>Kaçırılan başlangıçlar, sonucu doğrulanamayan çalışmalar ve 23 günlük referans döneme göre çalışma süresi.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+          <h3>Planlı işler, etiketli</h3>
+          <p>Helm değerlerinizdeki bakım pencereleri, içlerinde olanları işaretler. Hiçbir şey susturulmaz.</p>
+        </li>
+    </ul>
+  </div>
+</section>
+
+<section class="fits wrap" id="integrations" aria-labelledby="fits-title">
+  <p class="eyebrow">Nereye oturur</p>
+  <h2 id="fits-title">Altyapınızın yanında, önünde değil.</h2>
+  <div class="flow">
+    <div class="box">
+      <h3 class="eyebrow">Kubernetes API</h3>
+      <ul>
+        <li>CronJobs · Jobs · Pods</li>
+        <li>Deployments · ReplicaSets</li>
+        <li>StatefulSets · DaemonSets</li>
+        <li>Events · Nodes · HPAs</li>
+        <li>ConfigMaps</li>
+      </ul>
+    </div>
+    <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
+    <div class="box box--core">
+      <h3 class="eyebrow">OpsTide · tek pod</h3>
+      <p>list ve watch ile izler, zaman çizelgesini kendi volume’undaki SQLite’a yazar, arayüzü ve salt okunur bir API’yi sunar. Varsayılan olarak 30 gün saklar.</p>
+      <p class="mono">token doğrulama · /healthz · /readyz</p>
+    </div>
+    <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
+    <ul class="outputs">
+        <li><b>Prometheus</b><span>alarmlar için CronJob başına son başarı</span></li>
+        <li><b>Grafana</b><span>değişiklikler ve hatalar annotation olarak</span></li>
+        <li><b>Ajanınız</b><span>sürümlü JSON kanıt dışa aktarımı</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="security on-night" id="security" aria-labelledby="sec-title">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Güvenlik</p>
+      <h2 id="sec-title">Üretim ortamına girebilmek için tasarlandı.</h2>
+      <p>Kurmadan önce <a href="https://github.com/mihnk/opstide#install">RBAC’nin tamamını okuyun</a>. Kısa.</p>
+    </div>
+    <dl class="rbac">
+      <dt>Verb’ler</dt><dd><span class="mono">list · watch</span></dd>
+      <dt>Asla istenmez</dt><dd>exec, log’lar, Secret verisi, herhangi bir yazma</dd>
+      <dt>Secret’lar</dt><dd>Varsayılan olarak kapalı. Açıkken yalnızca metadata istenir; last-applied annotation’ı ve managedFields geldiği anda atılır. Verilen izin ise secrets üzerinde list ve watch’tır.</dd>
+      <dt>Kapsam</dt><dd>Tüm cluster ya da yalnızca listelediğiniz namespace’ler</dd>
+      <dt>Erişim</dt><dd>Arayüz ve API için token; hiçbir yere bir şey gönderilmez</dd>
+    </dl>
+  </div>
+</section>
+
+<section class="install wrap" id="install" aria-labelledby="inst-title">
+  <h2 id="inst-title">İki dakikada çalışır durumda</h2>
+  <div class="install-grid">
+    <div id="demo">
+      <h3 class="eyebrow" id="demo-title">Önce deneyin · cluster yok, Docker yok</h3>
+      <div class="code">
+        <pre tabindex="0" aria-labelledby="demo-title"><code id="code-demo-tr"><span class="comment"># örnek veri, 127.0.0.1:8080 adresinde açılır</span>
+git clone https://github.com/mihnk/opstide
+cd opstide &amp;&amp; make demo-local</code></pre>
+        <button class="copy" type="button" data-copy="code-demo-tr" aria-label="Demo komutlarını kopyala"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+      </div>
+      <p class="note">Go 1.26 ve arayüzü derlemek için Node 22 gerekir.</p>
+    </div>
+    <div>
+      <h3 class="eyebrow" id="helm-title">Cluster’ınıza kurun</h3>
+      <div class="code">
+        <pre tabindex="0" aria-labelledby="helm-title"><code id="code-helm-tr">helm install opstide oci://ghcr.io/mihnk/charts/opstide \
+  -n opstide --create-namespace
+kubectl -n opstide port-forward svc/opstide 8080:80
+<span class="comment"># ardından http://127.0.0.1:8080 adresini açın</span></code></pre>
+        <button class="copy" type="button" data-copy="code-helm-tr" aria-label="Kurulum komutlarını kopyala"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+      </div>
+      <p class="note"><code>opstide-auth</code> Secret’ındaki token ile giriş yapın; chart’ın tüm değerleri <a href="https://github.com/mihnk/opstide#install">README</a>’de. OpsTide erken geliştirme aşamasında (v0.1): chart ilk release ile yayımlanır.</p>
+    </div>
+  </div>
+  <p class="sr-only" id="copy-status" role="status" aria-live="polite"></p>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span class="brand-name">OpsTide</span>
+    <span>Kanıtı kaydeder. Kanıtı ajanlar yorumlar.</span>
+    <span class="spacer"></span>
+    <nav aria-label="Proje">
+      <ul>
+        <li><a href="https://github.com/mihnk/opstide">GitHub</a></li>
+        <li><a href="https://github.com/mihnk/opstide#readme">Belgeler</a></li>
+        <li><a href="https://github.com/mihnk/opstide/releases">Sürümler</a></li>
+      </ul>
+    </nav>
+    <span>Apache 2.0</span>
+  </div>
+</footer>
+</body>
+</html>

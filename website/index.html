@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en" data-copied="Copied" data-copy-failed="Copy failed">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>OpsTide — the history of your Kubernetes cluster</title>
+<meta name="description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite, nothing leaves the cluster.">
+<meta name="theme-color" content="#0f1214">
+<link rel="alternate" hreflang="en" href="/">
+<link rel="alternate" hreflang="tr" href="/tr/">
+<link rel="alternate" hreflang="x-default" href="/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OpsTide">
+<meta property="og:title" content="OpsTide — the history of your Kubernetes cluster">
+<meta property="og:description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite, nothing leaves the cluster.">
+<meta property="og:url" content="/">
+<meta property="og:image" content="/assets/img/hero-en.webp">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1500">
+<meta property="og:image:alt" content="The OpsTide Explorer in the dark theme: a histogram of the last 24 hours, filters by record type, the list of records, and the panel of a Pod restarted after an OOMKill with its Before tab open, listing the Deployment spec write and the ConfigMap write recorded in the hour before it.">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="tr_TR">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/assets/fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<script src="/assets/site.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header on-night">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="OpsTide home">
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false"><path d="M3 20c4 0 4-4 8.5-4S16 20 20.5 20 25 16 29 16" stroke="#4cc9a0" stroke-width="2.6" stroke-linecap="round"/><path d="M3 26c4 0 4-4 8.5-4S16 26 20.5 26 25 22 29 22" stroke="#6fb7ff" stroke-width="2.6" stroke-linecap="round" opacity=".7"/><path d="M16 4v9" stroke="#e8e6e1" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="4" r="2.4" fill="#e8e6e1"/></svg>
+      <span class="brand-name" aria-hidden="true">OpsTide</span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
+    <nav class="site-nav" id="site-nav" aria-label="Site">
+      <ul>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#integrations">Integrations</a></li>
+          <li><a href="#security">Security</a></li>
+          <li><a href="#install">Install</a></li>
+      </ul>
+    </nav>
+    <div class="header-tools">
+      <nav class="lang" aria-label="Language">
+        <ul>
+          <li><a href="/" hreflang="en" lang="en" aria-current="page">EN</a></li>
+          <li><a href="/tr/" hreflang="tr" lang="tr">TR</a></li>
+        </ul>
+      </nav>
+      <a class="btn-outline" href="https://github.com/mihnk/opstide"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg><span class="label">GitHub</span></a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero on-night" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="pill">Open source · Kubernetes · read-only</p>
+      <h1 id="hero-title">Know what happened<br> in your cluster.</h1>
+      <p class="lead">OpsTide records what changed, what ran and what failed — and marks the stretches it wasn’t watching, so a quiet hour never reads as a calm one.</p>
+      <div class="hero-actions">
+        <div class="cmd">
+          <div class="cmd-text" role="region" aria-label="Install command" tabindex="0"><span class="prompt" aria-hidden="true">$</span><code id="cmd-helm">helm install opstide oci://ghcr.io/mihnk/charts/opstide -n opstide --create-namespace</code></div>
+          <button class="copy" type="button" data-copy="cmd-helm" aria-label="Copy install command"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+        </div>
+        <a class="btn-primary" href="#demo">Try the demo — no cluster needed <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div>
+    </div>
+    <figure class="window">
+      <div class="window-bar" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">opstide.internal/explorer</span></div>
+      <img src="/assets/img/hero-en.webp" width="2400" height="1500" alt="The OpsTide Explorer in the dark theme: a histogram of the last 24 hours, filters by record type, the list of records, and the panel of a Pod restarted after an OOMKill with its Before tab open, listing the Deployment spec write and the ConfigMap write recorded in the hour before it." fetchpriority="high" decoding="async">
+    </figure>
+  </div>
+</section>
+
+<section class="facts" aria-label="At a glance">
+  <ul class="wrap">
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><div><strong>list &amp; watch only</strong><span>Never writes to the cluster</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Nothing leaves</strong><span>History stays in your cluster</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg><div><strong>One pod, one file</strong><span>A single binary with SQLite</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 15V9M12 15V5M17 15v-4"/></svg><div><strong>Apache 2.0</strong><span>Open source, no account</span></div></li>
+  </ul>
+</section>
+
+<section class="principles wrap" id="how" aria-labelledby="how-title">
+  <p class="eyebrow">Evidence, not verdicts</p>
+  <h2 id="how-title">It writes down what happened. Deciding why stays with you.</h2>
+  <ol>
+      <li>
+        <span class="tag-observed">OBSERVED</span>
+        <h3>Every record says how it is known</h3>
+        <p>Observed from the API, derived by a documented rule, or unknown. Nothing is dressed up as more certain than it is.</p>
+      </li>
+      <li>
+        <span class="tag-hatch" aria-hidden="true"></span>
+        <h3>Gaps are drawn, not hidden</h3>
+        <p>When it wasn’t watching — a restart, a missing permission — that time is hatched. A quiet stretch is never mistaken for a calm one.</p>
+      </li>
+      <li>
+        <span class="tag-link">connection, not cause</span>
+        <h3>It links, it never blames</h3>
+        <p>It shows what changed before a failure — on the workload, its config, its node — and leaves the conclusion to you or your agent.</p>
+      </li>
+  </ol>
+</section>
+
+<section class="feature wrap" id="features" aria-labelledby="ov-title">
+  <div class="feature-copy">
+    <p class="num">01 · Overview</p>
+    <h2 id="ov-title">Your day as a timetable.</h2>
+    <p>Every CronJob run on one line, failures in red, what’s still due outlined. A five-day strip to scroll through time, the exceptions that need a look, and planned maintenance as a band — not as an alarm.</p>
+    <ul class="checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Missed runs and runs that ran long, grouped</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Run time against its own baseline: “+34% longer”</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Your time zone or UTC, in English or Turkish</span></li>
+    </ul>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/overview-en.webp" width="2400" height="1500" alt="The Overview in the light theme: counts for the last 24 hours, the watches that were not whole, a five-day strip of runs per hour with failures in red, and today’s timetable of CronJob runs." loading="lazy" decoding="async">
+  </figure>
+</section>
+
+<section class="feature feature--reverse wrap" aria-labelledby="ex-title">
+  <div class="feature-copy">
+    <p class="num">02 · Explorer</p>
+    <h2 id="ex-title">Every record, one search away.</h2>
+    <p>Filter like you would in your log tool — <code class="chip chip--ns">namespace:shop</code> <code class="chip chip--sev">severity:warning</code> — then open a failure and see what was recorded in the hour before it.</p>
+    <div class="before">
+      <h3 class="eyebrow" id="before-title">Recorded before this</h3>
+      <ul aria-labelledby="before-title">
+          <li><span class="ago">7 min</span> · Deployment spec written by <b>kubectl-edit</b></li>
+          <li><span class="ago">12 min</span> · ConfigMap it references changed, by <b>argocd-controller</b></li>
+      </ul>
+    </div>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/explorer-en.webp" width="2400" height="1500" alt="The Explorer in the light theme with two filters applied as tokens in the search bar, namespace shop and severity warning, a histogram of the last 24 hours and the matching records: a Pod restarted after an OOMKill, a Warning Event and a stretch that was not watched." loading="lazy" decoding="async">
+  </figure>
+</section>
+
+<section class="keeps" aria-labelledby="keeps-title">
+  <div class="wrap">
+    <h2 id="keeps-title">What it keeps for you</h2>
+    <ul>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/></svg>
+          <h3>Who changed it</h3>
+          <p>Every spec write with the client that made it — argocd, helm, kubectl — from Kubernetes’ own field managers.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>
+          <h3>Config changes, no values</h3>
+          <p>ConfigMap writes and the keys that changed, never their values. Secrets: metadata only, and only if you turn it on.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+          <h3>Releases and revisions</h3>
+          <p>Each rollout with its Pods, what changed in the template, and a fixed rule’s findings — not a health score.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <h3>Any moment, again</h3>
+          <p>Which image ran where last Tuesday at 10:00 — and whether OpsTide was watching then.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4M12 8v4l3 2"/></svg>
+          <h3>Scheduled jobs, kept honest</h3>
+          <p>Missed starts, runs that never confirmed, and run time against a 23-day baseline.</p>
+        </li>
+        <li>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+          <h3>Planned work, labelled</h3>
+          <p>Maintenance windows from your Helm values mark what happened inside them. Nothing is muted.</p>
+        </li>
+    </ul>
+  </div>
+</section>
+
+<section class="fits wrap" id="integrations" aria-labelledby="fits-title">
+  <p class="eyebrow">How it fits</p>
+  <h2 id="fits-title">Next to your stack, not in its way.</h2>
+  <div class="flow">
+    <div class="box">
+      <h3 class="eyebrow">Kubernetes API</h3>
+      <ul>
+        <li>CronJobs · Jobs · Pods</li>
+        <li>Deployments · ReplicaSets</li>
+        <li>StatefulSets · DaemonSets</li>
+        <li>Events · Nodes · HPAs</li>
+        <li>ConfigMaps</li>
+      </ul>
+    </div>
+    <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
+    <div class="box box--core">
+      <h3 class="eyebrow">OpsTide · one pod</h3>
+      <p>Watches with list &amp; watch, writes a timeline to SQLite on its own volume, serves the UI and a read API. Keeps 30 days by default.</p>
+      <p class="mono">token auth · /healthz · /readyz</p>
+    </div>
+    <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
+    <ul class="outputs">
+        <li><b>Prometheus</b><span>last success per CronJob, for alerts</span></li>
+        <li><b>Grafana</b><span>changes &amp; failures as annotations</span></li>
+        <li><b>Your agent</b><span>versioned JSON evidence export</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="security on-night" id="security" aria-labelledby="sec-title">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">Security</p>
+      <h2 id="sec-title">Built to be allowed in production.</h2>
+      <p><a href="https://github.com/mihnk/opstide#install">Read the full RBAC</a> before you install. It is short.</p>
+    </div>
+    <dl class="rbac">
+      <dt>Verbs</dt><dd><span class="mono">list · watch</span></dd>
+      <dt>Never asked for</dt><dd>exec, logs, Secret data, any write</dd>
+      <dt>Secrets</dt><dd>Off by default. When on: metadata-only requests, with the last-applied annotation and managedFields dropped on arrival. The grant itself is list &amp; watch on secrets.</dd>
+      <dt>Scope</dt><dd>Whole cluster, or only the namespaces you list</dd>
+      <dt>Access</dt><dd>Token for the UI and API; nothing is sent anywhere</dd>
+    </dl>
+  </div>
+</section>
+
+<section class="install wrap" id="install" aria-labelledby="inst-title">
+  <h2 id="inst-title">Running in two minutes</h2>
+  <div class="install-grid">
+    <div id="demo">
+      <h3 class="eyebrow" id="demo-title">Try it first · no cluster, no Docker</h3>
+      <div class="code">
+        <pre tabindex="0" aria-labelledby="demo-title"><code id="code-demo"><span class="comment"># sample data, opens on 127.0.0.1:8080</span>
+git clone https://github.com/mihnk/opstide
+cd opstide &amp;&amp; make demo-local</code></pre>
+        <button class="copy" type="button" data-copy="code-demo" aria-label="Copy demo commands"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+      </div>
+      <p class="note">Needs Go 1.26, and Node 22 to build the UI.</p>
+    </div>
+    <div>
+      <h3 class="eyebrow" id="helm-title">Install in your cluster</h3>
+      <div class="code">
+        <pre tabindex="0" aria-labelledby="helm-title"><code id="code-helm">helm install opstide oci://ghcr.io/mihnk/charts/opstide \
+  -n opstide --create-namespace
+kubectl -n opstide port-forward svc/opstide 8080:80
+<span class="comment"># then open http://127.0.0.1:8080</span></code></pre>
+        <button class="copy" type="button" data-copy="code-helm" aria-label="Copy install commands"><svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><svg class="icon-done" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg></button>
+      </div>
+      <p class="note">Sign in with the token from the <code>opstide-auth</code> Secret; every chart value is in the <a href="https://github.com/mihnk/opstide#install">README</a>. OpsTide is in early development (v0.1): the chart is published with the first release.</p>
+    </div>
+  </div>
+  <p class="sr-only" id="copy-status" role="status" aria-live="polite"></p>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span class="brand-name">OpsTide</span>
+    <span>Records evidence. Agents interpret evidence.</span>
+    <span class="spacer"></span>
+    <nav aria-label="Project">
+      <ul>
+        <li><a href="https://github.com/mihnk/opstide">GitHub</a></li>
+        <li><a href="https://github.com/mihnk/opstide#readme">Documentation</a></li>
+        <li><a href="https://github.com/mihnk/opstide/releases">Releases</a></li>
+      </ul>
+    </nav>
+    <span>Apache 2.0</span>
+  </div>
+</footer>
+</body>
+</html>

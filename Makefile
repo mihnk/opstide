@@ -5,7 +5,7 @@ KUBECONFIG_FILE ?=
 DEMO_CONTEXT = kind-opstide-demo
 DEMO_KUBECONFIG = ./data-demo/kubeconfig
 
-.PHONY: build web test lint run image perf demo-local demo-up demo demo-install demo-rollout demo-down
+.PHONY: build web test lint run image perf demo-local demo-up demo demo-install demo-rollout demo-down website-serve
 
 # The web app, built into internal/webui/dist and embedded by build.
 web:
@@ -78,3 +78,7 @@ demo-install:
 
 demo-down:
 	kind delete cluster --name opstide-demo
+
+# The marketing site in website/ (static files), on http://127.0.0.1:8000.
+website-serve:
+	cd website && python3 -m http.server 8000 --bind 127.0.0.1

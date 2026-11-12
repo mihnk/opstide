@@ -1,0 +1,6 @@
+# Files in website/ that are not part of the published site (Cloudflare Workers static assets).
+README.md
+wrangler.jsonc
+.assetsignore
+scripts
+.wrangler
