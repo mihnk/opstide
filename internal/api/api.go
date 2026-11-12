@@ -122,7 +122,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/runs/{id}", s.run)
 	mux.HandleFunc("GET /api/v1/system", s.system)
 	mux.HandleFunc("GET /api/v1/explorer", s.explorer)
-	mux.HandleFunc("GET /api/v1/explorer/filters", heavy(s.explorerFilters)) // counts over the whole range
+	mux.HandleFunc("GET /api/v1/explorer/filters", heavy(s.explorerFilters))     // counts over the whole range
+	mux.HandleFunc("GET /api/v1/explorer/histogram", heavy(s.explorerHistogram)) // counts per stretch over the whole range
 	mux.HandleFunc("GET /api/v1/explorer/context", s.explorerContext)
 	mux.HandleFunc("GET /api/v1/explorer/summary", heavy(s.explorerSummary))
 	mux.HandleFunc("GET /api/v1/explorer/state", s.explorerState)

@@ -67,6 +67,28 @@ type ExplorerRecord struct {
 	// Maintenance is the configured maintenance window the record's time falls in, for its namespace: DERIVED context
 	// added to the answer, not part of the stored record. Absent outside every window.
 	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
+	// Gap is the stretch a collection.gap record says was not watched, as the record states it. Absent otherwise.
+	Gap *ExplorerGap `json:"gap,omitempty"`
+}
+
+// ExplorerGap is a stretch a watch was not whole: records of its scope from then may be missing.
+type ExplorerGap struct {
+	From  time.Time `json:"from"`
+	To    time.Time `json:"to"`
+	Scope string    `json:"scope,omitempty"`
+}
+
+// gapOf reads the stretch of a collection.gap entry from its facts; nil when they do not give one.
+func gapOf(e store.Event) *ExplorerGap {
+	if e.Type != "collection.gap" {
+		return nil
+	}
+	from, err1 := time.Parse(time.RFC3339Nano, e.Facts["from"])
+	to, err2 := time.Parse(time.RFC3339Nano, e.Facts["to"])
+	if err1 != nil || err2 != nil || !to.After(from) {
+		return nil
+	}
+	return &ExplorerGap{From: from.UTC(), To: to.UTC(), Scope: e.Facts["scope"]}
 }
 
 func provenanceOf(c store.Confidence) string {
@@ -93,6 +115,7 @@ func recordOfEvent(e store.Event, key time.Time) ExplorerRecord {
 		Resource: ResourceRef{Kind: e.Kind, Namespace: e.Namespace, Name: e.ResourceName, UID: e.ResourceUID},
 		At:       key, OccurredAt: tp(e.OccurredAt), ObservedAt: e.ObservedAt,
 		Refs: ExplorerRefs{WorkloadID: e.WorkloadID, ReleaseID: e.ReleaseID, RunID: e.RunID, OperationID: e.OperationID},
+		Gap:  gapOf(e),
 	}
 }
 
@@ -509,7 +532,12 @@ type ExplorerFilters struct {
 	Sources     []string       `json:"sources"`
 	Reasons     []FilterChoice `json:"reasons"`
 	Namespaces  []FilterChoice `json:"namespaces"`
-	Total       int            `json:"total"`
+	// Severity counts info, warning and error records; Owners the records of operations by owner annotation;
+	// Outcomes the finished runs by outcome (failed, succeeded, unknown). Each leaves out its own filter.
+	Severity []FilterChoice `json:"severity"`
+	Owners   []FilterChoice `json:"owners"`
+	Outcomes []FilterChoice `json:"outcomes"`
+	Total    int            `json:"total"`
 	// Counted says the numbers are for the range and the other filters, routine records included.
 	Counted string `json:"counted"`
 }
@@ -562,7 +590,48 @@ func (s *Server) explorerFilters(w http.ResponseWriter, r *http.Request) {
 	for _, c := range fc.Namespaces {
 		out.Namespaces = append(out.Namespaces, FilterChoice{Value: c.Name, Count: c.Count})
 	}
+	out.Severity, out.Owners = []FilterChoice{}, []FilterChoice{}
+	for _, sv := range []string{"error", "warning", "info"} {
+		out.Severity = append(out.Severity, FilterChoice{Value: sv, Count: fc.Severity[sv]})
+	}
+	for _, c := range fc.Owners {
+		out.Owners = append(out.Owners, FilterChoice{Value: c.Name, Count: c.Count})
+	}
+	// Outcomes leave out their own filter: the query again, without it.
+	if out.Outcomes, err = s.outcomeCounts(r); err != nil {
+		reply(w, r, s.log, nil, err)
+		return
+	}
 	reply(w, r, s.log, out, nil)
+}
+
+// outcomeCounts counts finished runs by outcome for the request's filters, its outcome filter left out.
+func (s *Server) outcomeCounts(r *http.Request) ([]FilterChoice, error) {
+	r2 := r.Clone(r.Context())
+	u := *r.URL
+	v := u.Query()
+	v.Del("outcome")
+	u.RawQuery = v.Encode()
+	r2.URL = &u
+	q, _, err := s.parseExplorer(r2)
+	if err != nil {
+		return nil, err
+	}
+	q.Routine, q.Cursor = true, ""
+	outcomes := [][2]string{{"failed", "job.failed"}, {"succeeded", "job.succeeded"}, {"unknown", "job.lost"}}
+	types := make([]string, len(outcomes))
+	for i, o := range outcomes {
+		types[i] = o[1]
+	}
+	n, err := s.db.ExplorerTypeCounts(r.Context(), q, types)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FilterChoice, 0, len(outcomes))
+	for _, o := range outcomes {
+		out = append(out, FilterChoice{Value: o[0], Count: n[o[1]]})
+	}
+	return out, nil
 }
 
 // pathValue is url.PathEscape for the single segments the UI routes use.

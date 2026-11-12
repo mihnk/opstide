@@ -799,7 +799,11 @@ type ExplorerFacets struct {
 	Provenance map[string]int
 	Reasons    []NamedCount
 	Namespaces []NamedCount
-	Total      int
+	// Severity counts by info, warning and error (a Kubernetes Event is warning when typed Warning, else info).
+	Severity map[string]int
+	// Owners counts the records of operations by their owner annotation; records of no owned operation are not counted.
+	Owners []NamedCount
+	Total  int
 }
 
 // NamedCount is a value and how many records carry it.
@@ -950,6 +954,55 @@ func (s *Store) ExplorerFacets(ctx context.Context, q ExplorerQuery, limit int) 
 		}
 	}
 	f.Namespaces = topCounts(ns, limit)
+	// Severity.
+	sv := q
+	sv.Severities = nil
+	f.Severity = map[string]int{}
+	if sv.useEvents() {
+		m, err := s.groupCount(ctx, "events", sv.eventsClause(nil), "severity")
+		if err != nil {
+			return f, err
+		}
+		for name, n := range m {
+			if name != "" {
+				f.Severity[name] += n
+			}
+		}
+	}
+	if sv.useEvidence() {
+		m, err := s.groupCount(ctx, "evidence", sv.evidenceClause(nil), "CASE WHEN event_type = 'Warning' THEN 'warning' ELSE 'info' END")
+		if err != nil {
+			return f, err
+		}
+		for name, n := range m {
+			f.Severity[name] += n
+		}
+	}
+	// Owners: through the operation a record belongs to.
+	ow := q
+	ow.Owner = ""
+	owners := map[string]int{}
+	for _, src := range []struct {
+		table string
+		use   bool
+		c     func() clause
+	}{{"events", ow.useEvents(), func() clause { return ow.eventsClause(nil) }}, {"evidence", ow.useEvidence(), func() clause { return ow.evidenceClause(nil) }}} {
+		if !src.use {
+			continue
+		}
+		c := src.c()
+		c.add("operation_id <> ''")
+		m, err := s.groupCount(ctx, src.table, c, "(SELECT owner FROM operations WHERE operations.id = "+src.table+".operation_id)")
+		if err != nil {
+			return f, err
+		}
+		for name, n := range m {
+			if name != "" {
+				owners[name] += n
+			}
+		}
+	}
+	f.Owners = topCounts(owners, limit)
 	for _, n := range f.Provenance {
 		f.Total += n
 	}
@@ -1134,4 +1187,116 @@ func (s *Store) ExplorerCount(ctx context.Context, q ExplorerQuery) (int, error)
 	}
 	q.Cursor = ""
 	return s.explorerCount(ctx, q)
+}
+
+// HistogramBucket counts the records of one stretch of record time, [Start, Start+bucket), by class. A record is in
+// one class only: an error, else a warning, else a change (one of the types the caller names), else other.
+type HistogramBucket struct {
+	Start   time.Time
+	Error   int
+	Warning int
+	Change  int
+	Other   int
+}
+
+// ExplorerHistogram counts the records q matches per bucket of the given length, aligned to whole buckets of a clock
+// that is offset from UTC by offset (an hour starts on the reader's hour). Empty buckets are left out. It is one
+// aggregate statement per source, bounded by the range and read on the same indexes as the list, so it does not grow
+// with the history outside the range. The cursor and the limit of q are ignored.
+func (s *Store) ExplorerHistogram(ctx context.Context, q ExplorerQuery, bucket, offset time.Duration, changeTypes []string) ([]HistogramBucket, error) {
+	if err := q.check(); err != nil {
+		return nil, err
+	}
+	if bucket < time.Second {
+		return nil, errors.New("a bucket is at least a second")
+	}
+	q.Cursor = ""
+	ms, off := bucket.Milliseconds(), offset.Milliseconds()
+	by := map[int64]*HistogramBucket{}
+	read := func(stmt string, args []any) error {
+		rs, err := s.db.QueryContext(ctx, stmt, args...)
+		if err != nil {
+			return err
+		}
+		defer rs.Close()
+		for rs.Next() {
+			var start int64
+			var e, w, c, n int
+			if err := rs.Scan(&start, &e, &w, &c, &n); err != nil {
+				return err
+			}
+			b := by[start]
+			if b == nil {
+				b = &HistogramBucket{Start: time.UnixMilli(start).UTC()}
+				by[start] = b
+			}
+			b.Error += e
+			b.Warning += w
+			b.Change += c
+			b.Other += n - e - w - c
+		}
+		return rs.Err()
+	}
+	if q.useEvents() {
+		c := q.eventsClause(nil)
+		change := "0"
+		var changeArgs []any
+		if len(changeTypes) > 0 {
+			var cond string
+			cond, changeArgs = in("type", changeTypes)
+			change = "CASE WHEN severity NOT IN ('error', 'warning') AND " + cond + " THEN 1 ELSE 0 END"
+		}
+		stmt := `SELECT ((at + ?) / ?) * ? - ?, sum(CASE WHEN severity = 'error' THEN 1 ELSE 0 END), sum(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END), ` +
+			`coalesce(sum(` + change + `), 0), count(*) FROM events` + where(c) + ` GROUP BY 1` //nolint:gosec // fixed clauses, bound values
+		args := append(append([]any{off, ms, ms, off}, changeArgs...), c.args...)
+		if err := read(stmt, args); err != nil {
+			return nil, err
+		}
+	}
+	if q.useEvidence() {
+		c := q.evidenceClause(nil)
+		stmt := `SELECT ((` + evidenceKey + ` + ?) / ?) * ? - ?, 0, sum(CASE WHEN event_type = 'Warning' THEN 1 ELSE 0 END), 0, count(*) FROM evidence` + where(c) + ` GROUP BY 1` //nolint:gosec // fixed clauses, bound values
+		if err := read(stmt, append([]any{off, ms, ms, off}, c.args...)); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]HistogramBucket, 0, len(by))
+	for _, b := range by {
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
+	return out, nil
+}
+
+// ExplorerTypeCounts counts the Log entries q matches of each of these types (a type filter of q still applies: a type
+// it leaves out counts 0). It is how many runs of each outcome a choice would show.
+func (s *Store) ExplorerTypeCounts(ctx context.Context, q ExplorerQuery, types []string) (map[string]int, error) {
+	if err := q.check(); err != nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	keep := types
+	if len(q.Types) > 0 {
+		keep = nil
+		for _, t := range types {
+			if has(q.Types, t) {
+				keep = append(keep, t)
+			}
+		}
+	}
+	if len(keep) == 0 {
+		return out, nil
+	}
+	q.Cursor, q.Types = "", keep
+	if !q.useEvents() {
+		return out, nil
+	}
+	m, err := s.groupCount(ctx, "events", q.eventsClause(nil), "type")
+	if err != nil {
+		return nil, err
+	}
+	for k, n := range m {
+		out[k] += n
+	}
+	return out, nil
 }

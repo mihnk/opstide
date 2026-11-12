@@ -21,8 +21,9 @@ export function Choice<T extends string>({ label, value, options, onChange, size
   value: T
   options: ChoiceOption<T>[]
   onChange: (v: T) => void
-  /** large: 44 px or more, for a primary place; compact: 36 px, beside other controls; tiny: the header. */
-  size?: 'large' | 'compact' | 'tiny'
+  /** large: 44 px or more, for a primary place; compact: 36 px, beside other controls; tiny: the header; xs: 28 px,
+   *  inside a panel. */
+  size?: 'large' | 'compact' | 'tiny' | 'xs'
   marks?: boolean
   className?: string
   /** Drawn before the options, inside the group (an icon that says what the group is). */

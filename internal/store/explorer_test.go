@@ -465,3 +465,86 @@ func TestSchema10AddsTheNameIndex(t *testing.T) {
 		t.Fatalf("backed up first: %v", err)
 	}
 }
+
+func TestExplorerHistogramCountsEachRecordOnceByClass(t *testing.T) {
+	s, ctx := explorerFixture(t)
+	q := ExplorerQuery{From: t0, To: t0.Add(time.Hour), Routine: true}
+	bs, err := s.ExplorerHistogram(ctx, q, 5*time.Minute, 0, []string{"release.observed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Minutes 1-4 in the first bucket, 5-9 in the second.
+	if len(bs) != 2 || !bs[0].Start.Equal(t0) || !bs[1].Start.Equal(t0.Add(5*time.Minute)) {
+		t.Fatalf("%+v", bs)
+	}
+	total := 0
+	for _, b := range bs {
+		total += b.Error + b.Warning + b.Change + b.Other
+	}
+	pg, err := s.Explorer(ctx, ExplorerQuery{From: q.From, To: q.To, Routine: true, Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != len(pg.Rows) {
+		t.Fatalf("the histogram counts %d records, the list %d", total, len(pg.Rows))
+	}
+	if bs[0].Change != 1 || bs[0].Other != 3 || bs[1].Warning != 2 || bs[1].Other != 3 {
+		t.Fatalf("classes: %+v", bs)
+	}
+	// It follows the filters of the list: without routine records the Normal Event and the Pod creation are gone.
+	q.Routine = false
+	bs, _ = s.ExplorerHistogram(ctx, q, time.Hour, 0, nil)
+	if len(bs) != 1 || bs[0].Warning != 2 || bs[0].Error+bs[0].Warning+bs[0].Change+bs[0].Other != 7 {
+		t.Fatalf("%+v", bs)
+	}
+	// Buckets follow the reader's clock: with a +30 min offset an hour starts at :30 UTC.
+	bs, _ = s.ExplorerHistogram(ctx, q, time.Hour, 30*time.Minute, nil)
+	if len(bs) != 1 || !bs[0].Start.Equal(t0.Add(-30*time.Minute)) {
+		t.Fatalf("offset: %+v", bs)
+	}
+	if _, err := s.ExplorerHistogram(ctx, q, 0, 0, nil); err == nil {
+		t.Fatal("a zero bucket is refused")
+	}
+}
+
+func TestExplorerFacetsCountSeverityOwnersAndOutcomes(t *testing.T) {
+	s, ctx := open(t)
+	update(t, s, func(w *Writer) error {
+		for _, op := range []Operation{{ID: "op1", Namespace: "ns", Name: "backup", Owner: "data-team"}, {ID: "op2", Namespace: "ns", Name: "sync", Owner: "web"}} {
+			op.Schedule, op.ConcurrencyPolicy, op.CreatedAt, op.FirstSeenAt, op.LastSeenAt = "0 * * * *", "Allow", t0, t0, t0
+			if err := w.UpsertOperation(ctx, op); err != nil {
+				return err
+			}
+		}
+		for _, e := range [][4]string{{"a", "job.failed", "error", "op1"}, {"b", "job.succeeded", "info", "op1"}, {"c", "job.failed", "error", ""}, {"d", "job.succeeded", "info", "op2"}, {"e", "job.lost", "warning", "op2"}} {
+			if _, err := w.AddEvent(ctx, Event{ID: e[0], Type: e[1], Namespace: "ns", Kind: "Job", ResourceUID: e[0], ResourceName: e[0], OperationID: e[3], OccurredAt: t0, ObservedAt: t0, Severity: e[2], Confidence: Observed, Summary: e[0]}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	q := ExplorerQuery{From: t0.Add(-time.Hour), To: t0.Add(time.Hour), Routine: true, Severities: []string{"error"}, Owner: "web"}
+	f, err := s.ExplorerFacets(ctx, q, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each leaves out its own filter: severity counts follow the owner, owners follow the severity.
+	if f.Severity["info"] != 1 || f.Severity["warning"] != 1 || f.Severity["error"] != 0 {
+		t.Fatalf("severity: %v", f.Severity)
+	}
+	if len(f.Owners) != 1 || f.Owners[0] != (NamedCount{"data-team", 1}) {
+		t.Fatalf("owners: %+v", f.Owners)
+	}
+	q.Severities, q.Owner = nil, ""
+	n, err := s.ExplorerTypeCounts(ctx, q, []string{"job.failed", "job.succeeded", "job.lost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n["job.failed"] != 2 || n["job.succeeded"] != 2 || n["job.lost"] != 1 {
+		t.Fatalf("outcomes: %v", n)
+	}
+	q.Types = []string{"job.failed"}
+	if n, _ = s.ExplorerTypeCounts(ctx, q, []string{"job.failed", "job.succeeded"}); n["job.failed"] != 2 || n["job.succeeded"] != 0 {
+		t.Fatalf("a type filter still applies: %v", n)
+	}
+}

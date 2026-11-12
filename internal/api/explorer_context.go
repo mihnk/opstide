@@ -390,7 +390,7 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // ExplorerEmpty says why a timeline is empty. The kinds are different statements and are never merged.
 type ExplorerEmpty struct {
-	Kind    string   `json:"kind"` // no_matches | source_unavailable | outside_retention | before_first_observation | collection_gap
+	Kind    string   `json:"kind"` // no_matches | source_unavailable | outside_retention | before_first_observation | gap (a collection gap)
 	Message string   `json:"message"`
 	Detail  []string `json:"detail"`
 }

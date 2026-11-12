@@ -13,21 +13,21 @@ function when(t: string, tz: string, from: string, to: string): string {
   return span > 36 * 3600e3 ? `${isoDate(t, tz).slice(5)} ${hhmm(t, tz)}` : hhmmss(t, tz)
 }
 
-export function Coverage({ ctx, tz }: { ctx: ExplorerContext; tz: string }) {
+export function Coverage({ ctx, tz, compact }: { ctx: ExplorerContext; tz: string; compact?: boolean }) {
   const a = Date.parse(ctx.from)
   const b = Date.parse(ctx.to)
   const pct = (t: string) => `${Math.min(100, Math.max(0, ((Date.parse(t) - a) / (b - a)) * 100))}%`
   const width = (x: string, y: string) => `${Math.max(0.3, ((Math.min(Date.parse(y), b) - Math.max(Date.parse(x), a)) / (b - a)) * 100)}%`
   const trouble = ctx.scopes.filter((s) => s.state !== 'watching')
   return (
-    <section aria-label="Coverage" className="cov">
-      <div className="cov-bands" role="img"
+    <section aria-label={t('Coverage')} className={`cov${compact ? ' compact' : ''}`}>
+      {!compact && <div className="cov-bands" role="img"
         aria-label={ctx.bands.map((x) => t('{kind} {from} to {to}', { kind: t(x.kind.replace(/_/g, ' ')), from: hhmm(x.from, tz), to: hhmm(x.to, tz) })).join('; ')}>
         {ctx.bands.map((x, i) => (
           <i key={i} className={`band ${x.kind}`} style={{ left: pct(x.from), width: width(x.from, x.to) }}
             title={x.kind === 'observable' ? t('Within the history OpsTide keeps and after it first observed the cluster') : x.kind === 'outside_retention' ? t('Older than the history OpsTide keeps') : t('Before OpsTide first observed the cluster')} />
         ))}
-      </div>
+      </div>}
       <p className="muted cov-line">
         {ctx.firstObservedAt ? <>{t('First observed')} <span className="mono">{when(ctx.firstObservedAt, tz, ctx.from, ctx.to)}</span> · </> : `${t('OpsTide has not observed this cluster yet')} · `}
         {ctx.retention.days > 0 ? t('history kept {n} days', { n: ctx.retention.days }) : t('history kept without an age limit')}

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { downloadPost, getJSON, postJSON, query } from '../api'
 import { Failed } from '../components/Shell'
-import { explorerLink, fill, groupWords, provWord, typeWord, type ExplorerContext, type ExplorerLookup, type ExplorerRecord } from '../explorer'
+import { classOf, explorerLink, fill, groupShort, provWord, type ExplorerContext, type ExplorerLookup, type ExplorerRecord } from '../explorer'
 import { t, tn } from '../i18n'
 import { Link } from '../router'
 import { hhmmss, isoDate } from '../time'
 import { clearWorkspace, removeFromWorkspace, useWorkspace, WORKSPACE_MAX } from '../workspace'
 import { ZoneSelect } from './common'
 import { Note } from '../components/Note'
+import { CloseIcon, LayersIcon } from '../components/icons'
+import { EventCell, KindMark, ProvChip, resourceText } from './ExplorerTable'
 
 // The Investigation Workspace: records a person picked, kept in this tab only. It counts what is there and says where
 // coverage was not whole. It writes no conclusion: no summary, no ranking, no suggestion of cause.
@@ -116,9 +118,12 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
       {error && <Failed error={error} />}
 
       {ids.length === 0 ? (
-        <div className="empty-box no_matches">
-          <b>{t('The Workspace is empty.')}</b>
-          <span className="muted">{fill(t('Add records from the {explorer}, a release, a workload, a Node, a run, or the Log with the + button beside a record.'), { explorer: <Link href="/explorer">{t('Explorer')}</Link> })}</span>
+        <div className="ex-empty" style={{ margin: 0 }}>
+          <span className="ex-empty-icon"><LayersIcon size={22} /></span>
+          <div className="ex-empty-text">
+            <b>{t('The Workspace is empty.')}</b>
+            <span className="muted">{fill(t('Add records from the {explorer}, a release, a workload, a Node, a run, or the Log with the + button beside a record.'), { explorer: <Link href="/explorer">{t('Explorer')}</Link> })}</span>
+          </div>
         </div>
       ) : (
         <>
@@ -129,7 +134,7 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
               {first && <> · {fill(t('from {from} to {to}'), { from: <span className="mono">{isoDate(first, tz)} {hhmmss(first, tz)}</span>, to: <span className="mono">{isoDate(last, tz)} {hhmmss(last, tz)}</span> })}</>}
             </p>
             <div className="two" style={{ gap: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              <Counts title={t('Kind of record')} rows={tally(records, (r) => groupWords[r.group] ?? r.group)} />
+              <Counts title={t('Record type')} rows={tally(records, (r) => groupShort[r.group] ?? r.group)} />
               <Counts title={t('Provenance')} rows={tally(records, (r) => provWord(r.provenance))} />
               <Counts title={t('Resource kind')} rows={tally(records, (r) => r.resource.kind || t('none named'))} />
               <Counts title={t('Namespace')} rows={tally(records, (r) => r.resource.namespace || t('cluster-wide'))} />
@@ -150,25 +155,28 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
               <button type="button" className="button" onClick={() => setAsc(!asc)}>{asc ? t('Oldest first') : t('Newest first')}</button>
             </div>
             <div className="table-wrap">
-              <table className="data compact" style={{ minWidth: 640 }}>
-                <thead><tr><th>{t('Time')}</th><th>{t('Record')}</th><th>{t('Resource')}</th><th>{t('Provenance')}</th><th><span className="sr">{t('Actions')}</span></th></tr></thead>
+              <table className="ws-table">
+                <thead><tr><th aria-hidden="true" /><th>{t('Time')}</th><th><span className="sr">{t('Kind')}</span></th><th>{t('Event')}</th><th>{t('Resource')}</th><th>{t('Provenance')}</th><th><span className="sr">{t('Actions')}</span></th></tr></thead>
                 <tbody>
                   {records.map((r) => (
-                    <tr key={r.id}>
-                      <td className="mono" style={{ whiteSpace: 'nowrap' }}>{isoDate(r.at, tz).slice(5)} {hhmmss(r.at, tz)}</td>
-                      <td><span className="label" style={{ display: 'block' }}>{typeWord(r.type)}</span>{r.summary}</td>
-                      <td className="mono" style={{ overflowWrap: 'anywhere' }}>{r.resource.name ? `${r.resource.kind} ${r.resource.namespace ? `${r.resource.namespace}/` : ''}${r.resource.name}` : <span className="muted">{t('none named')}</span>}</td>
-                      <td><span className={`chip prov-${r.provenance.toLowerCase()}`} style={{ margin: 0 }} title={r.source}>{provWord(r.provenance)}</span></td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <Link href={explorerLink({ rec: r.id, from: new Date(Date.parse(r.at) - 3600e3).toISOString(), to: new Date(Date.parse(r.at) + 3600e3).toISOString() })}>{t('Inspect')}</Link>{' '}
-                        <button type="button" className="ws-toggle" onClick={() => remove(r.id)} aria-label={t('Remove {name} from the Workspace', { name: r.summary })}>✕</button>
+                    <tr key={r.id} className={`k-${classOf(r)}`}>
+                      <td className="sevstrip" aria-hidden="true" />
+                      <td className="mono when">{isoDate(r.at, tz).slice(5)} {hhmmss(r.at, tz)}</td>
+                      <td><KindMark r={r} /></td>
+                      <td className="evcell"><EventCell r={r} /></td>
+                      <td className="mono res">{resourceText(r) || <span className="muted">{t('none named')}</span>}</td>
+                      <td><ProvChip p={r.provenance} title={r.source} /></td>
+                      <td className="acts">
+                        <Link href={explorerLink({ rec: r.id, from: new Date(Date.parse(r.at) - 3600e3).toISOString(), to: new Date(Date.parse(r.at) + 3600e3).toISOString() })}>{t('Inspect')}</Link>
+                        <button type="button" className="ibtn small" onClick={() => remove(r.id)} aria-label={t('Remove {name} from the Workspace', { name: r.summary })} data-tip={t('Remove from the Workspace')}><CloseIcon size={14} /></button>
                       </td>
                     </tr>
                   ))}
                   {missing.map((m) => (
-                    <tr key={m}>
-                      <td className="muted" colSpan={4}>{fill(t('Record {id} is no longer held (removed by retention).'), { id: <span className="mono">{m}</span> })}</td>
-                      <td><button type="button" className="ws-toggle" onClick={() => remove(m)} aria-label={t('Remove {name} from the Workspace', { name: m })}>✕</button></td>
+                    <tr key={m} className="gone">
+                      <td className="sevstrip" aria-hidden="true" />
+                      <td className="muted" colSpan={5}>{fill(t('Record {id} is no longer held (removed by retention).'), { id: <span className="mono">{m}</span> })}</td>
+                      <td className="acts"><button type="button" className="ibtn small" onClick={() => remove(m)} aria-label={t('Remove {name} from the Workspace', { name: m })}><CloseIcon size={14} /></button></td>
                     </tr>
                   ))}
                 </tbody>

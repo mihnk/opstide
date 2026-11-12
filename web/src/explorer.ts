@@ -2,7 +2,7 @@
 // OpsTide records evidence; nothing here interprets it.
 
 import { createElement, Fragment, type ReactNode } from 'react'
-import { t } from './i18n'
+import { locale, t, tc } from './i18n'
 import type { MaintenanceMark, MaintenanceSpan } from './api'
 
 export type Provenance = 'OBSERVED' | 'DERIVED' | 'UNKNOWN'
@@ -32,9 +32,12 @@ export interface ExplorerRecord {
   messageTruncated?: boolean
   /** The configured maintenance window the record's time falls in (DERIVED context; the record is not hidden). */
   maintenance?: MaintenanceMark
+  /** A collection.gap record: the stretch it says was not watched, and the watch. */
+  gap?: { from: string; to: string; scope?: string }
 }
 
-export type EmptyKind = 'no_matches' | 'source_unavailable' | 'outside_retention' | 'before_first_observation' | 'collection_gap'
+/** 'gap' is what the API sends for a collection gap. */
+export type EmptyKind = 'no_matches' | 'source_unavailable' | 'outside_retention' | 'before_first_observation' | 'gap' | 'collection_gap'
 export interface ExplorerEmpty { kind: EmptyKind; message: string; detail: string[] }
 
 export interface ExplorerList {
@@ -66,8 +69,27 @@ export interface ExplorerFilters {
   sources: string[]
   reasons: FilterChoice[]
   namespaces: FilterChoice[]
+  /** error, warning and info records; each count leaves out its own filter. */
+  severity?: FilterChoice[]
+  /** Records of operations, by owner annotation. */
+  owners?: FilterChoice[]
+  /** Finished runs by outcome: failed, succeeded, unknown. */
+  outcomes?: FilterChoice[]
   total: number
   counted: string
+}
+
+/** GET /explorer/histogram: records per stretch of the range, by class, with the list's filters. */
+export interface ExplorerBucket { start: string; error: number; warning: number; change: number; other: number }
+export interface ExplorerHistogram {
+  schema: number
+  from: string
+  to: string
+  bucketSeconds: number
+  buckets: ExplorerBucket[]
+  total: number
+  counted: string
+  classes: string
 }
 
 export interface Span { from: string; to: string }
@@ -212,6 +234,23 @@ export interface ExplorerBefore {
 
 export const beforeWindows: BeforeWindow[] = ['15m', '1h', '6h', '24h']
 
+/** The record types that say something was changed (the API's change ledger, preset=changes). */
+export const changeTypes = new Set([
+  'deployment.spec_written', 'statefulset.spec_written', 'daemonset.spec_written', 'cronjob.spec_written',
+  'release.observed', 'statefulset.revision_changed', 'daemonset.revision_changed', 'workload.replica_target_changed', 'hpa.desired_replicas_changed',
+  'cronjob.schedule_changed', 'cronjob.suspended', 'cronjob.resumed', 'node.unschedulable_changed',
+  'configmap.created', 'configmap.data_written', 'configmap.metadata_written', 'configmap.written', 'configmap.data_changed', 'configmap.writes_folded', 'configmap.deleted',
+  'secret.created', 'secret.written', 'secret.writes_folded', 'secret.deleted',
+])
+
+/** The class a record is drawn in, the same rule as the volume chart: an error, else a warning, else a change, else other. */
+export type RecordClass = 'error' | 'warning' | 'change' | 'other'
+export function classOf(r: { type: string; severity?: string; eventType?: string }): RecordClass {
+  if (r.severity === 'error') return 'error'
+  if (r.severity === 'warning' || (r.type === 'kubernetes.event' && r.eventType === 'Warning')) return 'warning'
+  return changeTypes.has(r.type) ? 'change' : 'other'
+}
+
 const failureTypes = new Set(['job.failed', 'pod.restarted', 'pod.oomkilled', 'pod.evicted', 'pod.waiting', 'release.stalled', 'release.failed', 'release.unavailable', 'release.health.degraded', 'node.condition_changed'])
 
 /** Whether a record marks something going wrong, so "What changed before this" is offered on it (the API answers for any). */
@@ -236,6 +275,7 @@ export const emptyTitle: Record<EmptyKind, string> = {
   get source_unavailable() { return t('Source unavailable') },
   get outside_retention() { return t('Outside retained history') },
   get before_first_observation() { return t('Before first observation') },
+  get gap() { return t('Collection gap') },
   get collection_gap() { return t('Collection gap') },
 }
 
@@ -259,6 +299,21 @@ export const groupWords: Record<string, string> = {
   get events() { return t('Kubernetes Events') },
   get other() { return t('Other') },
 }
+
+/** The short words of the record-type facet: what a reader calls each group. Kubernetes kind names stay English. */
+export const groupShort: Record<string, string> = {
+  get operations() { return t('CronJob runs') },
+  get releases() { return tc('facet', 'Deployment releases') },
+  get workloads() { return 'StatefulSet, DaemonSet' },
+  get config() { return 'ConfigMap, Secret' },
+  get events() { return 'Kubernetes Event' },
+  get pods() { return 'Pod' },
+  get observation() { return t('Watch gaps') },
+  get nodes() { return 'Node' },
+  get scaling() { return t('Scaling') },
+  get other() { return t('Other') },
+}
+export const groupOrder = ['operations', 'releases', 'workloads', 'config', 'events', 'pods', 'observation', 'nodes', 'scaling']
 
 /** The display word for a provenance class (the value itself is never changed). */
 export function provWord(p: string): string {
@@ -337,4 +392,103 @@ export function logToExplorer(p: URLSearchParams, now = Date.now()): string {
 export function typeWord(t: string): string {
   if (t === 'kubernetes.event') return 'Kubernetes Event'
   return t.replace(/\./g, ' · ').replace(/_/g, ' ')
+}
+
+// ---- filter tokens ----
+// Every active filter is shown as a token in the search field: a key and a value, removable. A person can also type one
+// (key:value, then Enter). Keys and enumerated values are accepted in English as sent to the API and in the interface
+// language; what is sent is always the API's own value.
+
+export interface TokenKey {
+  param: string
+  /** Several values, sent comma-separated. */
+  multi: boolean
+  /** The values this key takes, when it takes only some; any value otherwise. */
+  values?: () => { value: string; word: string }[]
+}
+
+const enumWords = {
+  outcome: () => [{ value: 'failed', word: tc('token', 'failed') }, { value: 'succeeded', word: tc('token', 'succeeded') }, { value: 'unknown', word: tc('token', 'unknown') }],
+  provenance: () => ['observed', 'derived', 'unknown'].map((v) => ({ value: v, word: provWord(v) })),
+  severity: () => [{ value: 'error', word: t('error') }, { value: 'warning', word: t('warning') }, { value: 'info', word: tc('token', 'info') }],
+  group: () => groupOrder.map((g) => ({ value: g, word: groupShort[g] })),
+  preset: () => [{ value: 'changes', word: tc('token', 'changes') }],
+  maintenance: () => [{ value: 'outside', word: tc('token', 'outside') }],
+  source: () => ['kubernetes.api', 'opstide.rule', 'opstide.coverage', 'kubernetes.events.k8s.io/v1', 'kubernetes.core/v1'].map((v) => ({ value: v, word: v })),
+}
+
+export const tokenKeys: TokenKey[] = [
+  { param: 'namespace', multi: false }, { param: 'kind', multi: false }, { param: 'name', multi: false }, { param: 'uid', multi: false },
+  { param: 'workload', multi: false }, { param: 'release', multi: false }, { param: 'run', multi: false }, { param: 'operation', multi: false },
+  { param: 'node', multi: false }, { param: 'group', multi: true, values: enumWords.group }, { param: 'type', multi: true }, { param: 'reason', multi: false },
+  { param: 'source', multi: true, values: enumWords.source }, { param: 'provenance', multi: true, values: enumWords.provenance },
+  { param: 'severity', multi: true, values: enumWords.severity }, { param: 'outcome', multi: true, values: enumWords.outcome },
+  { param: 'owner', multi: false }, { param: 'preset', multi: false, values: enumWords.preset }, { param: 'maintenance', multi: false, values: enumWords.maintenance },
+]
+
+/** The key as shown in a token, in the interface language. */
+export function tokenKeyWord(param: string): string {
+  return tc('token', param === 'preset' ? 'only' : param)
+}
+
+export interface Token { param: string; value: string; key: string; word: string }
+
+function lower(s: string): string {
+  return s.toLocaleLowerCase(locale())
+}
+
+/** The active filters of a link, one token per value, in the order of tokenKeys. */
+export function tokensOf(params: URLSearchParams): Token[] {
+  const out: Token[] = []
+  for (const k of tokenKeys) {
+    const raw = params.get(k.param)
+    if (!raw) continue
+    const vals = k.multi ? raw.split(',').filter(Boolean) : [raw]
+    const words = k.values?.() ?? []
+    for (const v of vals) out.push({ param: k.param, value: v, key: tokenKeyWord(k.param), word: words.find((w) => w.value === v)?.word ?? v })
+  }
+  return out
+}
+
+/** Reads "key:value" typed at the end of the search text. null when the key is not one the Explorer filters by, or the
+ *  value is not one it takes. rest is the text before it. */
+export function parseToken(text: string): { param: string; value: string; rest: string } | null {
+  const m = /(^|\s)([^\s:]+):(.+)$/.exec(text)
+  if (!m) return null
+  const key = lower(m[2])
+  const k = tokenKeys.find((x) => x.param === key || lower(tokenKeyWord(x.param)) === key)
+  if (!k) return null
+  const typed = m[3].trim()
+  if (!typed) return null
+  let value = typed
+  if (k.values) {
+    const hit = k.values().find((w) => lower(w.value) === lower(typed) || lower(w.word) === lower(typed))
+    if (!hit) return null
+    value = hit.value
+  }
+  return { param: k.param, value, rest: text.slice(0, m.index).trim() }
+}
+
+/** Whether the text ends in the start of a known key and a colon: it is being typed as a token, not searched for. */
+export function typingToken(text: string): boolean {
+  const m = /(^|\s)([^\s:]+):/.exec(text)
+  if (!m) return false
+  const key = lower(m[2])
+  return tokenKeys.some((x) => x.param === key || lower(tokenKeyWord(x.param)) === key)
+}
+
+/** The link change that adds a value to a filter (a single-valued filter is replaced). */
+export function withToken(params: URLSearchParams, param: string, value: string): Record<string, string | null> {
+  const k = tokenKeys.find((x) => x.param === param)
+  if (!k?.multi) return { [param]: value }
+  const cur = (params.get(param) ?? '').split(',').filter(Boolean)
+  return { [param]: cur.includes(value) ? cur.join(',') : [...cur, value].join(',') }
+}
+
+/** The link change that removes one value of a filter. */
+export function withoutToken(params: URLSearchParams, param: string, value: string): Record<string, string | null> {
+  const k = tokenKeys.find((x) => x.param === param)
+  if (!k?.multi) return { [param]: null }
+  const next = (params.get(param) ?? '').split(',').filter((x) => x && x !== value)
+  return { [param]: next.join(',') || null }
 }

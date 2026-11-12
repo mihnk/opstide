@@ -36,6 +36,16 @@ export function shortDay(t: string | number | Date, tz: string): string {
   return fmt(tz, { weekday: 'short', day: 'numeric' }).format(toDate(t))
 }
 
+/** Tue */
+export function weekday(t: string | number | Date, tz: string): string {
+  return fmt(tz, { weekday: 'short' }).format(toDate(t))
+}
+
+/** 4 Nov 08:00, for a range picked by hand. */
+export function dayTime(t: string | number | Date, tz: string): string {
+  return `${fmt(tz, { day: 'numeric', month: 'short' }).format(toDate(t))} ${hhmm(t, tz)}`
+}
+
 /** YYYY-MM-DD of t in tz. */
 export function isoDate(t: string | number | Date, tz: string): string {
   const parts = fmt(tz, { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(toDate(t))

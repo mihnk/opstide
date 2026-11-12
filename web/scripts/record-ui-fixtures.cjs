@@ -27,7 +27,9 @@ if (!base || !out) {
   const pick = (kind) => wl.find((x) => x.kind === kind)
   // Every step of the guide: several draw live pictures from the record (the Overview's window, the Explorer, schedules).
   const guideSteps = Array.from({ length: 12 }, (_, i) => `/welcome?step=${i + 1}`)
-  const pages = ['/', '/welcome', ...guideSteps, '/explorer?range=24h', '/explorer?range=24h&preset=changes', '/workloads', '/releases', '/schedules', '/system', '/workspace']
+  const pages = ['/', '/welcome', ...guideSteps, '/explorer?range=24h', '/explorer?range=24h&preset=changes',
+    // A filtered view (its tokens and facets), a view grouped by resource, and one that matches nothing (an empty state).
+    '/explorer?range=24h&namespace=payments&outcome=failed', '/explorer?range=24h&routine=1&by=resource', '/explorer?range=6h&q=no-record-says-this', '/workloads', '/releases', '/schedules', '/system', '/workspace']
   for (const x of [pick('StatefulSet'), pick('Deployment'), pick('DaemonSet')].filter(Boolean)) {
     for (const t of ['overview', 'history', 'revisions', 'pods', 'evidence']) pages.push(`/workloads/${encodeURIComponent(x.id)}?tab=${t}`)
   }
