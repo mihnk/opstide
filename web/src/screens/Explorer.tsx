@@ -166,7 +166,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
           <h1 className="title" style={{ fontSize: 28 }}>{t('What OpsTide recorded')}</h1>
         </div>
         <span className="grow" />
-        <ZoneSelect tz={tz} setTz={setTz} />
+        <ZoneSelect tz={tz} setTz={setTz} compact />
         <Link href="/workspace" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>{t('Workspace')}{wsIds.length ? ` · ${wsIds.length}` : ''}</Link>
         <details className="export">
           <summary className="button" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>{t('Export JSON')}</summary>

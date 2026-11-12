@@ -38,7 +38,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
             <span className="mono muted" style={{ fontSize: 13 }}>{d.workload.namespace}/{d.workload.name}{d.workload.deletedAt ? ` · ${t('Deployment deleted')}` : ''}</span>
           </div>
           <span className="grow" />
-          <ZoneSelect tz={tz} setTz={setTz} />
+          <ZoneSelect tz={tz} setTz={setTz} compact />
           <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ release: r.id, ...rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined) })}>{t('Records in Explorer')}</Link>
           {d.troubleRecordId && (
             <Link className="button" style={{ display: 'inline-flex', alignItems: 'center' }} href={explorerLink({ rec: d.troubleRecordId, ...(d.troubleRecordAt ? rangeAround(d.troubleRecordAt, d.troubleRecordAt) : rangeAround(r.startedAt ?? r.observedAt, r.supersededAt ?? undefined)) })}

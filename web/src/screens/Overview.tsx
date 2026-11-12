@@ -12,7 +12,7 @@ import { hhmm, offset, utcToZoned, zonedToUtc } from '../time'
 import { HOUR, MAX_WINDOW, MIN_WINDOW, MINUTE, params as selParams, presets, presetSelection, pressedPreset, rangeQuery, selection, selectionFor, title, type Selection } from '../window'
 import { ZoneSelect } from './common'
 import { Note } from '../components/Note'
-import { t, tn } from '../i18n'
+import { locale, t, tn } from '../i18n'
 
 export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: string; setTz: (z: string) => void }) {
   const sel = selection(params)
@@ -127,27 +127,70 @@ export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: s
   )
 }
 
-// The last 24 hours across everything OpsTide records: counts of records by kind, each a link to the records, and the
-// watches that were not whole. A zero means nothing of that kind was recorded, which is only as good as the watches.
+// The last 24 hours across everything OpsTide records: one tile per kind of record, its count large, each a link to
+// those records in the Explorer, and the watches that were not whole. A zero means nothing of that kind was recorded,
+// which is only as good as the watches: so the "not whole" notice is always drawn when there is something to say.
+type Tone = 'fail' | 'warn' | 'gap'
+const tileTone: Record<string, Tone> = { runs_failed: 'fail', findings: 'fail', warnings: 'warn', runs_unknown: 'gap', gaps: 'gap' }
+
+function ToneGlyph({ tone }: { tone: Tone }) {
+  if (tone === 'fail') {
+    return <svg className="glyph" viewBox="0 0 12 12" aria-hidden="true" style={{ color: 'var(--fail)' }}><path d="M6 .8L11.2 6 6 11.2.8 6z" fill="currentColor" /><path d="M4.4 4.4l3.2 3.2M7.6 4.4L4.4 7.6" stroke="var(--bg)" strokeWidth="1.3" /></svg>
+  }
+  if (tone === 'warn') {
+    return <svg className="glyph" viewBox="0 0 12 12" aria-hidden="true" style={{ color: 'var(--slow)' }}><path d="M6 1l5.2 9.6H.8z" fill="currentColor" /><path d="M6 4.4v3M6 8.6v.5" stroke="var(--bg)" strokeWidth="1.3" /></svg>
+  }
+  return (
+    <svg className="glyph" viewBox="0 0 12 12" aria-hidden="true" style={{ color: 'var(--hatch)' }}>
+      <rect x=".75" y=".75" width="10.5" height="10.5" fill="none" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2 1.5" />
+      <path d="M1 6L6 1M1 11L11 1M6 11l5-5" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  )
+}
+
 function LastDay() {
   const { data, error } = useApi<ExplorerSummary>('/api/v1/explorer/summary?range=24h', { refreshMs: 60_000 })
-  if (error && !data) return <section aria-label={t('Last 24 hours')}><h1 className="title" style={{ fontSize: 28 }}>{t('Last 24 hours')}</h1><div className="error" role="alert">{t('Could not load the summary:')} {error.message}</div></section>
-  if (!data) return null
-  const shown = data.items.filter((i) => i.count > 0)
-  return (
-    <section aria-label={t('Last 24 hours')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+  const head = (
+    <div className="lastday-head">
       <h1 className="title" style={{ fontSize: 28 }}>{t('Last 24 hours')}</h1>
-      <p className="sentence" style={{ margin: 0, fontSize: 16 }}>
-        {shown.length === 0 ? t('Nothing of the kinds counted here was recorded.') : shown.map((i, k) => (
-          <span key={i.key}>{k > 0 ? ' · ' : ''}<Link href={`/explorer?range=24h&${i.query}`}><b className="mono">{i.count}</b> {t(i.count === 1 ? i.label : i.plural)}</Link></span>
-        ))}
-      </p>
-      {(data.notWhole.length > 0 || data.dropped > 0) && (
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          {t('Not whole:')} {[...new Set(data.notWhole.map((n) => `${t(n.label)} (${t(n.state)})`))].join(', ')}{data.dropped > 0 ? `${data.notWhole.length ? '; ' : ''}${tn(data.dropped, '{n} object given up on since OpsTide started', '{n} objects given up on since OpsTide started')}` : ''}. <Link href="/explorer?range=24h&group=observation">{t('Where')}</Link> · <Link href="/system">{t('System')}</Link>
-        </p>
+      {data && <Link className="more" href={explorerLink({ range: '24h' })}>{t('Everything recorded')} →</Link>}
+    </div>
+  )
+  if (error && !data) return <section aria-label={t('Last 24 hours')} className="lastday">{head}<div className="error" role="alert">{t('Could not load the summary:')} {error.message}</div></section>
+  if (!data) return null
+  const states = [...new Map(data.notWhole.map((n) => [`${n.label}|${n.state}`, n])).values()]
+  return (
+    <section aria-label={t('Last 24 hours')} className="lastday">
+      {head}
+      <ul className="tiles">
+        {data.items.map((i) => {
+          const tone = i.count > 0 ? tileTone[i.key] : undefined
+          const label = t(i.count === 1 ? i.label : i.plural)
+          return (
+            <li key={i.key}>
+              <Link className={`tile${i.count === 0 ? ' zero' : ''}${tone ? ` ${tone}` : ''}`} href={`/explorer?range=24h&${i.query}`} title={i.note ? t(i.note) : undefined}>
+                <span className="tile-n mono">{tone && <ToneGlyph tone={tone} />}{i.count.toLocaleString(locale())}</span>
+                <span className="tile-l">{label}</span>
+                {i.note && <span className="sr">{` (${t(i.note)})`}</span>}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+      {(states.length > 0 || data.dropped > 0) && (
+        <div className="notwhole" role="note" aria-label={t('Not whole')}>
+          <span className="hatch-sw" aria-hidden="true" />
+          <span className="label">{t('Not whole')}</span>
+          <ul>
+            {states.map((n) => <li key={`${n.label}|${n.state}`}><span>{t(n.label)}</span><span className="state">{t(n.state)}</span></li>)}
+            {data.dropped > 0 && <li>{tn(data.dropped, '{n} object given up on since OpsTide started', '{n} objects given up on since OpsTide started')}</li>}
+          </ul>
+          <span className="links">
+            <Link href="/explorer?range=24h&group=observation">{t('See where')}</Link>
+            <Link href="/system">{t('System')}</Link>
+          </span>
+        </div>
       )}
-      <Link href={explorerLink({ range: '24h' })} style={{ fontSize: 13 }}>{t('Everything recorded in the last 24 hours')}</Link>
     </section>
   )
 }

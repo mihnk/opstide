@@ -11,10 +11,12 @@ import (
 // (parameters, without the range) that lists them. A count is a count of records; it is not a judgement.
 type SummaryItem struct {
 	Key    string `json:"key"`
-	Label  string `json:"label"`  // "failed run"
+	Label  string `json:"label"`  // "failed run": short, drawn under the count
 	Plural string `json:"plural"` // "failed runs"
-	Count  int    `json:"count"`
-	Query  string `json:"query"` // Explorer parameters, e.g. "type=job.failed"
+	// Note says what is counted, where the short label leaves it open ("spec or config written, …"); may be empty.
+	Note  string `json:"note,omitempty"`
+	Count int    `json:"count"`
+	Query string `json:"query"` // Explorer parameters, e.g. "type=job.failed"
 }
 
 // SummaryNotWhole names a watch that was not whole in the range.
@@ -42,18 +44,18 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	out := ExplorerSummary{Schema: Schema, From: from, To: to, Items: []SummaryItem{}, NotWhole: []SummaryNotWhole{}}
 	for _, it := range []struct {
-		key, label, plural, query string
-		q                         store.ExplorerQuery
+		key, label, plural, note, query string
+		q                               store.ExplorerQuery
 	}{
-		{"changes", "recorded change (a spec or config written, a revision, a replica target, a schedule)", "recorded changes (a spec or config written, a revision, a replica target, a schedule)", "preset=changes", store.ExplorerQuery{Types: changeTypes}},
-		{"runs_failed", "failed run", "failed runs", "type=job.failed", store.ExplorerQuery{Types: []string{"job.failed"}}},
-		{"runs_unknown", "run with an unknown outcome", "runs with an unknown outcome", "type=job.lost", store.ExplorerQuery{Types: []string{"job.lost"}}},
-		{"releases", "release appeared", "releases appeared", "type=release.observed", store.ExplorerQuery{Types: []string{"release.observed"}}},
-		{"findings", "release with rule findings", "releases with rule findings", "type=release.health.degraded", store.ExplorerQuery{Types: []string{"release.health.degraded"}}},
-		{"workloads", "StatefulSet or DaemonSet change", "StatefulSet or DaemonSet changes", "group=workloads", store.ExplorerQuery{Groups: []string{"workloads"}}},
-		{"nodes", "Node change", "Node changes", "group=nodes", store.ExplorerQuery{Groups: []string{"nodes"}}},
-		{"warnings", "Warning Event from Kubernetes", "Warning Events from Kubernetes", "type=kubernetes.event&severity=warning", store.ExplorerQuery{Types: []string{store.EvidenceTypeName}, Severities: []string{"warning"}}},
-		{"gaps", "stretch OpsTide was not watching", "stretches OpsTide was not watching", "group=observation", store.ExplorerQuery{Groups: []string{"observation"}}},
+		{"changes", "change", "changes", "a spec or config written, a revision, a replica target, a schedule", "preset=changes", store.ExplorerQuery{Types: changeTypes}},
+		{"runs_failed", "failed run", "failed runs", "Job runs that ended Failed", "type=job.failed", store.ExplorerQuery{Types: []string{"job.failed"}}},
+		{"runs_unknown", "unknown outcome", "unknown outcomes", "runs removed before OpsTide saw them finish", "type=job.lost", store.ExplorerQuery{Types: []string{"job.lost"}}},
+		{"releases", "release", "releases", "Deployment rollouts that appeared", "type=release.observed", store.ExplorerQuery{Types: []string{"release.observed"}}},
+		{"findings", "release with findings", "releases with findings", "releases with rule findings", "type=release.health.degraded", store.ExplorerQuery{Types: []string{"release.health.degraded"}}},
+		{"workloads", "workload change", "workload changes", "StatefulSet or DaemonSet changes", "group=workloads", store.ExplorerQuery{Groups: []string{"workloads"}}},
+		{"nodes", "Node change", "Node changes", "", "group=nodes", store.ExplorerQuery{Groups: []string{"nodes"}}},
+		{"warnings", "Warning Event", "Warning Events", "Warning Events from Kubernetes", "type=kubernetes.event&severity=warning", store.ExplorerQuery{Types: []string{store.EvidenceTypeName}, Severities: []string{"warning"}}},
+		{"gaps", "watch gap", "watch gaps", "stretches OpsTide was not watching", "group=observation", store.ExplorerQuery{Groups: []string{"observation"}}},
 	} {
 		q := it.q
 		q.From, q.To = from, to
@@ -62,7 +64,7 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 			reply(w, r, s.log, nil, err)
 			return
 		}
-		out.Items = append(out.Items, SummaryItem{Key: it.key, Label: it.label, Plural: it.plural, Count: n, Query: it.query})
+		out.Items = append(out.Items, SummaryItem{Key: it.key, Label: it.label, Plural: it.plural, Note: it.note, Count: n, Query: it.query})
 	}
 	ctx, err := s.buildContext(r.Context(), from, to, "")
 	if err != nil {

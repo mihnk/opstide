@@ -60,7 +60,7 @@ export function App() {
   // The first visit in a browser starts with the introduction; it is one click away afterwards, from System. A link
   // that names a window (/?date=…) is someone sharing what they saw: it opens that, not the introduction.
   const intro = path === '/welcome' || (path === '/' && params.toString() === '' && !onboarded())
-  if (intro) return <Onboarding />
+  if (intro) return <Onboarding params={params} />
   if (path === '/') screen = <Overview params={params} tz={tz} setTz={setTz} />
   else if (path === '/explorer') screen = <Explorer params={params} tz={tz} setTz={setTz} />
   else if (path === '/workspace') screen = <Workspace tz={tz} setTz={setTz} />

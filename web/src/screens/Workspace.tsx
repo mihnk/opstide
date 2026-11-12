@@ -107,7 +107,7 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
           <h1 className="title" style={{ fontSize: 28 }}>{t('Records you picked')}</h1>
         </div>
         <span className="grow" />
-        <ZoneSelect tz={tz} setTz={setTz} />
+        <ZoneSelect tz={tz} setTz={setTz} compact />
         <Link href="/explorer" className="button" style={{ display: 'inline-flex', alignItems: 'center' }}>{t('Back to Explorer')}</Link>
       </div>
       <div className="muted" style={{ margin: 0, maxWidth: 820 }}>

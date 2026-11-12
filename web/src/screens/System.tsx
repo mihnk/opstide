@@ -35,7 +35,7 @@ export function System({ tz }: { tz: string }) {
           <h1 className="title">{t('Collector and coverage')}</h1>
         </div>
         <span className="grow" />
-        <span className="mono muted" style={{ fontSize: 12, paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · {t('read-only')} · <Link href="/welcome">{t('Introduction')}</Link></span>
+        <span className="mono muted" style={{ fontSize: 12, paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · {t('read-only')} · <Link href="/welcome">{t('Guide')}</Link></span>
       </div>
 
       {data.dropped.count > 0 && (

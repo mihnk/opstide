@@ -160,7 +160,7 @@ export interface ExplorerSummary {
   schema: number
   from: string
   to: string
-  items: { key: string; label: string; plural: string; count: number; query: string }[]
+  items: { key: string; label: string; plural: string; note?: string; count: number; query: string }[]
   notWhole: { label: string; state: string }[]
   dropped: number
 }

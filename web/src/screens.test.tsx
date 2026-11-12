@@ -4,12 +4,13 @@
 // (src/test/demo-api.json, made by web/scripts/record-ui-fixtures.cjs). A screen passes when, with every request
 // answered, it has drawn its own heading, shows no alert, is not the "no page here" screen, and React logged nothing.
 // This catches the class of bug where a field the screen did not expect (a null, a "not reported") brings a page down.
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { AuthGate } from './auth'
 import { setLangForTest, type Lang } from './i18n'
 import { LiveProvider } from './live'
+import { STEPS } from './screens/Onboarding'
 import fixtures from './test/demo-api.json'
 import { addToWorkspace, clearWorkspace } from './workspace'
 
@@ -120,6 +121,51 @@ describe('the introduction', () => {
     const { main, errors } = await draw('/?range=24h', 'en', { onboarded: false })
     healthy('/?range=24h', main, errors)
     expect(main.textContent).toContain('Scheduled operations')
+  })
+})
+
+describe('the guide', () => {
+  it('has a recorded page for every step', () => {
+    for (let n = 1; n <= STEPS; n++) expect(fixtures.pages).toContain(`/welcome?step=${n}`)
+  })
+
+  it('moves with Next, Back and the arrow keys, keeps the step in the address, and leaves with Escape', async () => {
+    const { main, errors } = await draw('/welcome?step=2', 'en', { onboarded: false })
+    healthy('/welcome?step=2', main, errors)
+    const title = () => main.querySelector('h1')!.textContent
+    const step = () => new URLSearchParams(location.search).get('step')
+    expect(title()).toBe('A record, not a remote control.')
+    expect(main.querySelector('[aria-current="step"]')!.getAttribute('aria-label')).toBe('Step 2 of 12: What it is')
+
+    const button = (re: RegExp) => [...main.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!
+    await act(async () => { fireEvent.click(button(/^Next: How it is known/)) })
+    expect(step()).toBe('3')
+    expect(title()).toBe('Every record says how it is known.')
+    expect(document.activeElement, 'focus moves to the new step\'s title').toBe(main.querySelector('h1'))
+
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'ArrowRight' }) })
+    expect(step()).toBe('4')
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'ArrowLeft' }) })
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'ArrowLeft' }) })
+    expect(step()).toBe('2')
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'Enter' }) })
+    expect(step()).toBe('3')
+    await act(async () => { fireEvent.click(button(/Back/)) })
+    expect(step()).toBe('2')
+    // A segment of the progress bar goes straight to its step.
+    await act(async () => { fireEvent.click(main.querySelector('[aria-label="Step 12 of 12: Watching now"]')!) })
+    expect(step()).toBe('12')
+    expect(button(/Open the Overview/)).toBeDefined()
+
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'Escape' }) })
+    expect(location.pathname).toBe('/')
+    expect(localStorage.getItem('opstide.onboarded')).toBe('1')
+  })
+
+  it('starts at the first step for a step that does not exist', async () => {
+    const { main, errors } = await draw('/welcome?step=99', 'tr')
+    healthy('/welcome?step=99', main, errors)
+    expect(main.querySelector('h1')!.textContent).toBe("OpsTide, cluster'ınızın geçmişini tutar.")
   })
 })
 

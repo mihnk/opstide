@@ -568,6 +568,15 @@ func TestExplorerSummaryCountsRecordsAcrossKindsAndNamesWhatWasNotWatched(t *tes
 			t.Fatalf("%+v", it)
 		}
 	}
+	// The labels are short enough to sit under a count; what they count in full is in the note.
+	for _, it := range sm.Items {
+		if len(it.Label) > 24 || len(it.Plural) > 24 {
+			t.Fatalf("a label too long to sit under a count: %+v", it)
+		}
+		if it.Key == "changes" && it.Note == "" {
+			t.Fatalf("the changes say what they count: %+v", it)
+		}
+	}
 	if counts["findings"] != 1 || counts["warnings"] != 2 || counts["nodes"] != 1 || counts["runs_failed"] != 0 {
 		t.Fatalf("%v", counts)
 	}

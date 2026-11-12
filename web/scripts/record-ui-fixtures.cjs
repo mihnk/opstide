@@ -25,7 +25,9 @@ if (!base || !out) {
   const imgs = (await j('/api/v1/images')).images || []
 
   const pick = (kind) => wl.find((x) => x.kind === kind)
-  const pages = ['/', '/welcome', '/explorer?range=24h', '/explorer?range=24h&preset=changes', '/workloads', '/releases', '/schedules', '/system', '/workspace']
+  // Every step of the guide: several draw live pictures from the record (the Overview's window, the Explorer, schedules).
+  const guideSteps = Array.from({ length: 12 }, (_, i) => `/welcome?step=${i + 1}`)
+  const pages = ['/', '/welcome', ...guideSteps, '/explorer?range=24h', '/explorer?range=24h&preset=changes', '/workloads', '/releases', '/schedules', '/system', '/workspace']
   for (const x of [pick('StatefulSet'), pick('Deployment'), pick('DaemonSet')].filter(Boolean)) {
     for (const t of ['overview', 'history', 'revisions', 'pods', 'evidence']) pages.push(`/workloads/${encodeURIComponent(x.id)}?tab=${t}`)
   }
