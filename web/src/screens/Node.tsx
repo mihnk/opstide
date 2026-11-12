@@ -9,7 +9,7 @@ import { EntryRow } from './Release'
 import { relationWords } from './ReleaseEvidence'
 import { Note } from '../components/Note'
 import { tParts } from '../components/status'
-import { t } from '../i18n'
+import { t, ts } from '../i18n'
 
 // Node context: what OpsTide recorded of one Node, and the Pods that reported running on it. It is not a node
 // inventory and not a capacity view: capacity, labels, taints and images are never read.
@@ -22,15 +22,15 @@ export function Node({ id, tz }: { id: string; tz: string }) {
   return (
     <div className="page" style={{ gap: 22 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <Link href="/workloads" style={{ fontSize: 13 }}>← {t('Workloads')}</Link>
+        <Link href="/workloads" className="fine">← {t('Workloads')}</Link>
         <span className="label">Node</span>
         <h1 className="title" style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
           {n.name}
-          {n.status === 'removed' && <span className="chip" style={{ fontSize: 12 }}>{t('removed')}</span>}
-          {n.status === 'not_observed' && <span className="chip" style={{ fontSize: 12, borderStyle: 'dashed' }} title={t('Node observation is off, so OpsTide cannot say this Node still exists.')}>{t('not observed now')}</span>}
-          {n.origin === 'adopted' && <span className="chip" style={{ fontSize: 12 }} title={t('It existed before OpsTide began watching Nodes.')}>{t('adopted')}</span>}
+          {n.status === 'removed' && <span className="chip micro">{t('removed')}</span>}
+          {n.status === 'not_observed' && <span className="chip micro" style={{ borderStyle: 'dashed' }} title={t('Node observation is off, so OpsTide cannot say this Node still exists.')}>{t('not observed now')}</span>}
+          {n.origin === 'adopted' && <span className="chip micro" title={t('It existed before OpsTide began watching Nodes.')}>{t('adopted')}</span>}
         </h1>
-        <span className="mono muted" style={{ fontSize: 13 }}>
+        <span className="mono muted fine">
           {t('first seen {time}', { time: hhmmss(n.firstSeenAt, tz) })}{n.createdAt ? ` · ${t('created {time}', { time: hhmmss(n.createdAt, tz) })}` : ''}{n.deletedAt ? ` · ${t('removed {time}', { time: hhmmss(n.deletedAt, tz) })}` : ''}
         </span>
         {n.status === 'not_observed' && (
@@ -41,7 +41,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
         )}
         <span><Link href={explorerLink({ node: n.id, range: '7d' })}>{t('Records about this Node in Explorer')}</Link></span>
       </div>
-      {d.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{d.notes.map((m, i) => <span key={i} style={{ display: 'block' }}>{m}</span>)}</span></div>}
+      {d.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{d.notes.map((m, i) => <span key={i} style={{ display: 'block' }}>{ts(m)}</span>)}</span></div>}
 
       <div className="two">
         <section aria-label={t('Scheduling')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -61,7 +61,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
                   <tr key={c.type}>
                     <td className="mono">{c.type}</td>
                     <td>{c.status}</td>
-                    <td style={{ overflowWrap: 'anywhere' }}>{c.reason || <span className="muted">{t('none')}</span>}{c.message ? <span className="muted" style={{ display: 'block', fontSize: 12 }}>{c.message}</span> : null}</td>
+                    <td style={{ overflowWrap: 'anywhere' }}>{c.reason || <span className="muted">{t('none')}</span>}{c.message ? <span className="muted sub">{c.message}</span> : null}</td>
                     <td className="mono">{c.lastTransitionTime ? hhmmss(c.lastTransitionTime, tz) : <span className="muted" style={{ fontFamily: 'inherit' }}>{t('not reported')}</span>}</td>
                     <td className="mono">{c.observedAt ? hhmmss(c.observedAt, tz) : '—'}</td>
                   </tr>
@@ -92,7 +92,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
                 <li key={r.id}>
                   <WorkspaceToggle id={r.recordId} compact />{' '}{tParts(at ? 'Kubernetes reported {reason} ({type}) at {time}' : 'Kubernetes reported {reason} ({type})', reported)}
                   {r.message ? <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>: {r.message.length > 200 ? `${r.message.slice(0, 200)}…` : r.message}</span> : null}
-                  {link ? <span className="muted"> · {t(relationWords[link.relationship][0])}{link.via ? ` (${link.via})` : ''}</span> : null}
+                  {link ? <span className="muted"> · {t(relationWords[link.relationship][0])}{link.via ? ` (${ts(link.via)})` : ''}</span> : null}
                 </li>
               )
             })}
@@ -119,7 +119,7 @@ export function Node({ id, tz }: { id: string; tz: string }) {
             </table>
           </div>
         )}
-        {d.podsTruncated && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{t('More Pods were observed than are listed.')}</p>}
+        {d.podsTruncated && <p className="muted fine" style={{ margin: 0 }}>{t('More Pods were observed than are listed.')}</p>}
       </section>
     </div>
   )

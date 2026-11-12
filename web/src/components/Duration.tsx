@@ -47,13 +47,13 @@ export function DurationCell({ d }: { d: DurationTrend }) {
   const title = [periodTitle(t('Last 7 days'), r), periodTitle(t('Baseline'), b)].join('\n')
   if (r.p50Seconds === null) {
     return (
-      <span className="muted" style={{ fontSize: 12 }} title={title}>{t('no succeeded run in 7 days')}</span>
+      <span className="muted fine" title={title}>{t('no succeeded run in 7 days')}</span>
     )
   }
   return (
     <span title={title}>
-      <span className="mono" style={{ fontSize: 13 }}>{t('p50 {d} · 7d', { d: p50(r) })}</span>
-      <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+      <span className="mono fine">{t('p50 {d} · 7d', { d: p50(r) })}</span>
+      <span className="muted sub">
         {!d.enough ? t('too few runs to compare') : d.longer && d.ratio !== null ? (
           <span style={{ color: 'var(--ink)' }}><LongerMark />{t('longer than its baseline ({change})', { change: changeText(d.ratio) })}</span>
         ) : b.p50Seconds !== null ? t('baseline p50 {d}', { d: p50(b) }) : ''}
@@ -98,14 +98,14 @@ export function DurationSection({ d, tz }: { d: DurationTrend; tz: string }) {
         ) : null}
       </p>
       <div className="table-wrap">
-        <table className="data compact" style={{ fontSize: 13, minWidth: 560 }}>
+        <table className="data compact" style={{ minWidth: 560 }}>
           <thead>
             <tr>{['Period', 'Runs', 'p50', 'p95', 'Coverage'].map((h) => <th key={h} scope="col" className="label">{t(h)}</th>)}</tr>
           </thead>
           <tbody>
             {rows.map(([name, p, last]) => (
               <tr key={name}>
-                <td>{name} <span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{shortDay(p.from, tz)} – {shortDay(last, tz)}</span></td>
+                <td>{name} <span className="muted mono sub">{shortDay(p.from, tz)} – {shortDay(last, tz)}</span></td>
                 <td className="mono">{p.runs}</td>
                 <td className="mono">{p50(p)}</td>
                 <td className="mono">{p95(p)}</td>
@@ -123,12 +123,12 @@ export function DurationSection({ d, tz }: { d: DurationTrend; tz: string }) {
                 title={`${shortDay(p.startedAt, tz)} ${hhmm(p.startedAt, tz)} · ${runTime(p.ms, p.seconds)}`} />
             ))}
           </span>
-          <span className="muted" style={{ fontSize: 12 }}>
+          <span className="muted fine">
             {t('Duration of the last {n} succeeded runs, oldest first; the last 7 days in colour.', { n: points.length })}
           </span>
         </div>
       )}
-      <span className="muted" style={{ fontSize: 12 }}>
+      <span className="muted fine">
         {t('p50 and p95 are nearest-rank percentiles of the run durations. Failed runs, runs whose outcome is unknown and runs still going are not counted, nor are runs OpsTide did not see while it was not watching. Marked from {ratio}× the baseline p50, with at least {n} runs in each period.', { ratio: d.longerAt.toLocaleString(locale()), n: d.minRuns })}
       </span>
     </section>

@@ -44,8 +44,8 @@ export function Coverage({ ctx, tz, compact }: { ctx: ExplorerContext; tz: strin
           <div className="cov-lanes">
             {ctx.scopes.map((s) => (
               <div key={s.scope} className="cov-lane">
-                <span className="cov-name">{s.label}{s.namespace ? <span className="muted"> · {s.namespace}</span> : null}</span>
-                <span className="cov-track" aria-label={`${s.label}: ${t(stateWords[s.state])}`}>
+                <span className="cov-name">{t(s.label)}{s.namespace ? <span className="muted"> · {s.namespace}</span> : null}</span>
+                <span className="cov-track" aria-label={`${t(s.label)}: ${t(stateWords[s.state])}`}>
                   {s.watching.map((w, i) => <i key={i} className="on" style={{ left: pct(w.from), width: width(w.from, w.to) }} />)}
                   {s.gaps.map((g, i) => <i key={`g${i}`} className="gap" style={{ left: pct(g.from), width: width(g.from, g.to) }} title={t('Not watched {from} to {to}', { from: hhmmss(g.from, tz), to: hhmmss(g.to, tz) })} />)}
                 </span>

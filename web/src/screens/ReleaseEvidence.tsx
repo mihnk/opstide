@@ -6,7 +6,7 @@ import { useApi } from '../live'
 import { Link } from '../router'
 import { hhmmss } from '../time'
 import { tParts } from '../components/status'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 
 // Words for the four classifications. They say how two records are linked; none of them says
 // that one caused the other. The English words are the keys: draw them through t().
@@ -21,9 +21,9 @@ function Relation({ r, via }: { r: Relationship; via?: string }) {
   const word = t(relationWords[r][0])
   const what = t(relationWords[r][1])
   return (
-    <span title={`${what}${via ? ` (${via})` : ''}`}>
+    <span title={`${what}${via ? ` (${ts(via)})` : ''}`}>
       <span className="label" style={{ color: r === 'UNRESOLVED' ? 'var(--fail)' : undefined }}>{word}</span>
-      {via ? <span className="muted" style={{ display: 'block', fontSize: 12 }}>{via}</span> : null}
+      {via ? <span className="muted sub">{ts(via)}</span> : null}
     </span>
   )
 }
@@ -38,7 +38,7 @@ function Message({ text, truncated }: { text: string; truncated?: boolean }) {
     <details>
       <summary style={{ cursor: 'pointer' }}>{body}</summary>
       <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', display: 'block', marginTop: 4 }}>{text}</span>
-      {truncated && <span className="muted" style={{ fontSize: 12 }}>{t('OpsTide kept the first 1 KiB of this message.')}</span>}
+      {truncated && <span className="muted fine">{t('OpsTide kept the first 1 KiB of this message.')}</span>}
     </details>
   )
 }
@@ -46,7 +46,7 @@ function Message({ text, truncated }: { text: string; truncated?: boolean }) {
 function SourceCell({ e, tz }: { e: EvidenceRecord; tz: string }) {
   const at = (v: string | null) => (v ? hhmmss(v, tz) : t('not reported'))
   return (
-    <span style={{ fontSize: 12 }}>
+    <span className="fine">
       <span className="mono">{e.source}</span>
       {e.origin === 'adopted' && <span className="chip" title={t('Already there when OpsTide began watching. OpsTide keeps the times Kubernetes gave; it does not date it at startup.')} style={{ marginLeft: 6 }}>{t('adopted')}</span>}
       <span className="muted" style={{ display: 'block' }}>{t('first {first} · last {last}', { first: at(e.occurredAt.first), last: at(e.occurredAt.last) })}</span>
@@ -67,13 +67,13 @@ export function RecordedEvidence({ id, limit, link }: { id: string; limit?: numb
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {facts.map((f, i) => (
-          <li key={i}>{f.text}<span className="muted mono" style={{ fontSize: 11 }} title={f.refs.length ? tn(f.refs.length, 'Rule {rule}, from {n} record', 'Rule {rule}, from {n} records', { rule: f.rule }) : t('Rule {rule}', { rule: f.rule })}> · {f.rule}</span></li>
+          <li key={i}>{ts(f.text)}<span className="muted mono fine" title={f.refs.length ? tn(f.refs.length, 'Rule {rule}, from {n} record', 'Rule {rule}, from {n} records', { rule: f.rule }) : t('Rule {rule}', { rule: f.rule })}> · {f.rule}</span></li>
         ))}
       </ul>
-      {limit && data.summary.facts.length > limit && link && <Link href={link} style={{ fontSize: 13 }}>{t('{n} more in Evidence', { n: data.summary.facts.length - limit })}</Link>}
-      <p style={{ margin: 0 }}><span className="label">{t('Root cause')}</span> <b>{data.summary.rootCause}</b></p>
-      {data.summary.note && <p className="muted" style={{ margin: 0, fontSize: 12 }}>{data.summary.note}</p>}
-      <span className="muted" style={{ fontSize: 12 }}>{t('Built from the records on the Evidence tab by fixed rules; co-occurrence is not treated as cause.')}</span>
+      {limit && data.summary.facts.length > limit && link && <Link href={link} className="fine">{t('{n} more in Evidence', { n: data.summary.facts.length - limit })}</Link>}
+      <p style={{ margin: 0 }}><span className="label">{t('Root cause')}</span> <b>{ts(data.summary.rootCause)}</b></p>
+      {data.summary.note && <p className="muted fine" style={{ margin: 0 }}>{ts(data.summary.note)}</p>}
+      <span className="muted fine">{t('Built from the records on the Evidence tab by fixed rules; co-occurrence is not treated as cause.')}</span>
     </div>
   )
 }
@@ -91,7 +91,7 @@ export function Evidence({ d, id, tz }: { d: ReleaseDetail; id: string; tz: stri
       <p className="muted" style={{ margin: 0, maxWidth: 800 }}>
         {t("Recorded evidence: Kubernetes Events about this release's ReplicaSet and the Pods it owns, and about its Deployment while this release was current. Kubernetes reported them; OpsTide does not say why anything happened.")}
       </p>
-      {data.provenance.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{data.provenance.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
+      {data.provenance.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Unknown')}</span><span>{data.provenance.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{ts(n)}</span>)}</span></div>}
 
       <section aria-label={t('Recorded evidence')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h2 className="label section-title">{t('Recorded evidence')}</h2>
@@ -122,14 +122,14 @@ export function Evidence({ d, id, tz }: { d: ReleaseDetail; id: string; tz: stri
             </table>
           </div>
         )}
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+        <p className="muted fine" style={{ margin: 0 }}>
           {t('“Direct”, “Ownership” and “Same resource context” say how an Event is linked to this release. An Event is shown because of that link or because it was recorded while this release was current, never because it is thought to explain anything.')}
           {d.release.supersededAt ? ` ${t('Events recorded after a newer revision took over are not attached to this release.')}` : ''}
         </p>
       </section>
 
       <ScalingContext workloadId={d.workload.uid} tz={tz} windowEntries={data.scaling.length} />
-      <p className="muted" style={{ margin: 0, fontSize: 12 }}>{tParts('Events come through {api}, read only. Messages can contain operational detail; they are shown as text and kept to 1 KiB.', { api: <span className="mono">{data.provenance.eventsApi || t('the Kubernetes Events API')}</span> })}</p>
+      <p className="muted fine" style={{ margin: 0 }}>{tParts('Events come through {api}, read only. Messages can contain operational detail; they are shown as text and kept to 1 KiB.', { api: <span className="mono">{data.provenance.eventsApi || t('the Kubernetes Events API')}</span> })}</p>
     </div>
   )
 }
@@ -140,13 +140,13 @@ function EventRow({ e, tz }: { e: ReleaseRecord; tz: string }) {
     <tr>
       <td>
         <b>{e.reason || <span className="muted">{t('no reason reported')}</span>}</b>
-        <span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{e.eventType || t('type not reported')}{when ? ` · ${hhmmss(when, tz)}` : ` · ${t('no time reported')}`}</span>
+        <span className="muted mono sub">{e.eventType || t('type not reported')}{when ? ` · ${hhmmss(when, tz)}` : ` · ${t('no time reported')}`}</span>
       </td>
       <td>
         <span className="label">{e.resource.kind}</span>
         <span className="mono" style={{ display: 'block', overflowWrap: 'anywhere' }}>{e.resource.name || '—'}</span>
-        {e.resource.uid ? <span className="muted mono" style={{ fontSize: 11 }} title={e.resource.uid}>{e.resource.uid.slice(0, 8)}</span> : <span className="muted" style={{ fontSize: 11 }}>{t('no UID reported')}</span>}
-        {e.related && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t('related: {kind} {name}', { kind: e.related.kind, name: e.related.name ?? '' })}</span>}
+        {e.resource.uid ? <span className="muted mono fine" title={e.resource.uid}>{e.resource.uid.slice(0, 8)}</span> : <span className="muted fine">{t('no UID reported')}</span>}
+        {e.related && <span className="muted sub">{t('related: {kind} {name}', { kind: e.related.kind, name: e.related.name ?? '' })}</span>}
       </td>
       <td style={{ maxWidth: 360 }}><Message text={e.message} truncated={e.messageTruncated} /></td>
       <td className="mono">{e.count ? <span title={t('from {basis}', { basis: e.count.basis })}>{e.count.value}</span> : <span className="muted" style={{ fontFamily: 'inherit' }}>{t('not reported')}</span>}</td>
@@ -200,13 +200,13 @@ function HPABlock({ h, tz }: { h: HPAView; tz: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
       <span><span className="mono">{h.namespace}/{h.name}</span>{h.deletedAt && <span className="chip" style={{ marginLeft: 6 }}>{t('deleted')}</span>}</span>
       <span className="mono">{t('current {current} · desired {desired} · min {min} · max {max}', { current: h.currentReplicas, desired: h.desiredReplicas, min: h.minReplicas ?? '—', max: h.maxReplicas })}</span>
-      <span className="muted" style={{ fontSize: 12 }}>{tParts('Last scale time reported: {time} · target {target}, linked {relation} ({via})', { time: h.lastScaleTime ? hhmmss(h.lastScaleTime, tz) : t('none'), target: h.target, relation: <Relation r={h.targetRelationship} />, via: h.targetVia })}</span>
+      <span className="muted fine">{tParts('Last scale time reported: {time} · target {target}, linked {relation} ({via})', { time: h.lastScaleTime ? hhmmss(h.lastScaleTime, tz) : t('none'), target: h.target, relation: <Relation r={h.targetRelationship} />, via: h.targetVia })}</span>
       {h.conditions.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: 18 }}>
           {h.conditions.map((c) => <li key={c.type}><span className="mono">{c.type}</span> {c.status}{c.reason ? <> · {c.reason}</> : null}{c.message ? <span className="muted"> · <Message text={c.message} /></span> : null}</li>)}
         </ul>
       )}
-      {h.metrics.length > 0 && <span className="muted mono" style={{ fontSize: 12 }}>{h.metrics.map((m) => `${m.name || m.type}: ${t('{a} of {b}', { a: m.current || '?', b: m.target || '?' })}`).join(' · ')}</span>}
+      {h.metrics.length > 0 && <span className="muted mono fine">{h.metrics.map((m) => `${m.name || m.type}: ${t('{a} of {b}', { a: m.current || '?', b: m.target || '?' })}`).join(' · ')}</span>}
     </div>
   )
 }

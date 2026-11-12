@@ -7,6 +7,7 @@
 // with {name}: t('{n} failed runs', { n: 2 }). The language is read once at start; changing it reloads the page.
 
 import { tr } from './i18n/tr'
+import { server } from './i18n/tr-server'
 
 export type Lang = 'en' | 'tr'
 
@@ -77,6 +78,66 @@ export function t(text: string, vars?: Record<string, string | number>): string 
  *  "context|text" ("pod|Scheduled" is when a Pod was placed on a Node, not a CronJob's schedule). */
 export function tc(context: string, text: string, vars?: Record<string, string | number>): string {
   return fill(current === 'tr' ? tr[`${context}|${text}`] ?? tr[text] ?? text : text, vars)
+}
+
+// Sentences the API writes for display (notes, explanations, coverage notes) are fixed English text from OpsTide, not
+// cluster data, so they are translated here rather than on the server. A sentence the server builds around a value
+// ("Records are kept for 30 days; …") is a key with {name} parts in the server table: each part matches the value as
+// written and is put back unchanged. Only parts named {note} (another of these sentences), {label} or {state} (a word
+// of the interface) and {labels} (a comma-separated list of them) are translated in turn; any other part (a name, a
+// Kubernetes reason, a time) is data and stays as it is.
+
+let patterns: { re: RegExp; names: string[]; tr: string }[] | null = null
+
+function serverPatterns() {
+  if (patterns) return patterns
+  patterns = Object.entries(server).filter(([en]) => en.includes('{')).map(([en, tk]) => {
+    const names: string[] = []
+    const src = en.split(/(\{\w+\})/).map((p) => {
+      const m = /^\{(\w+)\}$/.exec(p)
+      if (!m) return p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      names.push(m[1])
+      return '(.+?)'
+    }).join('')
+    return { re: new RegExp(`^${src}$`, 's'), names, tr: tk }
+  })
+  return patterns
+}
+
+function part(name: string, v: string, depth: number): string {
+  switch (name) {
+    case 'note': return depth < 3 ? sentences(v, depth + 1) : v
+    case 'label': case 'state': return tr[v] ?? tr[v.replace(/_/g, ' ')] ?? v
+    case 'labels': return v.split(', ').map((x) => tr[x] ?? x).join(', ')
+  }
+  return v
+}
+
+function sentence(text: string, depth: number): string | null {
+  const exact = server[text] ?? tr[text]
+  if (exact !== undefined) return exact
+  for (const p of serverPatterns()) {
+    const m = p.re.exec(text)
+    if (!m) continue
+    const vars: Record<string, string> = {}
+    p.names.forEach((n, i) => { vars[n] = part(n, m[i + 1], depth) })
+    return fill(p.tr, vars)
+  }
+  return null
+}
+
+function sentences(text: string, depth: number): string {
+  const whole = sentence(text, depth)
+  if (whole !== null) return whole
+  // Several sentences the server joined: each is looked up on its own.
+  const parts = text.split(/(?<=\.)\s+(?=[A-Z])/)
+  return parts.length < 2 ? text : parts.map((x) => sentence(x, depth) ?? x).join(' ')
+}
+
+/** t() for a sentence the API wrote for display. What is not in the tables (cluster data, a value) stays as it is. */
+export function ts(text: string | null | undefined): string {
+  if (!text) return text ?? ''
+  return current === 'tr' ? sentences(text, 0) : text
 }
 
 /** t() with a singular and a plural English form; Turkish nouns after a number stay singular. */

@@ -81,10 +81,10 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
     if (b.kind === 'outside_retention') warnings.push(t('The selection reaches back before the history OpsTide keeps.'))
     if (b.kind === 'before_first_observation') warnings.push(t('The selection reaches back before OpsTide first observed this cluster.'))
   }
-  const gapped = [...new Set((ctxNow?.scopes ?? []).filter((s) => s.state === 'gap').map((s) => s.label))]
+  const gapped = [...new Set((ctxNow?.scopes ?? []).filter((s) => s.state === 'gap').map((s) => t(s.label)))]
   if (gapped.length) warnings.push(t('Not watched for part of the selected period: {scopes}. Records from those stretches may be missing.', { scopes: gapped.join(', ') }))
   for (const s of ctxNow?.scopes ?? []) {
-    const who = s.namespace ? `${s.label} (${s.namespace})` : s.label
+    const who = s.namespace ? `${t(s.label)} (${s.namespace})` : t(s.label)
     if (s.state === 'unavailable') warnings.push(s.problem ? t('{who} cannot be read right now ({problem}).', { who, problem: s.problem }) : t('{who} cannot be read right now.', { who }))
     if (s.state === 'disabled') warnings.push(t('{who} observation is off.', { who }))
   }
@@ -182,7 +182,7 @@ export function Workspace({ tz, setTz }: { tz: string; setTz: (z: string) => voi
                 </tbody>
               </table>
             </div>
-            <span className="muted" style={{ fontSize: 12 }}>{t('Ordered by record time, then id. Times in {tz}.', { tz })}</span>
+            <span className="muted fine">{t('Ordered by record time, then id. Times in {tz}.', { tz })}</span>
           </section>
 
           <section aria-label={t('Export and clear')} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

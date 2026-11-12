@@ -6,7 +6,7 @@ import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { relativeTime } from '../time'
 import { Note } from '../components/Note'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 
 // What a rollout state means, in Kubernetes' terms. None of these says a workload is healthy or broken.
 export const workloadRollout: Record<string, string> = {
@@ -71,7 +71,7 @@ export function Workloads({ params, tz }: { params: URLSearchParams; tz: string 
           <h1 className="title">{data ? (cursor ? t('{n}+ workloads', { n: rows.length }) : tn(rows.length, '{n} workload', '{n} workloads')) : t('Workloads')}</h1>
         </div>
         <span className="grow" />
-        <Link href="/releases" style={{ fontSize: 13 }}>{t('Deployment releases')}</Link>
+        <Link href="/releases" className="fine">{t('Deployment releases')}</Link>
       </div>
 
       <form className="filters" aria-label={t('Filter workloads')} onSubmit={(e) => e.preventDefault()}>
@@ -102,10 +102,10 @@ export function Workloads({ params, tz }: { params: URLSearchParams; tz: string 
           </select>
         </label>
         <span className="grow" style={{ flex: 1 }} />
-        {filtered && <Link href={location.pathname} replace style={{ fontSize: 13 }}>{t('Clear the filters')}</Link>}
+        {filtered && <Link href={location.pathname} replace className="fine">{t('Clear the filters')}</Link>}
       </form>
 
-      {data && data.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Coverage gap')}</span><span>{data.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span></div>}
+      {data && data.notes.length > 0 && <div className="banner" role="note"><span className="label">{t('Coverage gap')}</span><span>{data.notes.map((n, i) => <span key={i} style={{ display: 'block' }}>{ts(n)}</span>)}</span></div>}
       {error && !data && <Failed error={error} />}
       {!data && !error && <Loading />}
       {data && rows.length === 0 && <div className="empty">{filtered ? t('No workload matches these filters.') : t('No workload has been recorded yet.')}</div>}
@@ -136,7 +136,7 @@ function Row({ w, tz, now }: { w: WorkloadView; tz: string; now: number }) {
         {w.status === 'deleted' && <span className="chip">{t('deleted')}</span>}
       </td>
       <td className="mono" style={{ overflowWrap: 'anywhere' }}>{rev}</td>
-      <td>{st ? <span title={st.rolloutNote}>{rolloutLabel(w.kind, st.rollout)}</span> : <span className="muted">{t('not recorded yet')}</span>}</td>
+      <td>{st ? <span title={ts(st.rolloutNote)}>{rolloutLabel(w.kind, st.rollout)}</span> : <span className="muted">{t('not recorded yet')}</span>}</td>
       <td className="mono">{st ? `${st.desired} / ${st.ready} / ${st.available}` : '—'}</td>
       <td>{st?.lastChangeAt ? <><span title={`${st.lastChangeAt} UTC`}>{relativeTime(st.lastChangeAt, new Date(now).toISOString(), tz)}</span>{st.changeBasis === 'baseline' && <span className="chip" title={t('Not a change OpsTide saw: the newest time the records or the source give for something already there')}>{t('baseline')}</span>}</> : <span className="muted">—</span>}</td>
       <td>{w.evidence.warnings24h > 0

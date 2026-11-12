@@ -5,7 +5,7 @@ import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { ago, hhmm, offset, relativeTime } from '../time'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 
 const ranges: [string, string][] = [['24h', '24h'], ['48h', '48h'], ['7d', '168h'], ['30d', '720h']]
 
@@ -87,13 +87,13 @@ export function Releases({ params, tz }: { params: URLSearchParams; tz: string }
           </select>
         </label>
         <span className="grow" style={{ flex: 1 }} />
-        <span className="muted" style={{ fontSize: 12 }}>{t('Times {tz} {offset} · filters are in the link · observation window {n} min', { tz, offset: offset(tz), n: data?.windowMinutes ?? '…' })}</span>
+        <span className="muted fine">{t('Times {tz} {offset} · filters are in the link · observation window {n} min', { tz, offset: offset(tz), n: data?.windowMinutes ?? '…' })}</span>
       </form>
 
       {!!data?.warnings.length && (
         <div className="banner" role="note">
           <span className="label">{t('Coverage gap')}</span>
-          <span>{data.warnings.map((w, i) => <span key={i} style={{ display: 'block' }}>{w}{i === 0 && <> <Link href="/system">{t('See System')}</Link></>}</span>)}</span>
+          <span>{data.warnings.map((w, i) => <span key={i} style={{ display: 'block' }}>{ts(w)}{i === 0 && <> <Link href="/system">{t('See System')}</Link></>}</span>)}</span>
         </div>
       )}
 
@@ -120,23 +120,23 @@ export function Releases({ params, tz }: { params: URLSearchParams; tz: string }
                     <td>
                       <Link href={href} style={{ display: 'flex', flexDirection: 'column', color: 'var(--ink)', textDecoration: 'none' }}>
                         <span style={{ fontWeight: 500 }}>{r.workload}</span>
-                        <span className="mono muted" style={{ fontSize: 12 }}>{r.namespace}/{r.workload}</span>
+                        <span className="mono muted fine">{r.namespace}/{r.workload}</span>
                       </Link>
                     </td>
                     <td className="mono">{r.revision}{r.origin === 'adopted' && <span className="chip" title={t('It existed before OpsTide started watching: its rollout was not observed.')}>{t('adopted')}</span>}</td>
-                    <td className="mono" style={{ fontSize: 13 }}>
+                    <td className="mono fine">
                       {relativeTime(r.observedAt, data?.now ?? r.observedAt, tz)}
-                      <span className="muted" style={{ display: 'block', fontSize: 12 }} title={`${r.observedAt} UTC`}>{ago(r.observedAt, Date.parse(data?.now ?? r.observedAt))}</span>
+                      <span className="muted sub" title={`${r.observedAt} UTC`}>{ago(r.observedAt, Date.parse(data?.now ?? r.observedAt))}</span>
                     </td>
-                    <td><RolloutStatus state={r.state} />{r.paused && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t('paused')}</span>}</td>
+                    <td><RolloutStatus state={r.state} />{r.paused && <span className="muted sub">{t('paused')}</span>}</td>
                     <td>
                       <HealthStatus health={r.health} />
-                      <span className="muted" style={{ display: 'block', fontSize: 12 }}>
-                        {r.health === 'still_observing' && r.observeUntil ? t('observing until {time}', { time: hhmm(r.observeUntil, tz) }) : r.healthReasons[0] ?? ''}
+                      <span className="muted sub">
+                        {r.health === 'still_observing' && r.observeUntil ? t('observing until {time}', { time: hhmm(r.observeUntil, tz) }) : ts(r.healthReasons[0])}
                       </span>
                     </td>
                     <td className="mono">{r.available} / {r.desired}</td>
-                    <td style={{ fontSize: 13 }}>
+                    <td className="fine">
                       {r.recent.length === 0 ? <span className="muted">{t('none in window')}</span> : r.recent.map((b, i) => (
                         <span key={i} style={{ display: 'block', color: b.severity === 'error' ? 'var(--fail)' : undefined }}>{b.summary}</span>
                       ))}

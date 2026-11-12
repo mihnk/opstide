@@ -8,7 +8,7 @@ import {
   beforeWindows, beforeWords, classOf, classWords, explorerLink, groupShort, isFailureLike,
   type BeforeChange, type BeforeWindow, type ExplorerBefore, type ExplorerDetail, type ExplorerState, type Relationship,
 } from '../explorer'
-import { t } from '../i18n'
+import { t, tc, ts } from '../i18n'
 import { useApi } from '../live'
 import { Link } from '../router'
 import { hhmm, hhmmss, isoDate } from '../time'
@@ -30,7 +30,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Rel({ r }: { r: Relationship }) {
-  const label = r.name ? `${r.kind} ${r.name}` : r.uid ? `${r.kind} ${r.uid.length > 14 ? r.uid.slice(0, 8) : r.uid}` : r.kind
+  const kind = tc('kind', r.kind)
+  const label = r.name ? `${kind} ${r.name}` : r.uid ? `${kind} ${r.uid.length > 14 ? r.uid.slice(0, 8) : r.uid}` : kind
   return (
     <li className="rel">
       <span className="rel-head">
@@ -38,8 +39,8 @@ function Rel({ r }: { r: Relationship }) {
         <span className={`relchip class-${r.classification.toLowerCase()}`}>{classWords[r.classification]}</span>
         {r.resolved === false && <span className="relchip class-unresolved" title={t('OpsTide holds no record of the target')}>{t('not recorded')}</span>}
       </span>
-      {r.via && <span className="muted sm">{r.via}</span>}
-      {r.note && <span className="muted sm">{r.note}</span>}
+      {r.via && <span className="muted sm">{ts(r.via)}</span>}
+      {r.note && <span className="muted sm">{ts(r.note)}</span>}
     </li>
   )
 }
@@ -56,9 +57,9 @@ function StateAt({ uid, kind, ns, at, tz }: { uid: string; kind: string; ns?: st
   return (
     <div className="dr-stack">
       <p style={{ margin: 0 }}>
-        <span className={`chip basis-${data.basis.toLowerCase()}`} style={{ marginLeft: 0 }}>{t(data.basis.replace(/_/g, ' ').toLowerCase())}</span> {data.statement}
+        <span className={`chip basis-${data.basis.toLowerCase()}`} style={{ marginLeft: 0 }}>{t(data.basis.replace(/_/g, ' ').toLowerCase())}</span> {ts(data.statement)}
       </p>
-      <p className="muted sm" style={{ margin: 0 }}>{t('Coverage then: {note}', { note: data.coverage.note })}</p>
+      <p className="muted sm" style={{ margin: 0 }}>{t('Coverage then: {note}', { note: ts(data.coverage.note) })}</p>
       {data.recent.length > 0 && (
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
           {data.recent.slice(0, 5).map((r) => <li key={r.id}><span className="mono">{hhmmss(r.at, tz)}</span> {r.summary}</li>)}
@@ -90,7 +91,7 @@ function BeforeRow({ c, tz, hrefOf }: { c: BeforeChange; tz: string; hrefOf?: (i
       <span className="bt-meta">
         <span className="mono">{hhmm(r.at, tz)}</span>
         <span>{beforeWords(c.secondsBefore)}</span>
-        <span className={`relchip class-${c.classification.toLowerCase()}`} title={`${classWords[c.classification as keyof typeof classWords] ?? c.classification}${c.via ? ` · ${c.via}` : ''}`}>{howRelated(c)}</span>
+        <span className={`relchip class-${c.classification.toLowerCase()}`} title={`${classWords[c.classification as keyof typeof classWords] ?? c.classification}${c.via ? ` · ${ts(c.via)}` : ''}`}>{howRelated(c)}</span>
       </span>
       <span className="bt-title">{hrefOf ? <Link href={hrefOf(r.id)}>{r.summary}</Link> : r.summary}</span>
       <span className="bt-sub">
@@ -177,7 +178,7 @@ function Before({ at, win, setWin, state, tz, hrefOf }: {
           {data.related.length > 0 && (
             <span className="muted sm">
               {t('Looked at:')} {data.related.map((x, i) => (
-                <span key={i} title={x.via}>{i > 0 ? ', ' : ''}{x.kind}{x.name ? <span className="mono"> {x.name}</span> : null} ({howRelated({ classification: x.classification, subject: x })})</span>
+                <span key={i} title={ts(x.via)}>{i > 0 ? ', ' : ''}{x.kind}{x.name ? <span className="mono"> {x.name}</span> : null} ({howRelated({ classification: x.classification, subject: x })})</span>
               ))}
             </span>
           )}
@@ -283,7 +284,7 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
           <Section title={t('Observation')}>
             <dl className="facts">
               <dt className="label">{t('Record time')}</dt>
-              <dd className="mono">{hhmmss(o.recordTime, tz)} <span className="muted" style={{ fontFamily: 'inherit' }}>· {o.explanation}</span></dd>
+              <dd className="mono">{hhmmss(o.recordTime, tz)} <span className="muted" style={{ fontFamily: 'inherit' }}>· {ts(o.explanation)}</span></dd>
               <dt className="label">{t('Occurred')}</dt>
               <dd className="mono">{o.occurredAt ? <>{hhmmss(o.occurredAt, tz)}<span className="muted"> {hhmmss(o.occurredAt, 'UTC')} UTC</span></> : <span className="muted" style={{ fontFamily: 'inherit' }}>{t('the source gives no time')}</span>}</dd>
               {o.lastOccurredAt && <><dt className="label">{t('Last occurred')}</dt><dd className="mono">{hhmmss(o.lastOccurredAt, tz)}</dd></>}
@@ -299,8 +300,8 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
               <p style={{ margin: 0 }}><span className="mono">{f.fieldManager}</span> <span className="muted">· {f.operation}{f.subresource ? `, ${f.subresource}` : ''}{f.writtenAt && !Number.isNaN(Date.parse(f.writtenAt)) ? ` · ${hhmmss(f.writtenAt, tz)}` : ''}</span></p>
               {(f.keysAdded || f.keysRemoved || f.keysChanged || f.contentChanged || f.managesData || f.updatesFolded || f.alsoWrittenBy) && (
                 <dl className="facts">
-                  {f.contentChanged && <><dt className="label">{t('Content changed')}</dt><dd>{f.contentChanged}</dd></>}
-                  {f.managesData && <><dt className="label">{t('Owns data')}</dt><dd>{f.managesData}</dd></>}
+                  {f.contentChanged && <><dt className="label">{t('Content changed')}</dt><dd>{ts(f.contentChanged)}</dd></>}
+                  {f.managesData && <><dt className="label">{t('Owns data')}</dt><dd>{ts(f.managesData)}</dd></>}
                   {f.updatesFolded && <><dt className="label">{t('Updates folded')}</dt><dd className="mono">{f.updatesFolded}</dd></>}
                   {f.alsoWrittenBy && <><dt className="label">{t('Also written by')}</dt><dd className="mono" style={dd}>{f.alsoWrittenBy}</dd></>}
                   {f.keysChanged && <><dt className="label">{t('Keys changed')}</dt><dd className="mono" style={dd}>{f.keysChanged}</dd></>}
@@ -316,7 +317,7 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
 
           <Section title={t('Provenance')}>
             <p style={{ margin: 0 }}><ProvChip p={d.provenance.class} /> <span className="mono">{d.provenance.source}</span></p>
-            <p className="muted sm" style={{ margin: 0 }}>{d.provenance.explanation}</p>
+            <p className="muted sm" style={{ margin: 0 }}>{ts(d.provenance.explanation)}</p>
           </Section>
 
           {d.derivation && (
@@ -332,12 +333,12 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
                   <span key={`${x.kind}${x.id}`} style={{ display: 'block' }}>{x.path ? <Link href={x.path}>{x.kind}</Link> : x.kind} <span className="mono muted">{x.id.length > 14 ? x.id.slice(0, 8) : x.id}</span></span>
                 ))}</dd>
               </dl>
-              {d.derivation.note && <p className="muted sm" style={{ margin: 0 }}>{d.derivation.note}</p>}
+              {d.derivation.note && <p className="muted sm" style={{ margin: 0 }}>{ts(d.derivation.note)}</p>}
             </Section>
           )}
 
           <Section title={t('Coverage at this time')}>
-            <p style={{ margin: 0 }}><span className={`chip cov-${d.coverage.state}`} style={{ marginLeft: 0 }}>{t(d.coverage.state.replace(/_/g, ' '))}</span> <span className="muted">{d.coverage.note}</span></p>
+            <p style={{ margin: 0 }}><span className={`chip cov-${d.coverage.state}`} style={{ marginLeft: 0 }}>{t(d.coverage.state.replace(/_/g, ' '))}</span> <span className="muted">{ts(d.coverage.note)}</span></p>
           </Section>
 
           {res.uid && ['Node', 'StatefulSet', 'DaemonSet', 'Deployment', 'HorizontalPodAutoscaler', 'Pod', 'Job', 'CronJob'].includes(res.kind) && (
@@ -348,13 +349,13 @@ export function RecordPanel({ id, tz, close, hrefOf }: { id: string; tz: string;
 
           {d.limitations.length > 0 && (
             <Section title={t('Limits of this record')}>
-              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>{d.limitations.map((l, i) => <li key={i}>{l}</li>)}</ul>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13 }}>{d.limitations.map((l, i) => <li key={i}>{ts(l)}</li>)}</ul>
             </Section>
           )}
 
           {d.current && (
             <p className="sm" style={{ margin: 0 }}>
-              <Link href={d.current.path}>{t('Open the current view')}</Link> <span className="muted">· {d.current.label}</span>
+              <Link href={d.current.path}>{t('Open the current view')}</Link> <span className="muted">· {ts(d.current.label)}</span>
             </p>
           )}
         </section>

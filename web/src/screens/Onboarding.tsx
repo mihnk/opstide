@@ -6,7 +6,7 @@ import { useApi } from '../live'
 import { savedTheme, savedZone, systemTheme, type Theme } from '../prefs'
 import { navigate } from '../router'
 import {
-  ConnectionsArt, ExplorerArt, Figure, GapsArt, IntegrationsArt, NoCauseArt, OverviewArt, Pin, PointInTimeArt, ProvenanceArt,
+  ConnectionsArt, ExplorerArt, Figure, GapsArt, IntegrationsArt, NoCauseArt, OverviewArt, Pin, PointInTimeArt, PreviewArt, ProvenanceArt,
   ReadOnlyArt, RecordArt, SchedulesArt, SystemArt, WatchingArt,
 } from './OnboardingArt'
 
@@ -167,22 +167,27 @@ export function Onboarding({ params }: { params: URLSearchParams }) {
   )
 }
 
-/** The steps as a bar of segments under their chapters; each segment goes to its step. */
+/** The steps as a bar of segments, in groups by chapter with the chapter's name over the start of its group; each segment
+ *  goes to its step. One grid holds both rows (the segments' list is a subgrid), so a name and its group start together;
+ *  a chapter of one step is at least as wide as its name, so names never run into each other. */
 function Progress({ step }: { step: number }) {
+  const groups = chapters.map((c) => steps.flatMap((x, i) => (x.chapter === c ? [i] : [])))
+  // A narrow spacer track between chapters: the space between groups is wider than the space inside one.
+  const cols = groups.flatMap((g, gi) => [...(gi ? ['var(--ob-chap-gap)'] : []), ...g.map(() => (g.length === 1 ? 'minmax(max-content, 1fr)' : 'minmax(0, 1fr)'))])
+  const colOf = (i: number) => i + 1 + chapters.indexOf(steps[i].chapter)
   return (
-    <nav className="ob-progress" aria-label={t('Guide progress')}>
-      <div className="ob-chapters" aria-hidden="true">
-        {chapters.map((c) => {
-          const idx = steps.map((x, i) => (x.chapter === c ? i : -1)).filter((i) => i >= 0)
-          const on = idx.includes(step - 1)
-          return <span key={c} className={on ? 'on' : undefined} style={{ gridColumn: `${idx[0] + 1} / span ${idx.length}` }}>{t(c)}</span>
-        })}
-      </div>
+    <nav className="ob-progress" aria-label={t('Guide progress')} style={{ gridTemplateColumns: cols.join(' ') }}>
+      {chapters.map((c, ci) => {
+        const g = groups[ci]
+        return (
+          <span key={c} className={`ob-chap${g.includes(step - 1) ? ' on' : ''}`} aria-hidden="true" style={{ gridColumn: `${colOf(g[0])} / span ${g.length}` }}>{t(c)}</span>
+        )
+      })}
       <ol className="ob-segs">
         {steps.map((x, i) => {
           const n = i + 1
           return (
-            <li key={x.key}>
+            <li key={x.key} style={{ gridColumn: colOf(i) }}>
               <button type="button" className={n < step ? 'done' : n === step ? 'now' : undefined} aria-current={n === step ? 'step' : undefined}
                 aria-label={t('Step {n} of {total}: {name}', { n, total: STEPS, name: t(x.name) })} title={t(x.name)} onClick={() => go(n)}>
                 <i />
@@ -236,6 +241,7 @@ function stepBody(key: string, c: Ctx): { text: ReactNode; visual: ReactNode; wi
               <span className="label">{t('Theme')}</span>
               <ThemeChoice theme={c.theme} setTheme={c.setTheme} size="large" />
             </div>
+            <PreviewArt />
           </div>
         ),
       }

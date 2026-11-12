@@ -3,7 +3,7 @@ import { imageRef, query, type ImageCoverage, type ImageDetail, type ImageGroup,
 import { Failed, Loading } from '../components/Shell'
 import { Note } from '../components/Note'
 import { provWord } from '../explorer'
-import { locale, t, tn } from '../i18n'
+import { locale, t, tn, ts } from '../i18n'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { offset, relativeTime, utcToZoned, zonedToUtc } from '../time'
@@ -69,7 +69,7 @@ function rowKeyOf(u: ImageUse, i: number): string {
 function provTitleOf(u: ImageUse, tz: string): string | undefined {
   const parts = (u.notes ?? []).map((n) => noteWords(n, undefined, tz)).filter(Boolean)
   if (u.templateProvenance) parts.push(t('The template named this image: {p}. The stretch: {s}.', { p: provWord(u.templateProvenance), s: provWord(u.provenance) }))
-  return parts.length ? parts.join(' ') : u.note
+  return parts.length ? parts.join(' ') : ts(u.note)
 }
 
 function UseWhen({ u, now, tz }: { u: ImageUse; now: string; tz: string }) {
@@ -89,7 +89,7 @@ function UseWhen({ u, now, tz }: { u: ImageUse; now: string; tz: string }) {
 }
 
 function Notes({ notes, cov, tz, fallback }: { notes?: ImageNote[]; cov: ImageCoverage; tz: string; fallback: string[] }) {
-  const words = notes ? notes.map((n) => noteWords(n, cov, tz)).filter(Boolean) : fallback
+  const words = notes ? notes.map((n) => noteWords(n, cov, tz)).filter(Boolean) : fallback.map((n) => ts(n))
   return <span>{words.map((n, i) => <span key={i} style={{ display: 'block' }}>{n}</span>)}</span>
 }
 
@@ -115,7 +115,7 @@ function ContainerCell({ u }: { u: ImageUse }) {
     <>
       <span className="mono">{u.container}</span>
       {u.init && <span className="chip">{t('init')}</span>}
-      {u.reportedImageId && <span className="mono muted" style={{ display: 'block', fontSize: 11, overflowWrap: 'anywhere' }} title={t('The image ID a Pod of this revision reported')}>{u.reportedImageId}</span>}
+      {u.reportedImageId && <span className="mono muted sub" style={{ overflowWrap: 'anywhere' }} title={t('The image ID a Pod of this revision reported')}>{u.reportedImageId}</span>}
     </>
   )
 }
@@ -154,10 +154,10 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span className="label">{t('Container images in the workloads OpsTide records')}</span>
           <h1 className="title">{data ? tn(data.total, '{n} image', '{n} images') : t('Images')}</h1>
-          {data && <span className="muted" style={{ fontSize: 13 }}>{data.current ? t('Now') : t('At {time}', { time: relativeTime(data.at, data.now, tz) })} · {tn(uses, '{n} container', '{n} containers')}</span>}
+          {data && <span className="muted fine">{data.current ? t('Now') : t('At {time}', { time: relativeTime(data.at, data.now, tz) })} · {tn(uses, '{n} container', '{n} containers')}</span>}
         </div>
         <span className="grow" />
-        <Link href="/workloads" style={{ fontSize: 13 }}>{t('Workloads')}</Link>
+        <Link href="/workloads" className="fine">{t('Workloads')}</Link>
       </div>
 
       <form className="filters" aria-label={t('Filter images')} onSubmit={(e) => { e.preventDefault(); apply() }}>
@@ -175,7 +175,7 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
         <button type="button" className="button" onClick={apply} disabled={isNaN(zonedToUtc(shown, tz))}>{t('Apply')}</button>
         <button type="button" className="button" aria-pressed={!at} onClick={() => { setEdit(null); set({ at: null }) }}>{t('Now')}</button>
         <span className="grow" style={{ flex: 1 }} />
-        {(q || ns || at) && <Link href="/images" replace style={{ fontSize: 13 }}>{t('Clear the filters')}</Link>}
+        {(q || ns || at) && <Link href="/images" replace className="fine">{t('Clear the filters')}</Link>}
       </form>
 
       {data && (data.coverage.state !== 'watching' || data.notes.length > 0) && (
@@ -192,7 +192,7 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
           {data.unknown!.map((w) => (
             <Link key={w.workloadId} className="row" href={w.path} style={{ gridTemplateColumns: 'minmax(0, 1fr) auto auto' }}>
               <span className="mono" style={{ overflowWrap: 'anywhere' }}>{w.kind} {w.namespace}/{w.workload}</span>
-              <span className="muted" style={{ fontSize: 12 }}>{t('held from {time}', { time: relativeTime(w.heldSince, data.now, tz) })}</span>
+              <span className="muted fine">{t('held from {time}', { time: relativeTime(w.heldSince, data.now, tz) })}</span>
               <span className="chip prov-unknown" style={{ marginLeft: 0 }}>{provWord(w.provenance)}</span>
             </Link>
           ))}
@@ -211,7 +211,7 @@ export function Images({ params, tz }: { params: URLSearchParams; tz: string }) 
           </table>
         </div>
       )}
-      {data?.truncated && <span className="muted" style={{ fontSize: 13 }}>{t('Only the first {n} images are listed; narrow the search.', { n: data.images.length })}</span>}
+      {data?.truncated && <span className="muted fine">{t('Only the first {n} images are listed; narrow the search.', { n: data.images.length })}</span>}
       <Note block more={t("Times are those of each workload's revisions: when the revision that gave a container its image became current, and when a newer one replaced it, not when each Pod pulled it. That a template named an image was seen (observed): a Deployment's ReplicaSet, a StatefulSet's or DaemonSet's ControllerRevision, a CronJob's job template. When it was the running image is derived from when revisions became current (Pods held back by a partition or OnDelete can still run an earlier one), and unknown when a time is not known or a rollout failed. A time marked * is when OpsTide first recorded it: it was in use before. Image references are shown as written; a missing tag is not filled in.")}>{t('From recorded revisions · not a scan of the nodes')}</Note>
     </div>
   )
@@ -225,7 +225,7 @@ function ImageRows({ g, now, tz }: { g: ImageGroup; now: string; tz: string }) {
           {i === 0 && (
             <td rowSpan={g.uses.length} style={{ verticalAlign: 'top' }}>
               <Link href={`/images/${g.ref}`} className="mono" style={{ display: 'block', overflowWrap: 'anywhere', fontWeight: 500 }}>{g.image}</Link>
-              <span className="muted" style={{ fontSize: 12 }}>{tn(new Set(g.uses.map((x) => x.workloadId)).size, '{n} workload', '{n} workloads')} · {g.namespaces.join(', ')}</span>
+              <span className="muted fine">{tn(new Set(g.uses.map((x) => x.workloadId)).size, '{n} workload', '{n} workloads')} · {g.namespaces.join(', ')}</span>
             </td>
           )}
           <td><WorkloadCell u={u} /></td>
@@ -249,14 +249,14 @@ export function Image({ refId, tz }: { refId: string; tz: string }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
           <span className="label">{t('Image')}</span>
           <h1 className="title mono" style={{ overflowWrap: 'anywhere' }}>{data.image}</h1>
-          <span className="muted" style={{ fontSize: 13 }}>
+          <span className="muted fine">
             {t('repository')} <span className="mono">{data.repository}</span>
             {data.tag ? <> · {t('tag')} <span className="mono">{data.tag}</span></> : <> · {t('no tag written')}</>}
             {data.digest && <> · <span className="mono">{data.digest}</span></>}
           </span>
         </div>
         <span className="grow" />
-        <Link href="/images" style={{ fontSize: 13 }}>{t('All images')}</Link>
+        <Link href="/images" className="fine">{t('All images')}</Link>
       </div>
 
       <p className="sentence" style={{ margin: 0 }}>
@@ -276,15 +276,15 @@ export function Image({ refId, tz }: { refId: string; tz: string }) {
                 <tr key={rowKeyOf(u, i)}>
                   <td><WorkloadCell u={u} /></td>
                   <td><ContainerCell u={u} /></td>
-                  <td><UseWhen u={u} now={data.now} tz={tz} />{u.untilBasis && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{t(untilWords[u.untilBasis])}</span>}</td>
-                  <td style={{ fontSize: 13 }}>
+                  <td><UseWhen u={u} now={data.now} tz={tz} />{u.untilBasis && <span className="muted sub">{t(untilWords[u.untilBasis])}</span>}</td>
+                  <td className="fine">
                     {u.previous && <span style={{ display: 'block' }}><span className="muted">{t('before:')}</span> <Link href={`/images/${imageRef(u.previous)}`} className="mono">{u.previous}</Link></span>}
                     {u.replacedBy && <span style={{ display: 'block' }}><span className="muted">{t('after:')}</span> <Link href={`/images/${imageRef(u.replacedBy)}`} className="mono">{u.replacedBy}</Link></span>}
                     {!u.previous && !u.replacedBy && <span className="muted">—</span>}
                   </td>
                   <td><RevisionCell u={u} /></td>
                   <td><span className={`chip prov-${u.provenance.toLowerCase()}`} style={{ marginLeft: 0 }} title={provTitleOf(u, tz)}>{provWord(u.provenance)}</span>
-                    {(u.notes ?? []).length > 0 && <span className="muted" style={{ display: 'block', fontSize: 12, maxWidth: 320 }}>{(u.notes ?? []).map((n) => noteWords(n, data.coverage, tz)).join(' ')}</span>}</td>
+                    {(u.notes ?? []).length > 0 && <span className="muted sub" style={{ maxWidth: 320 }}>{(u.notes ?? []).map((n) => noteWords(n, data.coverage, tz)).join(' ')}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -298,7 +298,7 @@ export function Image({ refId, tz }: { refId: string; tz: string }) {
           {data.otherTags.map((o) => (
             <Link key={o.image} className="row" href={`/images/${o.ref}`} style={{ gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
               <span className="mono" style={{ overflowWrap: 'anywhere' }}>{o.image}</span>
-              <span className="muted" style={{ fontSize: 12 }}>{t('{current} current · {uses} recorded', { current: o.current, uses: o.uses })}</span>
+              <span className="muted fine">{t('{current} current · {uses} recorded', { current: o.current, uses: o.uses })}</span>
             </Link>
           ))}
         </section>

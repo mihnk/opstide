@@ -2,7 +2,7 @@ import { useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode }
 import { GapIcon, RecordIcon, ChevronRight } from '../components/icons'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { classOf, groupShort, provWord, type ExplorerRecord } from '../explorer'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 import { hhmm, hhmmss, isoDate, longDay } from '../time'
 
 // The Explorer's record table, and the cells the Workspace draws its records with. One row per record, newest first:
@@ -41,7 +41,7 @@ export function EventCell({ r, extra }: { r: ExplorerRecord; extra?: ReactNode }
 
 function MaintChip({ r }: { r: ExplorerRecord }) {
   if (!r.maintenance) return null
-  return <span className="chip maint" title={`${r.maintenance.statement} · ${provWord(r.maintenance.provenance)}`}>{t('maintenance: {name}', { name: r.maintenance.name })}</span>
+  return <span className="chip maint" title={`${ts(r.maintenance.statement)} · ${provWord(r.maintenance.provenance)}`}>{t('maintenance: {name}', { name: r.maintenance.name })}</span>
 }
 
 /** Identity used to group: the UID when the record has one, else kind, namespace and name. Never a guess. */

@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import { getJSON, query, type Entries, type Entry, type ReleaseChanges, type ReleaseDetail, type ReleasePods, type PodView } from '../api'
 import { HealthGlyph, HealthStatus, RolloutGlyph, RolloutStatus, healthWords, rolloutWords, tParts } from '../components/status'
-import { locale, t, tc, tn } from '../i18n'
+import { locale, t, tc, tn, ts } from '../i18n'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
 import { entryWord } from '../entryWords'
@@ -26,7 +26,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
   return (
     <div className="page" style={{ gap: 20 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <Link href="/releases" style={{ fontSize: 13 }}>← {t('Releases')}</Link>
+        <Link href="/releases" className="fine">← {t('Releases')}</Link>
         <div className="head-row" style={{ gap: '10px 24px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span className="label">Deployment · {r.namespace}</span>
@@ -35,7 +35,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
               <span className="mono" style={{ fontSize: 20, fontWeight: 500, fontStretch: '100%' }}>{t('Revision {n}', { n: r.revision })}</span>
               {r.origin === 'adopted' && <span className="chip" title={t('It existed before OpsTide started watching.')}>{t('adopted')}</span>}
             </h1>
-            <span className="mono muted" style={{ fontSize: 13 }}>{d.workload.namespace}/{d.workload.name}{d.workload.deletedAt ? ` · ${t('Deployment deleted')}` : ''}</span>
+            <span className="mono muted fine">{d.workload.namespace}/{d.workload.name}{d.workload.deletedAt ? ` · ${t('Deployment deleted')}` : ''}</span>
           </div>
           <span className="grow" />
           <ZoneSelect tz={tz} setTz={setTz} compact />
@@ -55,7 +55,7 @@ export function Release({ id, params, tz, setTz }: { id: string; params: URLSear
           {r.origin === 'adopted'
             ? <>, <span className="muted">{t('not assessed: its rollout was not observed.')}</span></>
             : <>; {t('rule result for the observation window:')} <HealthGlyph health={a.health} /> <b style={{ color: a.health === 'degraded' ? 'var(--fail)' : undefined }}>{t(healthWords[a.health]).toLocaleLowerCase(locale())}</b>
-              {a.reasons[0] && a.health !== 'healthy' ? <span className="muted">: {a.reasons[0]}</span> : null}.</>}
+              {a.reasons[0] && a.health !== 'healthy' ? <span className="muted">: {ts(a.reasons[0])}</span> : null}.</>}
         </p>
       </div>
 
@@ -109,11 +109,11 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
           [t('Revision'), <span className="mono">{r.revision}</span>],
           [t('Template hash'), <span className="mono">{d.replicaSet.templateHash || '—'}</span>],
           [t('Images'), <span className="mono">{(d.snapshot.containers ?? []).map((c) => c.image).join(', ')}</span>],
-          ...(Object.keys(d.imageIds).length ? [[t('Image IDs'), <span className="mono" style={{ fontSize: 12 }}>{Object.entries(d.imageIds).map(([k, v]) => `${k} ${v}`).join(' · ')}</span>] as [string, React.ReactNode]] : []),
+          ...(Object.keys(d.imageIds).length ? [[t('Image IDs'), <span className="mono fine">{Object.entries(d.imageIds).map(([k, v]) => `${k} ${v}`).join(' · ')}</span>] as [string, React.ReactNode]] : []),
         ]} />
         <Facts title={t('Rollout lifecycle')} rows={[
           [t('State'), <RolloutStatus state={r.state} />],
-          [t('Reason'), <span className="mono" style={{ fontSize: 13 }}>{r.stateReason || <span className="muted">—</span>}</span>],
+          [t('Reason'), <span className="mono fine">{r.stateReason ? ts(r.stateReason) : <span className="muted">—</span>}</span>],
           [t('Observed'), <><span className="mono">{hhmmss(r.observedAt, tz)}</span> <span className="muted">{r.origin === 'adopted' ? t('found already present by OpsTide') : t('first seen by OpsTide')}</span></>],
           [t('Started'), r.startedAt ? <span className="mono">{hhmmss(r.startedAt, tz)} <span className="muted">{t('ReplicaSet created')}</span></span> : <span className="muted">{t('unknown')}</span>],
           [t('Completed'), r.completedAt ? <span className="mono">{hhmmss(r.completedAt, tz)}{r.startedAt ? <span className="muted"> {t('{d} after start', { d: duration((Date.parse(r.completedAt) - Date.parse(r.startedAt)) / 1000) })}</span> : null}</span> : <span className="muted">{t('not completed')}</span>],
@@ -127,7 +127,7 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
           <dl className="facts" style={{ gridTemplateColumns: '150px minmax(0, 1fr)' }}>
             <dt className="label">{t('Result')}</dt><dd><HealthStatus health={a.health} /></dd>
             <dt className="label">{t('Rule output')}</dt>
-            <dd><ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>{a.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
+            <dd><ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>{a.reasons.map((x, i) => <li key={i}>{ts(x)}</li>)}</ul>
               <Note block more={`${t('Evidence comes from the Kubernetes API. Container logs are not kept.')}${a.version ? ` ${t(a.version === 1 ? 'Judged by rule set {v} (every availability shortfall counts).' : 'Judged by rule set {v} (a shortfall that only follows a raised replica target is set aside, with the rule shown).', { v: a.version })}` : ''}`}>{a.version ? t('Rule set {v}', { v: a.version }) : t('Rule set')}</Note></dd>
           </dl>
         </section>
@@ -145,7 +145,7 @@ function Overview({ d, tz, windowSel, params }: { d: ReleaseDetail; tz: string; 
                   <button key={w} type="button" aria-pressed={windowSel === w} onClick={() => navigate(withParams(params, { window: w === r.windowMinutes ? null : String(w) }), true)}>{t('{n} min', { n: w })}</button>
                 ))}
               </div>
-              <span className="muted" style={{ display: 'block', fontSize: 12, marginTop: 6 }}>
+              <span className="muted sub" style={{ marginTop: 6 }}>
                 {a.stored ? t('Observed for {n} min after completion, as configured.', { n: a.windowMinutes }) : t('Judged now for {n} min from what was recorded; it was observed with {m} min.', { n: a.windowMinutes, m: r.windowMinutes })}
               </span>
             </dd>
@@ -250,7 +250,7 @@ function Timeline({ id, tz }: { id: string; tz: string }) {
           ))}
         </span>
       </fieldset>
-      {data.truncated && <p className="muted" style={{ fontSize: 12, margin: '0 0 8px' }}>{t('The newest entries are shown; the timeline was cut at its limit. Release lifecycle entries are in the Log.')}</p>}
+      {data.truncated && <p className="muted fine" style={{ margin: '0 0 8px' }}>{t('The newest entries are shown; the timeline was cut at its limit. Release lifecycle entries are in the Log.')}</p>}
       {entries.length === 0 && <div className="empty">{t('Every kind of entry is hidden.')}</div>}
       {items.map((it) => it.entry ? <EntryRow key={it.entry.id} e={it.entry} tz={tz} /> : (
         <details key={`pod-${it.pod!.name}`} className="pod-group" open={it.pod!.entries.some((e) => e.severity !== 'info')}>
@@ -262,7 +262,7 @@ function Timeline({ id, tz }: { id: string; tz: string }) {
         </details>
       ))}
       {cursor && <button type="button" className="button" style={{ alignSelf: 'flex-start', marginTop: 12 }} disabled={busy} onClick={more}>{busy ? t('Loading…') : t('Older entries')}</button>}
-      <p className="muted" style={{ fontSize: 12 }}>{t('Pod entries are folded under their Pod.')} <Link href={explorerLink({ release: id, routine: '1', range: '7d' })}>{t('Open these in the Explorer')}</Link></p>
+      <p className="muted fine">{t('Pod entries are folded under their Pod.')} <Link href={explorerLink({ release: id, routine: '1', range: '7d' })}>{t('Open these in the Explorer')}</Link></p>
     </div>
   )
 }
@@ -296,7 +296,7 @@ function Pods({ id, tz, now }: { id: string; tz: string; now: string }) {
   if (!data) return <Loading />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="muted" style={{ fontSize: 13 }}>ReplicaSet <span className="mono">{data.replicaSet.name}</span>{data.replicaSet.templateHash ? <> · {t('hash')} <span className="mono">{data.replicaSet.templateHash}</span></> : null}. {t('Pods are tied to it by UID, not by name.')}</div>
+      <div className="muted fine">ReplicaSet <span className="mono">{data.replicaSet.name}</span>{data.replicaSet.templateHash ? <> · {t('hash')} <span className="mono">{data.replicaSet.templateHash}</span></> : null}. {t('Pods are tied to it by UID, not by name.')}</div>
       {data.pods.length === 0 && <div className="empty">{t('No Pod of this release was observed. If it was adopted, its Pods that already existed were not replayed; they appear here when they change.')}</div>}
       {data.pods.length > 0 && (
         <div className="table-wrap">
@@ -307,14 +307,14 @@ function Pods({ id, tz, now }: { id: string; tz: string; now: string }) {
                 const last = p.containers.filter((c) => c.lastReason || c.oomKilled)
                 return (
                   <tr key={p.uid}>
-                    <td><span className="mono" style={{ fontSize: 12 }}>{p.name}</span>{p.quiet && <span className="chip" title={t('It existed when its release was adopted: earlier history was not observed.')}>{t('baseline')}</span>}</td>
-                    <td className="mono" style={{ fontSize: 12 }}>{p.node || '—'}</td>
+                    <td><span className="mono fine">{p.name}</span>{p.quiet && <span className="chip" title={t('It existed when its release was adopted: earlier history was not observed.')}>{t('baseline')}</span>}</td>
+                    <td className="mono fine">{p.node || '—'}</td>
                     <td className="mono">{hhmmss(p.createdAt, tz)}</td>
                     <td className="mono">{p.scheduledAt ? hhmmss(p.scheduledAt, tz) : <span className="muted">—</span>}</td>
                     <td className="mono">{p.readyAt ? hhmmss(p.readyAt, tz) : <span className="muted">{t('never')}</span>}</td>
-                    <td>{p.state}{p.evicted ? ` · ${t('evicted')}` : ''}{p.terminatedAt ? <span className="muted mono" style={{ display: 'block', fontSize: 12 }}>{hhmmss(p.terminatedAt, tz)}{p.termReason && p.termReason !== 'deleted' ? ` · ${p.termReason}` : ''}</span> : null}</td>
-                    <td className="mono" style={{ color: p.restarts ? 'var(--fail)' : undefined }}>{p.restarts}{p.containers.some((c) => c.waiting.length) && <span style={{ display: 'block', fontSize: 12 }}>{p.containers.flatMap((c) => c.waiting).join(', ')}</span>}</td>
-                    <td style={{ fontSize: 13 }}>{last.length === 0 ? <span className="muted">{t('none observed')}</span> : last.map((c) => (
+                    <td>{p.state}{p.evicted ? ` · ${t('evicted')}` : ''}{p.terminatedAt ? <span className="muted mono sub">{hhmmss(p.terminatedAt, tz)}{p.termReason && p.termReason !== 'deleted' ? ` · ${p.termReason}` : ''}</span> : null}</td>
+                    <td className="mono" style={{ color: p.restarts ? 'var(--fail)' : undefined }}>{p.restarts}{p.containers.some((c) => c.waiting.length) && <span className="sub">{p.containers.flatMap((c) => c.waiting).join(', ')}</span>}</td>
+                    <td className="fine">{last.length === 0 ? <span className="muted">{t('none observed')}</span> : last.map((c) => (
                       <span key={c.name} style={{ display: 'block', color: c.oomKilled ? 'var(--fail)' : undefined }}>{c.name}: {c.oomKilled ? 'OOMKilled' : c.lastReason}{c.lastExit != null ? `, ${t('exit {code}', { code: c.lastExit })}` : ''}</span>
                     ))}</td>
                     <td><Strip p={p} now={now} /></td>
@@ -325,7 +325,7 @@ function Pods({ id, tz, now }: { id: string; tz: string; now: string }) {
           </table>
         </div>
       )}
-      {data.truncated && <div className="muted" style={{ fontSize: 12 }}>{t('More Pods exist than are shown; the newest 500 are listed.')}</div>}
+      {data.truncated && <div className="muted fine">{t('More Pods exist than are shown; the newest 500 are listed.')}</div>}
       <div className="legend" style={{ paddingTop: 0 }}>
         <span><span className="ready-strip" style={{ width: 24 }}><i className="ready" style={{ width: 24 }} /></span>{t('Ready')}</span>
         <span><span className="ready-strip" style={{ width: 24 }}><i className="notready" style={{ width: 24 }} /></span>{t('NotReady')}</span>
@@ -341,11 +341,11 @@ function Changes({ id }: { id: string }) {
   if (error && !data) return <Failed error={error} />
   if (!data) return <Loading />
   if (!data.available) {
-    return <div className="dashed"><span className="label">{t('Comparison unavailable')}</span><p style={{ margin: '6px 0 0' }}>{data.reason}</p></div>
+    return <div className="dashed"><span className="label">{t('Comparison unavailable')}</span><p style={{ margin: '6px 0 0' }}>{ts(data.reason)}</p></div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div className="muted" style={{ fontSize: 13 }}>{tParts('Compared with revision {rev}, the revision before it that OpsTide has a snapshot of.', { rev: <Link href={`/releases/${encodeURIComponent(data.previous!.id)}`}>{data.previous!.revision}</Link> })}</div>
+      <div className="muted fine">{tParts('Compared with revision {rev}, the revision before it that OpsTide has a snapshot of.', { rev: <Link href={`/releases/${encodeURIComponent(data.previous!.id)}`}>{data.previous!.revision}</Link> })}</div>
       {data.changes.length === 0 && (
         <div className="dashed">
           <span className="label">{data.sameTemplate ? t('Same Pod template') : t('No captured differences')}</span>
@@ -361,17 +361,17 @@ function Changes({ id }: { id: string }) {
             <tbody>
               {data.changes.map((c, i) => (
                 <tr key={i}>
-                  <td>{c.container ? <span className="mono muted" style={{ fontSize: 12 }}>{c.container} </span> : null}{c.field}</td>
+                  <td>{c.container ? <span className="mono muted fine">{c.container} </span> : null}{c.field}</td>
                   <td className="label">{c.kind}</td>
-                  <td className="mono muted" style={{ fontSize: 13 }}>{c.before || '—'}</td>
-                  <td className="mono" style={{ fontSize: 13 }}>{c.after || '—'}</td>
+                  <td className="mono muted fine">{c.before || '—'}</td>
+                  <td className="mono fine">{c.after || '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {data.reason && <div className="muted" style={{ fontSize: 12 }}>{data.reason}</div>}
+      {data.reason && <div className="muted fine">{ts(data.reason)}</div>}
     </div>
   )
 }
@@ -396,10 +396,10 @@ function Context({ d, id, tz }: { d: ReleaseDetail; id: string; tz: string }) {
           r.completedAt ? <>{t('Completed at {time}.', { time: hhmmss(r.completedAt, tz) })}</> : <>{t('Not completed.')}</>,
           ...(r.supersededAt ? [<>{t('Replaced by a newer revision at {time}.', { time: hhmmss(r.supersededAt, tz) })}</>] : []),
         ], '')}
-        {section(t('Pod health changes'), a.findings.map((f) => <>{f.summary}{f.at || f.observed ? <span className="muted mono"> · {hhmmss((f.at || f.observed)!, tz)}</span> : null}</>),
+        {section(t('Pod health changes'), a.findings.map((f) => <>{ts(f.summary)}{f.at || f.observed ? <span className="muted mono"> · {hhmmss((f.at || f.observed)!, tz)}</span> : null}</>),
           r.origin === 'adopted' ? t('Not assessed: this release was adopted.') : t('No restart, OOMKill, waiting reason, NotReady transition, eviction or lasting loss of availability was observed in the window.'))}
-        {section(t('Configuration differences'), ch?.available ? ch.changes.map((c) => c.summary) : [], ch ? (ch.available ? t('No captured difference from the previous revision.') : ch.reason ?? '') : t('Loading…'))}
-        {section(t('Coverage limitations'), [...(a.evidence ?? []), ...d.warnings], t('OpsTide watched Deployments, ReplicaSets and Pods without a gap while it observed this release.'))}
+        {section(t('Configuration differences'), ch?.available ? ch.changes.map((c) => c.summary) : [], ch ? (ch.available ? t('No captured difference from the previous revision.') : ts(ch.reason)) : t('Loading…'))}
+        {section(t('Coverage limitations'), [...(a.evidence ?? []), ...d.warnings].map(ts), t('OpsTide watched Deployments, ReplicaSets and Pods without a gap while it observed this release.'))}
       </div>
       <div className="legend" style={{ paddingTop: 0 }}>
         <span>{t('Rule result:')} <HealthStatus health={a.health} /></span>

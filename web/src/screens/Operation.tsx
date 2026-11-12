@@ -4,7 +4,7 @@ import { Failed, Loading } from '../components/Shell'
 import { DurationSection } from '../components/Duration'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { explorerLink, rangeAround, recordIdOf } from '../explorer'
-import { t } from '../i18n'
+import { t, ts } from '../i18n'
 import { Legend, Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { Link, navigate, withParams } from '../router'
@@ -37,9 +37,9 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
     <div className="page" style={{ paddingTop: 24 }}>
       <div className="head-row" style={{ gap: '12px 28px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <Link href="/schedules" style={{ fontSize: 13, textDecoration: 'none' }}>‹ {t('Schedules')}</Link>
+          <Link href="/schedules" className="fine" style={{ textDecoration: 'none' }}>‹ {t('Schedules')}</Link>
           <h1 className="title">{op.displayName || op.name}</h1>
-          <span className="mono muted" style={{ fontSize: 13 }}>{op.namespace}/{op.name} · CronJob · uid {op.id.slice(0, 4)}…{op.id.slice(-4)}</span>
+          <span className="mono muted fine">{op.namespace}/{op.name} · CronJob · uid {op.id.slice(0, 4)}…{op.id.slice(-4)}</span>
         </div>
         <span style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 4 }}>
           <span className="label">{t('Last run')}</span>
@@ -74,8 +74,8 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
             <dt className="label">{t('Runbook')}</dt>
             <dd>{op.runbookUrl ? <a href={op.runbookUrl} target="_blank" rel="noopener noreferrer">{op.runbookUrl.replace(/^https:\/\//, '')}</a> : <span className="muted">{t('not set')}</span>}</dd>
           </dl>
-          {!!op.metadataProblems?.length && <span className="fail" style={{ fontSize: 12 }}>{op.metadataProblems.join('. ')}.</span>}
-          <span className="muted" style={{ fontSize: 12 }}>{rich("From the CronJob's {annotations} annotations. Edit them in the chart; OpsTide only reads them.", { annotations: <span className="mono">opstide.mihnk.org/*</span> })}</span>
+          {!!op.metadataProblems?.length && <span className="fail fine">{op.metadataProblems.join('. ')}.</span>}
+          <span className="muted fine">{rich("From the CronJob's {annotations} annotations. Edit them in the chart; OpsTide only reads them.", { annotations: <span className="mono">opstide.mihnk.org/*</span> })}</span>
         </section>
 
         <section aria-label={t('What is expected')} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -123,7 +123,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
           <h2 className="label section-title">{t('Recent runs')} <span className="note">· {t('Jobs linked by UID, times {tz}', { tz })}</span></h2>
           {perDay.length === 0 ? <div className="empty">{t('No runs seen yet.')}</div> : (
             <div className="table-wrap">
-              <table className="data" style={{ minWidth: 720, fontSize: 13 }}>
+              <table className="data" style={{ minWidth: 720 }}>
                 <thead>
                   <tr>{['Expected', 'Created', 'Started', 'Finished', 'Result', 'Took', 'Basis'].map((h) => <th key={h} scope="col" className="label" style={{ paddingTop: 10 }}>{t(h)}</th>)}</tr>
                 </thead>
@@ -136,7 +136,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
                       <td className="mono muted">{r.finishedAt ? hhmmss(r.finishedAt, tz) : '—'}</td>
                       <td className={r.status === 'failed' ? 'fail' : undefined} style={{ fontWeight: r.status === 'failed' ? 600 : 400, color: r.status === 'running' ? 'var(--accent)' : undefined }}>{statusWord(r.status)}</td>
                       <td className="mono" style={{ fontWeight: r.slow ? 600 : 400 }}>{r.seconds ? (r.status === 'running' ? t('{d} so far', { d: duration(r.seconds) }) : duration(r.seconds)) : '—'}</td>
-                      <td className="muted" style={{ fontSize: 12 }}>{basis(r.status)}{r.slow && expected ? ` · ${t('over {d}', { d: expected })}` : ''}{r.attempts > 1 ? ` · ${t('{n} attempts', { n: r.attempts })}` : ''}</td>
+                      <td className="muted fine">{basis(r.status)}{r.slow && expected ? ` · ${t('over {d}', { d: expected })}` : ''}{r.attempts > 1 ? ` · ${t('{n} attempts', { n: r.attempts })}` : ''}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -147,7 +147,7 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
             <Link className="button" style={{ alignSelf: 'flex-start', marginTop: 14, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
               href={withParams(params, { before: data.runs[data.runs.length - 1].createdAt, run: null })}>{t('Older runs')}</Link>
           )}
-          {before && <Link href={withParams(params, { before: null, run: null })} style={{ marginTop: 10, fontSize: 13 }}>{t('Newest runs')}</Link>}
+          {before && <Link href={withParams(params, { before: null, run: null })} className="fine" style={{ marginTop: 10 }}>{t('Newest runs')}</Link>}
         </section>
         <aside aria-label={t('Selected run')}>{runId ? <RunPanel id={runId} tz={tz} expected={op.expectedSeconds} /> : <div className="empty">{t('No run selected.')}</div>}</aside>
       </div>
@@ -177,7 +177,7 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
       <div className="panel-head">
         <span className="label" style={{ color: r.status === 'failed' ? 'var(--fail)' : undefined }}>{head}</span>
         <span className="name">{when}</span>
-        <span className="muted" style={{ fontSize: 13 }}>
+        <span className="muted fine">
           {r.status === 'failed' && <>
             {r.attempts > 1 ? `${t('{n} attempts.', { n: r.attempts })} ` : ''}
             {rich(
@@ -227,14 +227,14 @@ function RunPanel({ id, tz, expected }: { id: string; tz: string; expected?: num
       </dl>
       <RunEvents id={id} tz={tz} />
       {data.entries.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+        <div className="fine" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span className="label">{t('Log entries')}</span>
           {data.entries.map((e) => (
             <span key={e.id} className="mono muted"><span style={{ color: 'var(--ink)' }}>{hhmmss(e.at, tz)}</span> {e.summary}</span>
           ))}
         </div>
       )}
-      <span className="muted" style={{ fontSize: 12 }}>{t('OpsTide does not keep container logs.')} <Link href={explorerLink({ q: r.job, routine: '1', ...rangeAround(r.createdAt) })}>{t('All records for this Job')}</Link></span>
+      <span className="muted fine">{t('OpsTide does not keep container logs.')} <Link href={explorerLink({ q: r.job, routine: '1', ...rangeAround(r.createdAt) })}>{t('All records for this Job')}</Link></span>
     </>
   )
 }
@@ -247,7 +247,7 @@ function RunEvents({ id, tz }: { id: string; tz: string }) {
   // English keys; drawn through t().
   const words: Record<string, string> = { DIRECT: 'names the Job by UID', OWNERSHIP: 'names a Pod owned by the Job', SAME_RESOURCE_CONTEXT: 'same resource context', UNRESOLVED: 'unresolved' }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+    <div className="fine" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span className="label">{t('Kubernetes Events')} <span className="muted">· {t('as reported, linked by UID and ownerReference')}</span> <Link href={explorerLink({ run: id, range: '7d' })}>{t('Records of this run in Explorer')}</Link></span>
       {data.records.length === 0 && <span className="muted">{t('No Kubernetes Event is recorded for this run.')}</span>}
       {data.records.map((e) => {
@@ -257,14 +257,14 @@ function RunEvents({ id, tz }: { id: string; tz: string }) {
           <div key={e.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, borderTop: '1px solid var(--rule)', paddingTop: 6 }}>
             <span><WorkspaceToggle id={e.recordId} compact />{' '}<b>{e.reason || t('no reason reported')}</b> <span className="muted">· {e.eventType} · {e.resource.kind} <span className="mono">{e.resource.name}</span></span></span>
             {e.message && <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{e.message.length > 240 ? `${e.message.slice(0, 240)}…` : e.message}</span>}
-            <span className="muted mono" style={{ fontSize: 12 }}>
+            <span className="muted mono fine">
               {e.count ? t('count {n}', { n: e.count.value }) : t('count not reported')} · {first ? t('first {time}', { time: hhmmss(first, tz) }) : t('first time not reported')}{last ? ` · ${t('last {time}', { time: hhmmss(last, tz) })}` : ''} · {e.source}{link ? ` · ${words[link.relationship] ? t(words[link.relationship]) : link.relationship}` : ''}
             </span>
           </div>
         )
       })}
-      {data.notes.map((n, i) => <span key={i} className="muted" style={{ fontSize: 12 }}>{n}</span>)}
-      {data.provenance.notes.map((n, i) => <span key={i} className="fail" style={{ fontSize: 12 }}>{n}</span>)}
+      {data.notes.map((n, i) => <span key={i} className="muted fine">{ts(n)}</span>)}
+      {data.provenance.notes.map((n, i) => <span key={i} className="fail fine">{ts(n)}</span>)}
     </div>
   )
 }

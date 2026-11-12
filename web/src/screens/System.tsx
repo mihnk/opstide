@@ -4,7 +4,7 @@ import { Timeline } from '../components/Timeline'
 import { useApi } from '../live'
 import { ago, duration, hhmm, hhmmss, relativeTime } from '../time'
 import { kindName } from '../kinds'
-import { locale, t, tn } from '../i18n'
+import { locale, t, tn, ts } from '../i18n'
 import { Link } from '../router'
 import { tParts } from '../components/status'
 
@@ -35,7 +35,7 @@ export function System({ tz }: { tz: string }) {
           <h1 className="title">{t('Collector and coverage')}</h1>
         </div>
         <span className="grow" />
-        <span className="mono muted" style={{ fontSize: 12, paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · {t('read-only')} · <Link href="/welcome">{t('Guide')}</Link></span>
+        <span className="mono muted fine" style={{ paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · {t('read-only')} · <Link href="/welcome">{t('Guide')}</Link></span>
       </div>
 
       {data.dropped.count > 0 && (
@@ -106,7 +106,7 @@ export function System({ tz }: { tz: string }) {
           <dt className="label">{t('Completeness')}</dt>
           <dd>{data.workload.degraded.length === 0
             ? <>{t('Complete: Deployments, ReplicaSets and their Pods are being watched.')}</>
-            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workload.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workload.degraded.map((m, i) => <li key={i} className="fail">{ts(m)}</li>)}</ul>}</dd>
         </dl>
       </section>
 
@@ -116,11 +116,11 @@ export function System({ tz }: { tz: string }) {
           <dt className="label">{t('Workloads recorded')}</dt>
           <dd className="mono">{['Deployment', 'StatefulSet', 'DaemonSet'].map((k) => `${data.workloads.counts[k] ?? 0} ${k}${(data.workloads.counts[k] ?? 0) === 1 ? '' : 's'}`).join(' · ')}</dd>
           <dt className="label">{t('Node observation')}</dt>
-          <dd>{data.workloads.nodes.enabled ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.workloads.nodes.live, '{n} live Node recorded', '{n} live Nodes recorded')}</span></> : <><span className="mono">{t('off')}</span> <span className="muted">· {tn(data.workloads.nodes.recorded, '{n} Node recorded earlier, none shown as live', '{n} Nodes recorded earlier, none shown as live')}{data.workloads.nodes.lastObservedAt ? <> · {t('last observed')} <span className="mono">{hhmmss(data.workloads.nodes.lastObservedAt, tz)}</span></> : ` · ${t('never observed')}`}</span></>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.workloads.nodes.note}</span></dd>
+          <dd>{data.workloads.nodes.enabled ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.workloads.nodes.live, '{n} live Node recorded', '{n} live Nodes recorded')}</span></> : <><span className="mono">{t('off')}</span> <span className="muted">· {tn(data.workloads.nodes.recorded, '{n} Node recorded earlier, none shown as live', '{n} Nodes recorded earlier, none shown as live')}{data.workloads.nodes.lastObservedAt ? <> · {t('last observed')} <span className="mono">{hhmmss(data.workloads.nodes.lastObservedAt, tz)}</span></> : ` · ${t('never observed')}`}</span></>}<span className="muted sub">{ts(data.workloads.nodes.note)}</span></dd>
           <dt className="label">{t('Completeness')}</dt>
           <dd>{data.workloads.degraded.length === 0
             ? <>{t('Complete as far as OpsTide can tell for the kinds it is set to watch.')}</>
-            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workloads.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.workloads.degraded.map((m, i) => <li key={i} className="fail">{ts(m)}</li>)}</ul>}</dd>
         </dl>
       </section>
 
@@ -128,13 +128,13 @@ export function System({ tz }: { tz: string }) {
         <h2 className="label section-title">{t('ConfigMaps and Secrets')} <span className="note">· {t('who created, wrote or deleted them; never a value')}</span></h2>
         <dl className="facts" style={{ gridTemplateColumns: '170px minmax(0, 1fr)' }}>
           <dt className="label">ConfigMaps</dt>
-          <dd>{data.config.configMaps ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.configMapCount, '{n} ConfigMap recorded', '{n} ConfigMaps recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.config.configMapNote}</span></dd>
+          <dd>{data.config.configMaps ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.configMapCount, '{n} ConfigMap recorded', '{n} ConfigMaps recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted sub">{ts(data.config.configMapNote)}</span></dd>
           <dt className="label">{t('Secret metadata')}</dt>
-          <dd>{data.config.secretMetadata ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.secretCount, '{n} Secret recorded', '{n} Secrets recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted" style={{ display: 'block', fontSize: 12 }}>{data.config.secretNote}</span></dd>
+          <dd>{data.config.secretMetadata ? <><span className="mono">{t('on')}</span> <span className="muted">· {tn(data.config.secretCount, '{n} Secret recorded', '{n} Secrets recorded')}</span></> : <span className="mono">{t('off')}</span>}<span className="muted sub">{ts(data.config.secretNote)}</span></dd>
           <dt className="label">{t('Completeness')}</dt>
           <dd>{data.config.degraded.length === 0
             ? <>{t('Complete as far as OpsTide can tell for the kinds it is set to watch.')}</>
-            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.config.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.config.degraded.map((m, i) => <li key={i} className="fail">{ts(m)}</li>)}</ul>}</dd>
         </dl>
       </section>
 
@@ -149,13 +149,13 @@ export function System({ tz }: { tz: string }) {
               <tbody>
                 {data.maintenance!.windows.map((w) => (
                   <tr key={w.name}>
-                    <td><span style={{ fontWeight: 500 }}>{w.name}</span>{w.active && <span className="chip maint">{t('open now')}</span>}{w.note && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{w.note}</span>}</td>
-                    <td className="mono" style={{ fontSize: 13 }}>{w.kind === 'recurring'
+                    <td><span style={{ fontWeight: 500 }}>{w.name}</span>{w.active && <span className="chip maint">{t('open now')}</span>}{w.note && <span className="muted sub">{w.note}</span>}</td>
+                    <td className="mono fine">{w.kind === 'recurring'
                       ? <>{w.cron} <span className="muted">· {w.duration} · {w.timeZone}</span></>
                       : <>{w.start && hhmmss(w.start, tz)} → {w.end && hhmmss(w.end, tz)} <span className="muted" style={{ fontFamily: 'inherit' }}>· {t('once')}</span></>}</td>
                     <td>{w.namespaces.length ? <span className="mono">{w.namespaces.join(', ')}</span> : <span className="muted">{t('the whole cluster')}</span>}
-                      {(w.unwatchedNamespaces?.length ?? 0) > 0 && <span className="fail" style={{ display: 'block', fontSize: 12 }}>{t('Not watched by OpsTide: {list}. Nothing is recorded there, so this window marks nothing in them.', { list: w.unwatchedNamespaces!.join(', ') })}</span>}</td>
-                    <td className="mono" style={{ fontSize: 12 }}>{w.next.length === 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}>{t('none to come')}</span>
+                      {(w.unwatchedNamespaces?.length ?? 0) > 0 && <span className="fail sub">{t('Not watched by OpsTide: {list}. Nothing is recorded there, so this window marks nothing in them.', { list: w.unwatchedNamespaces!.join(', ') })}</span>}</td>
+                    <td className="mono fine">{w.next.length === 0 ? <span className="muted" style={{ fontFamily: 'inherit' }}>{t('none to come')}</span>
                       : w.next.map((o) => <span key={o.from} style={{ display: 'block' }}>{new Date(o.from).toLocaleString(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} – {hhmm(o.to, tz)}</span>)}</td>
                   </tr>
                 ))}
@@ -163,7 +163,7 @@ export function System({ tz }: { tz: string }) {
             </table>
           </div>
         )}
-        {data.maintenance && <span className="muted" style={{ fontSize: 12 }}>{t('A record inside a window is marked with it, never hidden: it is still listed and counted. opstide_maintenance_active says which window is open, for alert rules.')}</span>}
+        {data.maintenance && <span className="muted fine">{t('A record inside a window is marked with it, never hidden: it is still listed and counted. opstide_maintenance_active says which window is open, for alert rules.')}</span>}
       </section>
 
       <section aria-label={t('Evidence')} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -176,7 +176,7 @@ export function System({ tz }: { tz: string }) {
           <dt className="label">{t('Completeness')}</dt>
           <dd>{data.evidence.degraded.length === 0
             ? <>{t('Complete as far as OpsTide can tell: Events and autoscalers are being read.')}</>
-            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.evidence.degraded.map((m, i) => <li key={i} className="fail">{m}</li>)}</ul>}</dd>
+            : <ul style={{ margin: 0, paddingLeft: 18 }}>{data.evidence.degraded.map((m, i) => <li key={i} className="fail">{ts(m)}</li>)}</ul>}</dd>
         </dl>
       </section>
 
@@ -187,22 +187,22 @@ export function System({ tz }: { tz: string }) {
           {data.scopes.map((s) => (
             <div key={s.scope} className="row" style={{ gridTemplateColumns: '22px minmax(0, 1fr) auto' }}>
               <span className="mono" aria-hidden="true" style={{ color: s.problem ? 'var(--fail)' : 'var(--muted)' }}>{s.problem ? '✕' : '✓'}</span>
-              <span>{t(kindName[s.kind] ?? s.kind)}{s.namespace ? ` ${t('in {ns}', { ns: s.namespace })}` : ''}{s.problem && <span className="sub" style={{ fontSize: 12 }}>{s.problem}</span>}</span>
-              <span className="mono" style={{ fontSize: 12, color: s.problem ? 'var(--fail)' : 'var(--muted)' }}>{s.problem ? t('failing') : t('watching')}</span>
+              <span>{t(kindName[s.kind] ?? s.kind)}{s.namespace ? ` ${t('in {ns}', { ns: s.namespace })}` : ''}{s.problem && <span className="sub">{s.problem}</span>}</span>
+              <span className="mono fine" style={{ color: s.problem ? 'var(--fail)' : 'var(--muted)' }}>{s.problem ? t('failing') : t('watching')}</span>
             </div>
           ))}
           <div className="row" style={{ gridTemplateColumns: '22px minmax(0, 1fr) auto' }}>
             <span className="mono muted" aria-hidden="true">–</span>
-            <span>{data.config.secretMetadata ? t('Secret data, logs, exec') : t('Secrets, logs, exec')}<span className="sub" style={{ fontSize: 12 }}>{data.config.secretMetadata ? t('Secrets are read as metadata only; their data is never requested') : t('not requested and not needed')}</span></span>
-            <span className="mono muted" style={{ fontSize: 12 }}>{t('not asked')}</span>
+            <span>{data.config.secretMetadata ? t('Secret data, logs, exec') : t('Secrets, logs, exec')}<span className="sub">{data.config.secretMetadata ? t('Secrets are read as metadata only; their data is never requested') : t('not requested and not needed')}</span></span>
+            <span className="mono muted fine">{t('not asked')}</span>
           </div>
         </section>
         <section aria-label={t('Integrations')} className="rows">
           <h2 className="label section-title">{t('Integrations')} <span className="note">· {t('nothing leaves the cluster by default')}</span></h2>
           {data.integrations.map((g) => (
             <div key={g.name} className="row" style={{ gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
-              <span>{g.name}<span className="sub" style={{ fontSize: 12 }}>{g.note}</span></span>
-              <span className="mono" style={{ fontSize: 12, color: g.state === 'ready' ? 'var(--ink)' : 'var(--muted)' }}>{t(g.state)}</span>
+              <span>{g.name}<span className="sub">{ts(g.note)}</span></span>
+              <span className="mono fine" style={{ color: g.state === 'ready' ? 'var(--ink)' : 'var(--muted)' }}>{t(g.state)}</span>
             </div>
           ))}
         </section>

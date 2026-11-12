@@ -12,7 +12,7 @@ import { hhmm, offset, utcToZoned, zonedToUtc } from '../time'
 import { HOUR, MAX_WINDOW, MIN_WINDOW, MINUTE, params as selParams, presets, presetSelection, pressedPreset, rangeQuery, selection, selectionFor, title, type Selection } from '../window'
 import { ZoneSelect } from './common'
 import { Note } from '../components/Note'
-import { locale, t, tn } from '../i18n'
+import { locale, t, tn, ts } from '../i18n'
 
 export function Overview({ params, tz, setTz }: { params: URLSearchParams; tz: string; setTz: (z: string) => void }) {
   const sel = selection(params)
@@ -267,7 +267,7 @@ function ExceptionRow({ e, tz, from, to, nowMs, go }: { e: Exception; tz: string
       <Link href={href} style={{ display: 'flex', flexDirection: 'column', gap: 3, color: 'var(--ink)', textDecoration: 'none' }}>
         <span style={{ fontWeight: 500 }}>{text.title}</span>
         <span className="muted">{text.detail}</span>
-        {e.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={e.maintenance.statement}>{t('during maintenance {name}', { name: e.maintenance.name })}</span></span>}
+        {e.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={ts(e.maintenance.statement)}>{t('during maintenance {name}', { name: e.maintenance.name })}</span></span>}
       </Link>
       {canShow ? <button type="button" className="button" style={{ height: 28, padding: '0 10px', fontSize: 12 }} onClick={show}>{t('Show')}</button> : <span />}
     </div>

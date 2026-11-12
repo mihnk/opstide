@@ -15,11 +15,12 @@ import { rangeQuery } from '../window'
 // cluster's record when there is something to show, and from a small fixed example when there is not (a new install).
 // Every picture is inert: it shows, it does not take focus or clicks. The figure says which it is: live or example.
 
-export function Figure({ live, children, wide }: { live?: boolean; children: ReactNode; wide?: boolean }) {
+export function Figure({ live, children, wide, title }: { live?: boolean; children: ReactNode; wide?: boolean; title?: string }) {
   return (
     <figure className={`ob-figure${wide ? ' wide' : ''}`}>
       <figcaption className="ob-cap">
         {live ? <><LiveDot />{t('Live from this cluster')}</> : <><ExampleDot />{t('Example')}</>}
+        {title && <span className="ob-cap-title">{title}</span>}
       </figcaption>
       <div className="ob-art" inert>{children}</div>
     </figure>
@@ -40,6 +41,31 @@ export function Pin({ n }: { n: number }) {
 
 function Block({ n, children }: { n: number; children: ReactNode }) {
   return <div className="mini-block"><Pin n={n} /><div className="mini-body">{children}</div></div>
+}
+
+// ── step 1: a first look ──────────────────────────────
+
+/** A day on the Overview, drawn with the Overview's own timetable from the fixed example (no request): it changes with the
+ *  language and theme picked above it, so the choice can be judged on the real thing. */
+export function PreviewArt() {
+  const s = sampleRange()
+  const lanes = s.lanes.map((l) => ({ ...l, maintenance: undefined }))
+  return (
+    <Figure title={t('A day on the Overview')}>
+      <div className="ob-tl ob-preview">
+        <Timeline label={t('Operation')} from={s.from} to={s.to} tz="UTC" now={s.now} gaps={s.gaps} lanes={lanes} compact labelWidth={140} />
+      </div>
+      <div className="ob-preview-foot">
+        <Legend items={['succeeded', 'failed', 'expected']} />
+        <div className="mini-rows">
+          <span className="label">{t('Exceptions')}</span>
+          {s.exceptions.map((e, i) => (
+            <span key={i} className="mini-row"><span className={`mono${e.red ? ' fail' : ' muted'}`}>{e.when}</span><span>{e.title}</span></span>
+          ))}
+        </div>
+      </div>
+    </Figure>
+  )
 }
 
 // ── step 2: what it is ────────────────────────────────

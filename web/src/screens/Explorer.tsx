@@ -7,7 +7,7 @@ import { Failed } from '../components/Shell'
 import {
   emptyTitle, quickRanges, tokensOf, type EmptyKind, type ExplorerContext, type ExplorerFilters, type ExplorerHistogram, type ExplorerList, type ExplorerRecord,
 } from '../explorer'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 import { useApi, useLive } from '../live'
 import { Link, navigate, withParams } from '../router'
 import { addToWorkspace, useWorkspace, WORKSPACE_MAX } from '../workspace'
@@ -176,7 +176,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
               {notices.length > 0 && (
                 <div className="ex-notice" role="note">
                   <i className="hatch-sw" aria-hidden="true" />
-                  <span><b>{t('Not whole')}</b> {notices.map((n, i) => <span key={i}>{n} </span>)}</span>
+                  <span><b>{t('Not whole')}</b> {notices.map((n, i) => <span key={i}>{ts(n)} </span>)}</span>
                 </div>
               )}
               {ctx && <Coverage ctx={ctx} tz={tz} compact />}
@@ -203,7 +203,7 @@ export function Explorer({ params, tz, setTz }: { params: URLSearchParams; tz: s
                 {newerArrived && <span className="muted" role="status">{t('Newer records arrived; reload the page to see them.')}</span>}
                 {!cursor && <span className="muted">{t('That is every record the filters match in this range.')}</span>}
                 <span className="grow" />
-                <span className="muted sm">{t('newest first')} · <Note more={data.orderBasis}>{t('record time order')}</Note></span>
+                <span className="muted sm">{t('newest first')} · <Note more={ts(data.orderBasis)}>{t('record time order')}</Note></span>
               </div>
             </>
           )}
@@ -226,8 +226,8 @@ function Empty({ kind, message, detail, children }: { kind: EmptyKind; message: 
       <span className="ex-empty-icon"><Icon size={22} /></span>
       <div className="ex-empty-text">
         <span className="label">{emptyTitle[kind]}</span>
-        <b>{message}</b>
-        {detail.map((d, i) => <span key={i} className="muted">{d}</span>)}
+        <b>{ts(message)}</b>
+        {detail.map((d, i) => <span key={i} className="muted">{ts(d)}</span>)}
         <span className="ex-empty-actions">{children}</span>
       </div>
     </div>

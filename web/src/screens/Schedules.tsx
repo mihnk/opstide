@@ -1,5 +1,5 @@
 import { query, type OperationRow, type Operations } from '../api'
-import { t, tn } from '../i18n'
+import { t, tn, ts } from '../i18n'
 import { DurationCell, LongerMark } from '../components/Duration'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
@@ -75,14 +75,14 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                     <td>
                       <Link href={href} style={{ display: 'flex', flexDirection: 'column', color: 'var(--ink)', textDecoration: 'none' }}>
                         <span style={{ fontWeight: 500, color: o.displayName ? undefined : 'var(--muted)' }}>{o.displayName || o.name}</span>
-                        <span className="mono muted" style={{ fontSize: 12 }}>{o.namespace}/{o.name}</span>
-                        {!!o.attention?.length && <span className="fail" style={{ fontSize: 12 }}>{o.attention.map((w) => t(w)).join(' · ')}</span>}
-                        {o.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={o.maintenance.statement}>{t('during maintenance {name}', { name: o.maintenance.name })}</span></span>}
+                        <span className="mono muted fine">{o.namespace}/{o.name}</span>
+                        {!!o.attention?.length && <span className="fail fine">{o.attention.map((w) => t(w)).join(' · ')}</span>}
+                        {o.maintenance && <span><span className="chip maint" style={{ marginLeft: 0 }} title={ts(o.maintenance.statement)}>{t('during maintenance {name}', { name: o.maintenance.name })}</span></span>}
                       </Link>
                     </td>
                     <td>
-                      <span className="mono" style={{ fontSize: 13 }}>{o.schedule}</span>
-                      <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+                      <span className="mono fine">{o.schedule}</span>
+                      <span className="muted sub">
                         {o.scheduleError ? t('cannot be read') : o.timeZone || t('{zone} · no timeZone set', { zone: o.zoneAssumed ?? '' })}{o.suspended ? ` · ${t('suspended')}` : ''}
                       </span>
                     </td>
@@ -97,7 +97,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       {lr ? (
                         <>
                           <span className={lastState} style={{ fontWeight: lr.status === 'failed' ? 500 : 400 }}>{statusWord(lr.status)}</span>
-                          <span className="mono muted" style={{ display: 'block', fontSize: 12 }}>
+                          <span className="mono muted sub">
                             {relativeTime(lr.scheduledAt ?? lr.createdAt, data.now, tz)}{lr.seconds ? ` · ${duration(lr.seconds)}` : ''}
                           </span>
                         </>
@@ -106,7 +106,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       )}
                     </td>
                     <td><DurationCell d={o.duration} /></td>
-                    <td className="mono" style={{ fontSize: 13, color: o.next ? undefined : 'var(--muted)' }}>
+                    <td className="mono fine" style={{ color: o.next ? undefined : 'var(--muted)' }}>
                       {o.next ? relativeTime(o.next, data.now, tz) : o.suspended ? `— ${t('suspended')}` : '—'}
                     </td>
                     <td style={{ color: o.owner ? undefined : 'var(--muted)' }}>{o.owner || '—'}</td>

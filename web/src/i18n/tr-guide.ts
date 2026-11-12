@@ -47,6 +47,7 @@ export const guide: Record<string, string> = {
   "leave": "çık",
   "Live from this cluster": "Bu cluster'dan, canlı",
   "Example": "Örnek",
+  "A day on the Overview": "Genel bakışta bir gün",
   "Principles": "İlkeler",
   "Screens": "Ekranlar",
   "Setup": "Kurulum",
