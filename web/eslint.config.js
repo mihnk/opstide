@@ -14,7 +14,7 @@ export default tseslint.config(
   {
     // Node scripts run by hand (recording the UI test fixtures).
     files: ['scripts/**/*.cjs'],
-    languageOptions: { sourceType: 'commonjs', globals: { require: 'readonly', process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', localStorage: 'readonly', sessionStorage: 'readonly' } },
+    languageOptions: { sourceType: 'commonjs', globals: { require: 'readonly', process: 'readonly', console: 'readonly', fetch: 'readonly', URL: 'readonly', localStorage: 'readonly', sessionStorage: 'readonly', document: 'readonly', __dirname: 'readonly' } },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 )

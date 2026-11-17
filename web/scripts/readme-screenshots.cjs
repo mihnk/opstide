@@ -62,7 +62,7 @@ function toWebp(png) {
   try {
     process.stdout.write(execFileSync('python3', ['-I', '-c', py, png, webp, String(WIDTH)]).toString())
     fs.unlinkSync(png)
-  } catch (e) {
+  } catch {
     console.warn('Pillow not available, keeping', png)
   }
 }
