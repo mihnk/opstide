@@ -129,6 +129,21 @@ serviceMonitor:
   # Labels your Prometheus selects ServiceMonitors by (e.g. release: kube-prometheus-stack).
   labels: {}
 
+# Alerts about OpsTide itself (is it up, recording, able to watch and to write), as a Prometheus Operator
+# PrometheusRule. They read the metrics the ServiceMonitor above scrapes. docs/metrics.md has what each means.
+prometheusRule:
+  enabled: false
+  namespace: ""
+  # Labels your Prometheus selects rules by (e.g. release: kube-prometheus-stack).
+  labels: {}
+  # The label matchers that pick OpsTide's series. Empty: namespace and service, as a ServiceMonitor scrape labels
+  # them. With a scrape config of your own, say how yours are labelled, e.g. job="opstide".
+  selector: ""
+  # Alerts to leave out, by name, e.g. [OpsTideDroppedRecords].
+  disabled: []
+  # OpsTideVolumeFilling fires below this share of the volume free.
+  volumeFreeRatio: 0.15
+
 # With auth on, the ingress shows a login page of its own. The default is no
 # ingress: use kubectl port-forward.
 ingress:

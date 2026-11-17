@@ -70,6 +70,8 @@ func TestMetricsGiveEachCronJobItsLastSuccessAndFailure(t *testing.T) {
 		"opstide_operations 2",
 		`opstide_maintenance_active{name="always open",scope="data,payments"} 1`,
 		`opstide_maintenance_active{name="db-migration",scope="cluster"} 0`,
+		"opstide_store_volume_bytes ",
+		"opstide_store_volume_free_bytes ",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in:\n%s", want, body)

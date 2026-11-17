@@ -1,0 +1,80 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $sel := .Values.prometheusRule.selector | default (printf "namespace=%q, service=%q" .Release.Namespace (include "opstide.fullname" .)) }}
+{{- $off := .Values.prometheusRule.disabled | default list }}
+{{- $runbook := "https://github.com/mihnk/opstide/blob/main/docs/metrics.md#" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "opstide.fullname" . }}
+  namespace: {{ default .Release.Namespace .Values.prometheusRule.namespace }}
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    # OpsTide's own health: is it there, recording, able to see, and able to write. What happens in the cluster is
+    # for your other alerts and for opstide_operation_overdue (docs/metrics.md).
+    - name: opstide.self
+      rules:
+        {{- if not (has "OpsTideDown" $off) }}
+        - alert: OpsTideDown
+          expr: absent(up{ {{- $sel -}} } == 1)
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: OpsTide is not being scraped, or not answering.
+            description: Nothing is recorded while it is down; the stretch will show as not watched.
+            runbook_url: {{ $runbook }}opstidedown
+        {{- end }}
+        {{- if not (has "OpsTideNotReady" $off) }}
+        - alert: OpsTideNotReady
+          expr: opstide_ready{ {{- $sel -}} } == 0
+          for: 10m
+          labels: { severity: warning }
+          annotations:
+            summary: OpsTide is running but not ready.
+            description: A watch has not synced or storage is not writable. System in the UI says which.
+            runbook_url: {{ $runbook }}opstidenotready
+        {{- end }}
+        {{- if not (has "OpsTideStuck" $off) }}
+        - alert: OpsTideStuck
+          expr: time() - opstide_last_heartbeat_timestamp_seconds{ {{- $sel -}} } > 120
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: OpsTide has stopped writing to its record.
+            description: The heartbeat, written every 15 seconds, is {{`{{ $value | humanizeDuration }}`}} old.
+            runbook_url: {{ $runbook }}opstidestuck
+        {{- end }}
+        {{- if not (has "OpsTideWatchesFailing" $off) }}
+        - alert: OpsTideWatchesFailing
+          expr: opstide_watches_failing{ {{- $sel -}} } > 0
+          for: 15m
+          labels: { severity: warning }
+          annotations:
+            summary: OpsTide cannot watch {{`{{ $value }}`}} scope(s).
+            description: Usually a missing permission. Nothing is recorded for them, and their coverage shows the gap.
+            runbook_url: {{ $runbook }}opstidewatchesfailing
+        {{- end }}
+        {{- if not (has "OpsTideDroppedRecords" $off) }}
+        - alert: OpsTideDroppedRecords
+          expr: increase(opstide_collector_dropped_total{ {{- $sel -}} }[30m]) > 0
+          labels: { severity: warning }
+          annotations:
+            summary: OpsTide gave up recording some objects.
+            description: Each is recorded as a gap in coverage and named in the Explorer.
+            runbook_url: {{ $runbook }}opstidedroppedrecords
+        {{- end }}
+        {{- if not (has "OpsTideVolumeFilling" $off) }}
+        - alert: OpsTideVolumeFilling
+          expr: opstide_store_volume_free_bytes{ {{- $sel -}} } / opstide_store_volume_bytes{ {{- $sel -}} } < {{ .Values.prometheusRule.volumeFreeRatio }}
+          for: 30m
+          labels: { severity: warning }
+          annotations:
+            summary: OpsTide's volume is {{`{{ $value | humanizePercentage }}`}} free.
+            description: When it runs out, recording stops. Grow the volume or keep less history.
+            runbook_url: {{ $runbook }}opstidevolumefilling
+        {{- end }}
+{{- end }}

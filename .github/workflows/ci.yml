@@ -59,6 +59,7 @@ jobs:
           helm lint --strict charts/opstide
           helm template t charts/opstide --kube-version 1.32.0 > /dev/null
           helm template t charts/opstide --kube-version 1.32.0 --set 'namespaces={payments,data}' --set networkPolicy.enabled=true --set ingress.enabled=true > /dev/null
+          helm template t charts/opstide --kube-version 1.32.0 --set serviceMonitor.enabled=true --set prometheusRule.enabled=true > /dev/null
 
   image:
     runs-on: ubuntu-latest

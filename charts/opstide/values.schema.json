@@ -191,6 +191,47 @@
         }
       }
     },
+    "prometheusRule": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "selector": {
+          "type": "string",
+          "pattern": "^[^{}]*$"
+        },
+        "disabled": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "OpsTideDown",
+              "OpsTideNotReady",
+              "OpsTideStuck",
+              "OpsTideWatchesFailing",
+              "OpsTideDroppedRecords",
+              "OpsTideVolumeFilling"
+            ]
+          }
+        },
+        "volumeFreeRatio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "ingress": {
       "type": "object",
       "properties": {

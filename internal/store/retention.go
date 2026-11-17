@@ -235,6 +235,9 @@ type Stats struct {
 	LastPrune        time.Time
 	LastPruneRemoved int64
 	LastCheckpoint   time.Time
+	// VolumeBytes and VolumeFreeBytes are the size of the filesystem the database is on and the space left on it;
+	// both 0 when they cannot be read.
+	VolumeBytes, VolumeFreeBytes int64
 }
 
 // Stats reads the database's size and contents.
@@ -263,6 +266,9 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	}
 	st.LastPruneRemoved, _ = strconv.ParseInt(removed, 10, 64)
 	st.Bytes, st.WALBytes = fileSize(s.path), fileSize(s.path+"-wal")
+	if size, free, ok := volume(s.path); ok && size > 0 {
+		st.VolumeBytes, st.VolumeFreeBytes = size, free
+	}
 	return st, nil
 }
 

@@ -1373,3 +1373,20 @@ func TestMigration13RecordsWhyTemplateRowsEnded(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+// The volume metrics need the filesystem the database is on: its size, and the space left on it.
+func TestStatsReadTheVolumeTheDatabaseIsOn(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "opstide.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	st, err := s.Stats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.VolumeBytes <= 0 || st.VolumeFreeBytes < 0 || st.VolumeFreeBytes > st.VolumeBytes {
+		t.Fatalf("volume %d, free %d", st.VolumeBytes, st.VolumeFreeBytes)
+	}
+}

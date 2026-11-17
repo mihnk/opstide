@@ -186,6 +186,10 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 			w.Gauge("opstide_store_events", "Log entries kept.", float64(st.Events))
 			w.Gauge("opstide_store_bytes", "Size of the database file.", float64(st.Bytes))
 			w.Gauge("opstide_store_wal_bytes", "Size of the write-ahead log next to it.", float64(st.WALBytes))
+			if st.VolumeBytes > 0 {
+				w.Gauge("opstide_store_volume_bytes", "Size of the filesystem the database is on.", float64(st.VolumeBytes))
+				w.Gauge("opstide_store_volume_free_bytes", "Space left on that filesystem for OpsTide. When it runs out, recording stops.", float64(st.VolumeFreeBytes))
+			}
 			if !st.OldestEvent.IsZero() {
 				w.Gauge("opstide_store_oldest_event_timestamp_seconds", "Time of the oldest log entry kept, Unix time.", float64(st.OldestEvent.Unix()))
 			}
