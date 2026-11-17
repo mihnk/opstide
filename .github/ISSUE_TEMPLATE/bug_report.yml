@@ -1,0 +1,52 @@
+name: Bug report
+description: OpsTide recorded, showed or said something wrong, or did not start.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A security problem goes to the Security tab, not here (see SECURITY.md).
+        Remove names you would rather not publish (namespaces, CronJobs, hostnames) from what you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What OpsTide showed or did, and on which page or endpoint.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: And how you know, if you do (kubectl output, the Job's status, an Event).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to see it again
+      description: Steps, or the smallest CronJob or Deployment that shows it. "It happens in the demo" is very useful.
+  - type: input
+    id: version
+    attributes:
+      label: OpsTide version
+      description: Shown on System, or the image tag.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes version and distribution
+      placeholder: 1.32, EKS
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it is installed
+      options: [Helm chart, Helm chart through Argo CD or Flux, make demo-local, binary outside the cluster, other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and System page
+      description: The pod's log around the time, and what System says about watches. Shown as code.
+      render: text

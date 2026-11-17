@@ -90,8 +90,8 @@ Two things to know:
   restart`. Either signs everyone out, and a session is also refused by the
   server after 30 days. Wrong tokens are slowed down per address (five, then
   one every 10 s); correct ones never are. A token is not a login system: for people-by-name access put an
-  OIDC proxy in front. `auth.enabled=false` turns it off. Network isolation is
-  not authorization.
+  OIDC proxy in front ([below](#signing-in-by-name-with-oauth2-proxy)). `auth.enabled=false` turns it off. Network
+  isolation is not authorization.
 - **Uninstalling keeps the volume**, so the record survives a reinstall.
   Delete the PersistentVolumeClaim yourself to drop it.
 
@@ -102,6 +102,90 @@ shows which watches fail.
 
 To run OpsTide inside the demo cluster instead of on your laptop:
 `make demo-install`, then port-forward as above.
+
+## Signing in by name with oauth2-proxy
+
+OpsTide has one shared token and no user accounts. To have people sign in with your identity provider (Okta, Entra ID,
+Google, Keycloak, Dex …) instead, put [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) in front: it signs
+people in, and forwards their requests to OpsTide with OpsTide's token added. Nobody sees the token, and OpsTide keeps
+asking for it, so a request that goes around the proxy is still refused.
+
+This is written against oauth2-proxy v7.15's [alpha configuration](https://github.com/oauth2-proxy/oauth2-proxy/blob/master/docs/docs/configuration/alpha_config.md)
+(v7.14 changed how header values are written; older versions need `value`/`fromEnv` directly under `values`). Register
+OpsTide with your identity provider first, with `https://opstide.example.com/oauth2/callback` as its redirect URL.
+
+```bash
+kubectl -n opstide create secret generic opstide-oauth2-proxy \
+  --from-literal=client-secret='<from your identity provider>' \
+  --from-literal=cookie-secret="$(openssl rand -base64 32 | tr -- '+/' '-_')"
+```
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: opstide-oauth2-proxy, namespace: opstide }
+data:
+  alpha.yaml: |
+    server:
+      bindAddress: 0.0.0.0:4180
+    upstreamConfig:
+      upstreams:
+        - id: opstide
+          path: /
+          uri: http://opstide.opstide.svc:80
+    injectRequestHeaders:
+      - name: Authorization
+        values:
+          - secretSource:
+              fromEnv: OPSTIDE_AUTHORIZATION
+    providers:
+      - id: sso
+        provider: oidc
+        clientID: opstide
+        clientSecretFile: /etc/oauth2-proxy/secret/client-secret
+        oidcConfig:
+          issuerURL: https://sso.example.com/realms/main
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: opstide-oauth2-proxy, namespace: opstide }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: opstide-oauth2-proxy } }
+  template:
+    metadata: { labels: { app: opstide-oauth2-proxy } }
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+          args:
+            - --alpha-config=/etc/oauth2-proxy/config/alpha.yaml
+            - --redirect-url=https://opstide.example.com/oauth2/callback
+            - --email-domain=example.com        # who may sign in
+            - --cookie-secure=true
+          env:
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: { secretKeyRef: { name: opstide-oauth2-proxy, key: cookie-secret } }
+            - name: OPSTIDE_TOKEN
+              valueFrom: { secretKeyRef: { name: opstide-auth, key: token } }
+            - name: OPSTIDE_AUTHORIZATION
+              value: Bearer $(OPSTIDE_TOKEN)    # Kubernetes fills in the variable above
+          ports: [{ name: http, containerPort: 4180 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/oauth2-proxy/config, readOnly: true }
+            - { name: secret, mountPath: /etc/oauth2-proxy/secret, readOnly: true }
+      volumes:
+        - { name: config, configMap: { name: opstide-oauth2-proxy } }
+        - { name: secret, secret: { secretName: opstide-oauth2-proxy } }
+```
+
+Then a Service on port 4180 and your Ingress point at the proxy, not at OpsTide. With `networkPolicy.enabled`, OpsTide
+already lets in only pods of its own namespace, which the proxy is; list Prometheus's and Grafana's namespaces in
+`networkPolicy.ingressFrom` if they reach OpsTide directly (with the token, as before).
+
+What this does not change: every request reaches OpsTide with the same token, so OpsTide still cannot tell people apart.
+Who opened it, and when, is in oauth2-proxy's log. After a token rotation, restart the proxy too: it reads the token at
+start.
 
 ## Upgrading
 

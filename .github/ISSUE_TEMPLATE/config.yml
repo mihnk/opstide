@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/mihnk/opstide/security/advisories/new
+    about: Privately, through GitHub's security advisories. Please do not open a public issue.
+  - name: Documentation
+    url: https://github.com/mihnk/opstide/tree/main/docs
+    about: Install, the web UI, metrics, the read API.

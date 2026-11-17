@@ -1,0 +1,20 @@
+name: Idea or request
+description: Something OpsTide could record, show or answer.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: The question you want answered
+      description: What were you trying to find out, and when (an incident, a morning check, an audit)?
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you answer it today
+  - type: textarea
+    id: idea
+    attributes:
+      label: What OpsTide could do
+      description: OpsTide stays read-only (list and watch), never reads Secret data, logs or exec, and says what it does not know. Ideas inside that are the ones it can take.

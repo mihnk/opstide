@@ -84,7 +84,8 @@ kubectl -n opstide get secret opstide-auth -o jsonpath='{.data.token}' | base64 
 
 The chart installs one pod (one writer), a 5 Gi volume and a ServiceAccount that
 can only `list` and `watch`. Watching only some namespaces, Argo CD, Ingress,
-NetworkPolicy and every value: [docs/install.md](docs/install.md).
+NetworkPolicy, signing in by name with your identity provider and every value:
+[docs/install.md](docs/install.md).
 
 ## Describing a CronJob
 
@@ -130,6 +131,11 @@ CronJob / Job / Pod / Deployment / ConfigMap watches ──► collector ──�
 Design notes: [releases](docs/M2.5-WORKLOAD-RELEASES.md),
 [evidence](docs/M2.6-EVIDENCE.md), [workloads](docs/M2.7-WORKLOADS.md),
 [explorer](docs/M2.8-EXPLORER.md).
+
+## Contributing
+
+Issues and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) has the setup, the tests and the few rules
+OpsTide keeps.
 
 ## Security
 
