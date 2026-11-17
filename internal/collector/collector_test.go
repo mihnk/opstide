@@ -278,3 +278,20 @@ func TestDescribeKeepsOnlySafeValues(t *testing.T) {
 		t.Fatalf("http runbook kept: %+v", op)
 	}
 }
+
+func TestMustSucceedWithinTakesDaysAndStaysInBounds(t *testing.T) {
+	for v, want := range map[string]time.Duration{"26h": 26 * time.Hour, "8d": 8 * 24 * time.Hour, "1d12h": 36 * time.Hour, "90m": 90 * time.Minute, "90d": 90 * 24 * time.Hour} {
+		var op store.Operation
+		describe(&op, map[string]string{annWithin: v})
+		if op.SucceedWithin == nil || *op.SucceedWithin != want || len(op.MetadataProblems) != 0 {
+			t.Errorf("%s: %v %v", v, op.SucceedWithin, op.MetadataProblems)
+		}
+	}
+	for _, v := range []string{"30s", "91d", "d", "-1d", "1.5d", "8 days", "1dx"} {
+		var op store.Operation
+		describe(&op, map[string]string{annWithin: v})
+		if op.SucceedWithin != nil || len(op.MetadataProblems) != 1 {
+			t.Errorf("%s: %v %v", v, op.SucceedWithin, op.MetadataProblems)
+		}
+	}
+}

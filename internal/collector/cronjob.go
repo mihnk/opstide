@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,7 +25,36 @@ const (
 	annCriticality = AnnotationPrefix + "criticality"
 	annRunbook     = AnnotationPrefix + "runbook"
 	annDuration    = AnnotationPrefix + "expected-duration"
+	annWithin      = AnnotationPrefix + "must-succeed-within"
 )
+
+// Bounds of must-succeed-within: shorter than a minute is not a schedule's promise, and longer than 90 days is longer
+// than any history OpsTide is set to keep.
+const (
+	minSucceedWithin = time.Minute
+	maxSucceedWithin = 90 * 24 * time.Hour
+)
+
+// parseLongDuration reads a Go duration that may start with whole days: 26h, 90m, 8d, 1d12h.
+func parseLongDuration(v string) (time.Duration, error) {
+	days, rest, ok := strings.Cut(v, "d")
+	if !ok {
+		return time.ParseDuration(v)
+	}
+	n, err := strconv.Atoi(days)
+	if err != nil || n < 0 || n > 3650 {
+		return 0, fmt.Errorf("days must be a whole number: %q", v)
+	}
+	d := time.Duration(n) * 24 * time.Hour
+	if rest != "" {
+		r, err := time.ParseDuration(rest)
+		if err != nil || r < 0 {
+			return 0, fmt.Errorf("after the days, a duration such as 12h: %q", v)
+		}
+		d += r
+	}
+	return d, nil
+}
 
 var criticalities = map[string]bool{"low": true, "medium": true, "high": true, "critical": true}
 
@@ -69,6 +99,13 @@ func describe(op *store.Operation, ann map[string]string) {
 			op.MetadataProblems = append(op.MetadataProblems, annDuration+" must be a duration such as 4m or 1h30m, up to 168h")
 		}
 	}
+	if v := text(annWithin, 40); v != "" {
+		if d, err := parseLongDuration(v); err == nil && d >= minSucceedWithin && d <= maxSucceedWithin {
+			op.SucceedWithin = &d
+		} else {
+			op.MetadataProblems = append(op.MetadataProblems, annWithin+" must be a duration such as 26h or 8d, from 1m to 90d")
+		}
+	}
 }
 
 func operationFrom(cj *batchv1.CronJob, now time.Time) store.Operation {
@@ -97,6 +134,10 @@ func operationFrom(cj *batchv1.CronJob, now time.Time) store.Operation {
 	}
 	if n := cj.Spec.FailedJobsHistoryLimit; n != nil {
 		op.FailedHistory = int(*n)
+	}
+	if s := cj.Spec.JobTemplate.Spec.TTLSecondsAfterFinished; s != nil {
+		d := time.Duration(*s) * time.Second
+		op.JobTTL = &d
 	}
 	describe(&op, cj.Annotations)
 	return op

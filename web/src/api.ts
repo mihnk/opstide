@@ -78,6 +78,8 @@ export interface Operation {
   criticality?: string
   runbookUrl?: string
   expectedSeconds?: number
+  /** opstide.mihnk.org/must-succeed-within: the most time that may pass without a succeeded run. */
+  succeedWithinSeconds?: number
   metadataProblems?: string[]
   schedule: string
   timeZone?: string
@@ -209,6 +211,19 @@ export interface DurationTrend {
   points?: { runId: string; startedAt: string; seconds: number; ms?: number; recent: boolean }[]
 }
 
+/** Whether a CronJob has had a run succeed within its must-succeed-within (DERIVED). Overdue only when OpsTide could
+ *  have seen a success: unknown says why it cannot tell. */
+export interface Deadline {
+  state: 'met' | 'waiting' | 'overdue' | 'unknown' | 'suspended'
+  withinSeconds: number
+  lastSuccess?: string
+  /** met, waiting: when it becomes overdue without a success; overdue: when it became overdue, when known. */
+  dueBy?: string
+  reason?: 'before_first_observation' | 'outside_retention' | 'not_watched'
+  knownFrom?: string
+  gaps?: Span[]
+}
+
 export interface OperationRow extends Operation {
   week: { date: string; state: CellState; runs: number }[]
   lastRun?: Run
@@ -216,6 +231,7 @@ export interface OperationRow extends Operation {
   attention?: string[]
   maintenance?: MaintenanceMark
   duration: DurationTrend
+  deadline?: Deadline
 }
 
 export interface Operations {
@@ -240,6 +256,7 @@ export interface OperationDetail {
   runs: Run[]
   moreRuns: boolean
   duration: DurationTrend
+  deadline?: Deadline
 }
 
 export interface Entry {

@@ -25,6 +25,8 @@ type OperationRow struct {
 	Maintenance *MaintenanceMark `json:"maintenance,omitempty"`
 	// Duration compares the recent run durations with the baseline (see DurationTrend); no per-run points here.
 	Duration DurationTrend `json:"duration"`
+	// Deadline is set when the CronJob declares opstide.mihnk.org/must-succeed-within.
+	Deadline *Deadline `json:"deadline,omitempty"`
 }
 
 // DayCell sums one day of one operation.
@@ -78,7 +80,11 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 		return out, err
 	}
 	recentP, baselineP := s.trendPeriods(now, loc)
-	cov, err := loadCoverage(ctx, s.db, earliest(from.Add(-24*time.Hour), baselineP.From), todayTo, now)
+	cov, err := loadCoverage(ctx, s.db, earliest(earliest(from.Add(-24*time.Hour), baselineP.From), now.Add(-longestWithin(ops))), todayTo, now)
+	if err != nil {
+		return out, err
+	}
+	lastOK, err := s.db.LastSuccesses(ctx)
 	if err != nil {
 		return out, err
 	}
@@ -108,7 +114,8 @@ func (s *Server) buildOperations(r *http.Request) (Operations, error) {
 		if v.sched != nil && !op.Suspend {
 			row.Next = v.sched.Next(now)
 		}
-		row.Attention, row.Maintenance = s.attention(v, slots, row.LastRun, now)
+		row.Deadline = s.deadline(op, lastOK[op.ID], cov, now)
+		row.Attention, row.Maintenance = s.attention(v, slots, row.LastRun, row.Deadline, now)
 		d := durs[op.ID]
 		row.Duration = durationTrend(op, d.After, d.Before, recentP, baselineP, cov, nil)
 		out.Operations = append(out.Operations, row)
@@ -165,7 +172,7 @@ func week(days []string, loc *time.Location, slots []schedule.Slot, runs []store
 // attention says why an operation needs a look, if it does. A reason with a time (a failed run, a run that did not
 // start) that happened inside a maintenance window covering the CronJob's namespace says so; when every reason with a
 // time did, and there is no other, the window is returned too.
-func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.Time) ([]string, *MaintenanceMark) {
+func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, dl *Deadline, now time.Time) ([]string, *MaintenanceMark) {
 	var why []string
 	var mark *MaintenanceMark
 	timed, inside := 0, 0
@@ -235,6 +242,11 @@ func (s *Server) attention(v opView, slots []schedule.Slot, last *Run, now time.
 		why = append(why, "not confirmed in the last 24 h")
 		untimed++ // keeps the row from being put after the others for maintenance
 	}
+	if dl != nil && dl.State == "overdue" {
+		// A promise the owners made, broken whatever happened in a maintenance window: it keeps the row in place.
+		why = append(why, "no success within its limit")
+		untimed++
+	}
 	if len(v.op.MetadataProblems) > 0 {
 		why = append(why, "annotations need fixing")
 		untimed++
@@ -262,6 +274,8 @@ type OperationDetail struct {
 	MoreRuns    bool      `json:"moreRuns"`
 	// Duration compares the recent run durations with the baseline, with the latest runs' durations.
 	Duration DurationTrend `json:"duration"`
+	// Deadline is set when the CronJob declares opstide.mihnk.org/must-succeed-within.
+	Deadline *Deadline `json:"deadline,omitempty"`
 	// ClustrailURL opens this CronJob in Clustrail, when a link is configured.
 	ClustrailURL string `json:"clustrailUrl,omitempty"`
 }
@@ -344,7 +358,11 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 		return OperationDetail{}, err
 	}
 	recentP, baselineP := s.trendPeriods(now, loc)
-	cov, err := loadCoverage(ctx, s.db, earliest(from.Add(-24*time.Hour), baselineP.From), todayTo, now)
+	cov, err := loadCoverage(ctx, s.db, earliest(earliest(from.Add(-24*time.Hour), baselineP.From), now.Add(-longestWithin([]store.Operation{op}))), todayTo, now)
+	if err != nil {
+		return OperationDetail{}, err
+	}
+	lastOK, err := s.db.LastSuccesses(ctx)
 	if err != nil {
 		return OperationDetail{}, err
 	}
@@ -353,6 +371,7 @@ func (s *Server) buildOperation(r *http.Request) (OperationDetail, error) {
 		return OperationDetail{}, err
 	}
 	out := OperationDetail{Schema: Schema, TimeZone: loc.String(), Now: now, Operation: v.operation(), Suspensions: []Span{}, Runs: []Run{}}
+	out.Deadline = s.deadline(op, lastOK[op.ID], cov, now)
 	// Templates address a CronJob by namespace and name: a deleted one has nothing to open.
 	if op.DeletedAt.IsZero() {
 		out.ClustrailURL = s.cfg.clustrailLink(op.Namespace, op.Name)

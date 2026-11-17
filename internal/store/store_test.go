@@ -174,7 +174,7 @@ func TestMigrationTwoAddsIndexesToAnExistingDatabase(t *testing.T) {
 	}
 	ctx := context.Background()
 	// Take it back to version 1, as a database written before the indexes would be.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 1`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_type_at; DROP INDEX events_severity_at; DROP INDEX runs_created; DROP INDEX runs_finished; DROP INDEX runs_active; DROP INDEX runs_lost; DROP INDEX runs_updated; DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id; DROP TABLE evidence; DROP TABLE hpas; DROP INDEX events_release; ALTER TABLE events DROP COLUMN release_id; DROP TABLE workloads; DROP TABLE releases; DROP TABLE release_pods; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 1`); err != nil {
 		t.Fatalf("rewinding to version 1: %v", err)
 	}
 	s.Close()
@@ -808,7 +808,7 @@ func TestMigrationFourKeepsReleasesOnTheirOwnRules(t *testing.T) {
 	}
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners; DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin; DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
 DROP INDEX events_workload; DROP INDEX events_reason; ALTER TABLE events DROP COLUMN reason; ALTER TABLE events DROP COLUMN workload_id;
-DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 3`); err != nil {
+DROP TABLE evidence; DROP TABLE hpas; ALTER TABLE workloads DROP COLUMN spec_replicas; ALTER TABLE releases DROP COLUMN assessment_version; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 3`); err != nil {
 		t.Fatalf("rewinding to version 3: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO releases (id, workload_id, namespace, workload, revision, revision_num, replicaset_uid, replicaset_name, fingerprint, origin,
@@ -908,7 +908,7 @@ func TestMigrationFiveKeepsDeploymentsAndNamesTheirEntries(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `DROP INDEX events_node; DROP TABLE workload_state; DROP TABLE workload_revisions; DROP TABLE nodes; DROP TABLE pod_owners;
 DROP INDEX workloads_kind; ALTER TABLE workloads DROP COLUMN kind; ALTER TABLE workloads DROP COLUMN origin;
 DROP INDEX release_pods_workload; DROP INDEX release_pods_node; ALTER TABLE release_pods DROP COLUMN kind; ALTER TABLE release_pods DROP COLUMN revision; ALTER TABLE release_pods DROP COLUMN node; ALTER TABLE release_pods DROP COLUMN ordinal;
-DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 4`); err != nil {
+DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; DROP INDEX evidence_node; ALTER TABLE evidence DROP COLUMN node_id; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 4`); err != nil {
 		t.Fatalf("rewinding to version 4: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO workloads (id, namespace, name, first_seen_at, last_seen_at) VALUES ('d1','ns','api',1,1)`); err != nil {
@@ -1078,7 +1078,7 @@ func TestMigrationSixKeepsDeploymentsFromLookingRecentlyChanged(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 5`); err != nil {
 		t.Fatalf("rewinding to version 5: %v", err)
 	}
 	s.Close()
@@ -1121,7 +1121,7 @@ func TestMigrationSixRevisitsNodeLinksMadeByName(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 5`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -1162,7 +1162,7 @@ func TestDatabaseIsBackedUpBeforeMigrating(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An older schema, as after an upgrade of OpsTide.
-	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; PRAGMA user_version = 5`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DROP INDEX evidence_record_key; ALTER TABLE evidence DROP COLUMN record_key; ALTER TABLE workload_state DROP COLUMN change_basis; DROP TABLE config_objects; DROP TABLE config_refs; DROP TABLE template_images; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 5`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -1353,7 +1353,7 @@ func TestMigration13RecordsWhyTemplateRowsEnded(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE template_images DROP COLUMN end_reason; PRAGMA user_version = 12`); err != nil {
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE template_images DROP COLUMN end_reason; ALTER TABLE operations DROP COLUMN succeed_within_s; ALTER TABLE operations DROP COLUMN job_ttl_s; PRAGMA user_version = 12`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

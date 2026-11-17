@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from 'react'
 import { query, type OperationDetail, type RunDetail, type RunEvidence } from '../api'
 import { Failed, Loading } from '../components/Shell'
 import { DurationSection } from '../components/Duration'
+import { DeadlineFull } from '../components/Deadline'
 import { WorkspaceToggle } from '../components/WorkspaceToggle'
 import { explorerLink, rangeAround, recordIdOf } from '../explorer'
 import { t, ts } from '../i18n'
@@ -99,6 +100,8 @@ export function Operation({ id, params, tz }: { id: string; params: URLSearchPar
             <dd>{op.startingDeadlineSeconds !== undefined ? <><span className="mono">{t('{n} s', { n: op.startingDeadlineSeconds })}</span> <span className="muted">startingDeadlineSeconds</span></> : <span className="muted">{t('no deadline; OpsTide allows 2 min')}</span>}</dd>
             <dt className="label">{t('History kept')}</dt>
             <dd>{rich('{succeeded} succeeded, {failed} failed Job in the cluster', { succeeded: <span className="mono">{op.successfulJobsHistoryLimit}</span>, failed: <span className="mono">{op.failedJobsHistoryLimit}</span> })}</dd>
+            <dt className="label">{t('Must succeed')}</dt>
+            <dd>{data.deadline ? <DeadlineFull d={data.deadline} now={data.now} tz={tz} /> : <span className="muted">{t('not set')} · <span className="mono">opstide.mihnk.org/must-succeed-within</span></span>}</dd>
           </dl>
         </section>
       </div>

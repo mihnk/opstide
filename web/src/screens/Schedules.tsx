@@ -1,5 +1,6 @@
 import { query, type OperationRow, type Operations } from '../api'
 import { t, tn, ts } from '../i18n'
+import { DeadlineShort } from '../components/Deadline'
 import { DurationCell, LongerMark } from '../components/Duration'
 import { Failed, Loading } from '../components/Shell'
 import { useApi } from '../live'
@@ -104,6 +105,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
                       ) : (
                         <span className="muted">{t('none seen')}</span>
                       )}
+                      {o.deadline && <DeadlineShort d={o.deadline} now={data.now} tz={tz} />}
                     </td>
                     <td><DurationCell d={o.duration} /></td>
                     <td className="mono fine" style={{ color: o.next ? undefined : 'var(--muted)' }}>
@@ -128,6 +130,7 @@ export function Schedules({ params, tz, setTz }: { params: URLSearchParams; tz: 
         <span>{t('Run time is the median (p50) of the succeeded runs of the last 7 days, compared with the 23 days before.')}</span>
         <span><LongerMark />{t('longer than its baseline: a median at least 30% longer, with {n} runs or more in each period', { n: 5 })}</span>
         <span>{t('Next runs are computed from the schedule and its time zone; Kubernetes may start them late or skip them.')}</span>
+        <span>{t('Limit: the most time a CronJob may go without a succeeded run ({annotation}). Overdue only when OpsTide was watching all that time.', { annotation: 'opstide.mihnk.org/must-succeed-within' })}</span>
       </div>
     </div>
   )

@@ -125,17 +125,18 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if !guard.Enabled() && !loopback(cfg.Listen) {
 		log.Warn("no token is set and the address is not loopback: anyone who can reach it can read the record; set -token-file or put an authenticating proxy in front", "listen", cfg.Listen)
 	}
+	srv := api.New(db, col, api.Config{
+		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, PublicURL: cfg.PublicURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
+		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Maintenance: cfg.Maintenance,
+		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
+	}, log)
 	reg := &metrics.Registry{}
-	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started, cfg.Maintenance))
+	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started, cfg.Maintenance, srv.Deadlines))
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	guard.Register(mux)
 	mux.Handle("/metrics", reg.Handler())
-	api.New(db, col, api.Config{
-		Version: version, Cluster: cfg.Cluster, Namespaces: cfg.Namespaces, StartedAt: started, ClustrailURL: cfg.ClustrailURL, PublicURL: cfg.PublicURL, ReleaseWindow: time.Duration(cfg.ReleaseWindowMinutes) * time.Minute, ObserveNodes: cfg.ObserveNodes,
-		WatchConfigMaps: cfg.WatchConfigMaps, WatchSecretMetadata: cfg.WatchSecretMetadata, Maintenance: cfg.Maintenance,
-		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents},
-	}, log).Register(mux)
+	srv.Register(mux)
 	mux.Handle("/", webui.Handler())
 	if err := serve(ctx, cfg.Listen, secure(reg.Instrument(guard.Middleware(mux))), log); err != nil {
 		return err

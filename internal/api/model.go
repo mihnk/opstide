@@ -372,28 +372,30 @@ func mergeExpected(ms []Mark) []Mark {
 
 // Operation is a CronJob as the API shows it.
 type Operation struct {
-	ID               string    `json:"id"`
-	Namespace        string    `json:"namespace"`
-	Name             string    `json:"name"` // the CronJob's name
-	DisplayName      string    `json:"displayName,omitempty"`
-	Description      string    `json:"description,omitempty"`
-	Owner            string    `json:"owner,omitempty"`
-	Criticality      string    `json:"criticality,omitempty"`
-	RunbookURL       string    `json:"runbookUrl,omitempty"`
-	ExpectedSeconds  int64     `json:"expectedSeconds,omitempty"`
-	MetadataProblems []string  `json:"metadataProblems,omitempty"`
-	Schedule         string    `json:"schedule"`
-	TimeZone         string    `json:"timeZone,omitempty"`
-	ZoneAssumed      string    `json:"zoneAssumed,omitempty"` // the zone used when spec.timeZone is unset
-	ScheduleError    string    `json:"scheduleError,omitempty"`
-	Suspended        bool      `json:"suspended,omitempty"`
-	Concurrency      string    `json:"concurrency"`
-	DeadlineSeconds  *int64    `json:"startingDeadlineSeconds,omitempty"`
-	KeepSucceeded    int       `json:"successfulJobsHistoryLimit"`
-	KeepFailed       int       `json:"failedJobsHistoryLimit"`
-	CreatedAt        time.Time `json:"createdAt"`
-	FirstSeenAt      time.Time `json:"firstSeenAt"`
-	DeletedAt        time.Time `json:"deletedAt,omitzero"`
+	ID              string `json:"id"`
+	Namespace       string `json:"namespace"`
+	Name            string `json:"name"` // the CronJob's name
+	DisplayName     string `json:"displayName,omitempty"`
+	Description     string `json:"description,omitempty"`
+	Owner           string `json:"owner,omitempty"`
+	Criticality     string `json:"criticality,omitempty"`
+	RunbookURL      string `json:"runbookUrl,omitempty"`
+	ExpectedSeconds int64  `json:"expectedSeconds,omitempty"`
+	// SucceedWithinSeconds is opstide.mihnk.org/must-succeed-within: the most time that may pass without a success.
+	SucceedWithinSeconds int64     `json:"succeedWithinSeconds,omitempty"`
+	MetadataProblems     []string  `json:"metadataProblems,omitempty"`
+	Schedule             string    `json:"schedule"`
+	TimeZone             string    `json:"timeZone,omitempty"`
+	ZoneAssumed          string    `json:"zoneAssumed,omitempty"` // the zone used when spec.timeZone is unset
+	ScheduleError        string    `json:"scheduleError,omitempty"`
+	Suspended            bool      `json:"suspended,omitempty"`
+	Concurrency          string    `json:"concurrency"`
+	DeadlineSeconds      *int64    `json:"startingDeadlineSeconds,omitempty"`
+	KeepSucceeded        int       `json:"successfulJobsHistoryLimit"`
+	KeepFailed           int       `json:"failedJobsHistoryLimit"`
+	CreatedAt            time.Time `json:"createdAt"`
+	FirstSeenAt          time.Time `json:"firstSeenAt"`
+	DeletedAt            time.Time `json:"deletedAt,omitzero"`
 }
 
 func (v opView) operation() Operation {
@@ -405,6 +407,9 @@ func (v opView) operation() Operation {
 		CreatedAt: op.CreatedAt, FirstSeenAt: op.FirstSeenAt, DeletedAt: op.DeletedAt}
 	if op.ExpectedDuration != nil {
 		o.ExpectedSeconds = int64(*op.ExpectedDuration / time.Second)
+	}
+	if op.SucceedWithin != nil {
+		o.SucceedWithinSeconds = int64(*op.SucceedWithin / time.Second)
 	}
 	if op.StartingDeadline != nil {
 		d := int64(*op.StartingDeadline / time.Second)

@@ -30,6 +30,21 @@ OpsTide reports when it last saw a run end; the threshold is yours:
 time() - opstide_operation_last_success_timestamp_seconds{cronjob_namespace="data", cronjob="nightly-backup"} > 26 * 3600
 ```
 
+A CronJob that declares `opstide.mihnk.org/must-succeed-within` (see [Success deadlines](ui.md#success-deadlines)) also
+has `opstide_operation_succeed_within_seconds` (its limit) and `opstide_operation_overdue`: 1 when OpsTide watched the
+whole of the limit and saw no run succeed, 0 when it is on time, and absent while OpsTide cannot tell or the CronJob is
+suspended. That alert weighs coverage for you:
+
+```promql
+opstide_operation_overdue == 1
+```
+
+and this one finds the CronJobs OpsTide cannot judge right now:
+
+```promql
+opstide_operation_succeed_within_seconds unless on(cronjob_namespace, cronjob) opstide_operation_overdue
+```
+
 A series disappears once the runs it comes from age out of retention, so a CronJob that has not run for longer than the kept history, or a monthly one, has none: alert on `absent(...)` as well, and on the CronJob's schedule rather than on the age alone.  Weigh it with whether OpsTide
 was watching: `opstide_watches_failing > 0` and `increase(opstide_collector_dropped_total[1d]) > 0` mean the record may
 have missed runs, and the UI shows the gap.

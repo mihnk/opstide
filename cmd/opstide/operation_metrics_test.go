@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mihnk/opstide/internal/api"
 	"github.com/mihnk/opstide/internal/collector"
 	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/metrics"
@@ -57,7 +58,7 @@ func TestMetricsGiveEachCronJobItsLastSuccessAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg.Add(ownMetrics(db, col, "test", "c", now, maint))
+	reg.Add(ownMetrics(db, col, "test", "c", now, maint, nil))
 	rec := httptest.NewRecorder()
 	reg.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
 	body := rec.Body.String()
@@ -76,5 +77,42 @@ func TestMetricsGiveEachCronJobItsLastSuccessAndFailure(t *testing.T) {
 	}
 	if strings.Contains(body, `opstide_operation_last_success_timestamp_seconds{cronjob_namespace="data",cronjob="report"}`) {
 		t.Error("a CronJob that never succeeded has no success series")
+	}
+}
+
+// A CronJob's success deadline is two series: its limit, and whether it is overdue. overdue is absent while OpsTide
+// cannot tell, so an alert on it never fires on a guess.
+func TestMetricsGiveSuccessDeadlines(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "opstide.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	col := collector.New(fake.NewClientset(), db, collector.Options{})
+	deadlines := func(context.Context) ([]api.OperationDeadline, error) {
+		return []api.OperationDeadline{
+			{Namespace: "data", Name: "backup", Deadline: api.Deadline{State: "overdue", WithinSeconds: 93600}},
+			{Namespace: "data", Name: "report", Deadline: api.Deadline{State: "met", WithinSeconds: 3600}},
+			{Namespace: "data", Name: "sync", Deadline: api.Deadline{State: "unknown", Reason: "not_watched", WithinSeconds: 600}},
+		}, nil
+	}
+	reg := &metrics.Registry{}
+	reg.Add(ownMetrics(db, col, "test", "c", time.Now(), nil, deadlines))
+	rec := httptest.NewRecorder()
+	reg.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`opstide_operation_succeed_within_seconds{cronjob_namespace="data",cronjob="backup"} 93600`,
+		`opstide_operation_overdue{cronjob_namespace="data",cronjob="backup"} 1`,
+		`opstide_operation_overdue{cronjob_namespace="data",cronjob="report"} 0`,
+		`opstide_operation_succeed_within_seconds{cronjob_namespace="data",cronjob="sync"} 600`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(body, `opstide_operation_overdue{cronjob_namespace="data",cronjob="sync"}`) {
+		t.Error("overdue is absent while OpsTide cannot tell")
 	}
 }

@@ -24,6 +24,8 @@ type Operation struct {
 	Criticality      string
 	RunbookURL       string
 	ExpectedDuration *time.Duration
+	// SucceedWithin is the most time that may pass without a succeeded run (opstide.mihnk.org/must-succeed-within).
+	SucceedWithin *time.Duration
 	// MetadataProblems names annotations that were present but unusable
 	// (a runbook that is not https, a duration that does not parse).
 	MetadataProblems []string
@@ -35,6 +37,8 @@ type Operation struct {
 	StartingDeadline  *time.Duration
 	SuccessfulHistory int
 	FailedHistory     int
+	// JobTTL is the job template's ttlSecondsAfterFinished: Kubernetes deletes a finished Job after it.
+	JobTTL *time.Duration
 
 	CreatedAt   time.Time
 	FirstSeenAt time.Time
@@ -95,8 +99,8 @@ func (w *Writer) UpsertOperation(ctx context.Context, op Operation) error {
 	_, err := w.tx.ExecContext(ctx, `
 INSERT INTO operations (id, namespace, name, display_name, description, owner, criticality, runbook_url,
 	expected_duration_s, metadata_problems, schedule, time_zone, suspend, concurrency_policy, starting_deadline_s,
-	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at, succeed_within_s, job_ttl_s)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
 	namespace=excluded.namespace, name=excluded.name, display_name=excluded.display_name,
 	description=excluded.description, owner=excluded.owner, criticality=excluded.criticality,
@@ -105,11 +109,12 @@ ON CONFLICT(id) DO UPDATE SET
 	suspend=excluded.suspend, concurrency_policy=excluded.concurrency_policy,
 	starting_deadline_s=excluded.starting_deadline_s, successful_history=excluded.successful_history,
 	failed_history=excluded.failed_history, created_at=excluded.created_at,
-	last_seen_at=excluded.last_seen_at, deleted_at=excluded.deleted_at`,
+	last_seen_at=excluded.last_seen_at, deleted_at=excluded.deleted_at,
+	succeed_within_s=excluded.succeed_within_s, job_ttl_s=excluded.job_ttl_s`,
 		op.ID, op.Namespace, op.Name, op.DisplayName, op.Description, op.Owner, op.Criticality, op.RunbookURL,
 		durS(op.ExpectedDuration), string(problems), op.Schedule, op.TimeZone, op.Suspend, op.ConcurrencyPolicy,
 		durS(op.StartingDeadline), op.SuccessfulHistory, op.FailedHistory, ms(op.CreatedAt).Int64,
-		ms(op.FirstSeenAt).Int64, ms(op.LastSeenAt).Int64, ms(op.DeletedAt))
+		ms(op.FirstSeenAt).Int64, ms(op.LastSeenAt).Int64, ms(op.DeletedAt), durS(op.SucceedWithin), durS(op.JobTTL))
 	return err
 }
 
@@ -127,20 +132,21 @@ func (w *Writer) MarkOperationDeleted(ctx context.Context, id string, at time.Ti
 
 const operationCols = `id, namespace, name, display_name, description, owner, criticality, runbook_url,
 	expected_duration_s, metadata_problems, schedule, time_zone, suspend, concurrency_policy, starting_deadline_s,
-	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at`
+	successful_history, failed_history, created_at, first_seen_at, last_seen_at, deleted_at, succeed_within_s, job_ttl_s`
 
 func scanOperation(sc interface{ Scan(...any) error }) (Operation, error) {
 	var op Operation
-	var expected, deadline, deleted sql.NullInt64
+	var expected, deadline, deleted, within, ttl sql.NullInt64
 	var created, first, last int64
 	var problems string
 	err := sc.Scan(&op.ID, &op.Namespace, &op.Name, &op.DisplayName, &op.Description, &op.Owner, &op.Criticality,
 		&op.RunbookURL, &expected, &problems, &op.Schedule, &op.TimeZone, &op.Suspend, &op.ConcurrencyPolicy,
-		&deadline, &op.SuccessfulHistory, &op.FailedHistory, &created, &first, &last, &deleted)
+		&deadline, &op.SuccessfulHistory, &op.FailedHistory, &created, &first, &last, &deleted, &within, &ttl)
 	if err != nil {
 		return op, err
 	}
 	op.ExpectedDuration, op.StartingDeadline = fromDurS(expected), fromDurS(deadline)
+	op.SucceedWithin, op.JobTTL = fromDurS(within), fromDurS(ttl)
 	_ = json.Unmarshal([]byte(problems), &op.MetadataProblems)
 	op.CreatedAt = time.UnixMilli(created).UTC()
 	op.FirstSeenAt, op.LastSeenAt = time.UnixMilli(first).UTC(), time.UnixMilli(last).UTC()
@@ -370,6 +376,26 @@ FROM operations o WHERE o.deleted_at IS NULL ORDER BY o.namespace, o.name LIMIT 
 		o.Suspended = susp != 0
 		o.LastSuccessAt, o.LastFailureAt, o.LastRunAt = fromMS(ok), fromMS(fail), fromMS(last)
 		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// LastSuccesses is, per CronJob, when the latest run OpsTide holds that succeeded finished.
+func (s *Store) LastSuccesses(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT operation_id, max(finished_at) FROM runs
+WHERE status = 'succeeded' AND operation_id != '' AND finished_at IS NOT NULL GROUP BY operation_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = time.UnixMilli(at).UTC()
 	}
 	return out, rows.Err()
 }

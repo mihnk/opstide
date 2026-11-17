@@ -194,10 +194,17 @@ func cronJobs(s *seeder) error {
 		// Weekly: too few runs in seven days for its durations to be compared.
 		{"cj-archive", "data", "archive-orders", "Archive old orders", "data-platform", "low", "Moves orders older than a year to cold storage.", 7 * 24 * time.Hour, 4*time.Hour + 30*time.Minute, "30 4 * * 1", 12 * time.Minute, nil, 0, 0},
 	}
+	// opstide.mihnk.org/must-succeed-within: the backup's last run failed, so it has gone more than 26 hours without
+	// a success; the others are within theirs. The ledger declares none.
+	within := map[string]time.Duration{"cj-backup": 26 * time.Hour, "cj-report": 7 * time.Hour, "cj-archive": 8 * 24 * time.Hour}
 	for _, j := range jobs {
 		exp := j.dur + j.dur/2
+		var limit *time.Duration
+		if d, ok := within[j.id]; ok {
+			limit = &d
+		}
 		if err := s.w.UpsertOperation(s.ctx, store.Operation{ID: j.id, Namespace: j.ns, Name: j.name, DisplayName: j.display, Description: j.desc, Owner: j.owner, Criticality: j.crit,
-			ExpectedDuration: &exp, Schedule: j.schedule, ConcurrencyPolicy: "Forbid", SuccessfulHistory: 3, FailedHistory: 1,
+			ExpectedDuration: &exp, SucceedWithin: limit, Schedule: j.schedule, ConcurrencyPolicy: "Forbid", SuccessfulHistory: 3, FailedHistory: 1,
 			CreatedAt: s.ago(60 * 24 * time.Hour), FirstSeenAt: s.ago(jobsWatched), LastSeenAt: s.now}); err != nil {
 			return err
 		}

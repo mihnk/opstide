@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mihnk/opstide/internal/api"
 	"github.com/mihnk/opstide/internal/collector"
 	"github.com/mihnk/opstide/internal/maintenance"
 	"github.com/mihnk/opstide/internal/metrics"
@@ -19,7 +20,8 @@ const maxOperationSeries = 1000
 // ownMetrics describes OpsTide itself: is it ready, how fresh is its
 // record, which watches fail, how big is the database. Reading the event
 // count walks a table, so the storage figures are reused for 30 s.
-func ownMetrics(db *store.Store, col *collector.Collector, version, cluster string, started time.Time, maint *maintenance.Set) metrics.Source {
+func ownMetrics(db *store.Store, col *collector.Collector, version, cluster string, started time.Time, maint *maintenance.Set,
+	deadlines func(context.Context) ([]api.OperationDeadline, error)) metrics.Source {
 	var (
 		mu     sync.Mutex
 		stats  store.Stats
@@ -57,6 +59,27 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 			opLast, opTotal, opRead = ops, n, time.Now()
 		}
 		return opLast, opTotal, nil
+	}
+	var (
+		dlMu   sync.Mutex
+		dlRead time.Time
+		dlLast []api.OperationDeadline
+	)
+	// Where each success deadline stands is reused for 30 s like the times above: it reads runs and coverage.
+	deadlineList := func(ctx context.Context) ([]api.OperationDeadline, error) {
+		dlMu.Lock()
+		defer dlMu.Unlock()
+		if deadlines == nil {
+			return nil, nil
+		}
+		if dlRead.IsZero() || time.Since(dlRead) > 30*time.Second {
+			ds, err := deadlines(ctx)
+			if err != nil {
+				return nil, err
+			}
+			dlLast, dlRead = ds, time.Now()
+		}
+		return dlLast, nil
 	}
 	return func(ctx context.Context, w *metrics.Writer) {
 		b2f := func(b bool) float64 {
@@ -109,6 +132,22 @@ func ownMetrics(db *store.Store, col *collector.Collector, version, cluster stri
 				}
 				if !o.LastRunAt.IsZero() {
 					w.Gauge("opstide_operation_last_run_timestamp_seconds", "When OpsTide last saw a Job of the CronJob start, Unix time. Absent if it has seen none.", float64(o.LastRunAt.Unix()), l...)
+				}
+			}
+		}
+		// A CronJob that declares opstide.mihnk.org/must-succeed-within: its limit, and whether it is overdue. overdue is
+		// absent while OpsTide cannot tell (it was not watching, or has not watched for that long) or the CronJob is
+		// suspended, so an alert on it never fires on a guess.
+		if ds, err := deadlineList(ctx); err == nil {
+			for i, d := range ds {
+				if i == maxOperationSeries {
+					break
+				}
+				l := []string{"cronjob_namespace", d.Namespace, "cronjob", d.Name}
+				w.Gauge("opstide_operation_succeed_within_seconds", "The CronJob's opstide.mihnk.org/must-succeed-within, in seconds.", float64(d.Deadline.WithinSeconds), l...)
+				switch d.Deadline.State {
+				case "overdue", "met", "waiting":
+					w.Gauge("opstide_operation_overdue", "1 when OpsTide watched all of the CronJob's must-succeed-within and saw no run succeed; absent when it cannot tell.", b2f(d.Deadline.State == "overdue"), l...)
 				}
 			}
 		}

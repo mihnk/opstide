@@ -503,6 +503,13 @@ UPDATE template_images SET end_reason = 'workload_deleted'
 WHERE ended_at IS NOT NULL AND EXISTS (SELECT 1 FROM operations o WHERE o.id = template_images.workload_id
 	AND o.deleted_at IS NOT NULL AND o.deleted_at BETWEEN template_images.ended_at - 1000 AND template_images.ended_at + 1000);
 `,
+	// 14: a CronJob's success deadline (opstide.mihnk.org/must-succeed-within) and its job template's
+	// ttlSecondsAfterFinished, which says whether a run that finished while OpsTide was not watching can have been
+	// deleted before it looked again. Both are read from the CronJob at its next sync.
+	`
+ALTER TABLE operations ADD COLUMN succeed_within_s INTEGER;
+ALTER TABLE operations ADD COLUMN job_ttl_s INTEGER;
+`,
 }
 
 // CurrentSchema is the version Open migrates to.

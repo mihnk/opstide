@@ -34,7 +34,8 @@ The interface is in English and Turkish, light and dark, and starts with a short
 ## What it records
 
 - **Scheduled work.** Every CronJob run, its outcome and duration against its own
-  baseline, runs that should have happened and did not, and what is due next.
+  baseline, runs that should have happened and did not, CronJobs overdue for a
+  success, and what is due next.
 - **Releases and workloads.** Deployment, StatefulSet and DaemonSet revisions,
   whether each rollout completed, Pod restarts and OOMKills in the minutes after,
   and what changed from the previous revision.
@@ -97,6 +98,7 @@ Owners describe their jobs with annotations, committed through GitOps. OpsTide o
 | `opstide.mihnk.org/criticality` | `low`, `medium`, `high` or `critical` |
 | `opstide.mihnk.org/runbook` | `https://` link to the runbook |
 | `opstide.mihnk.org/expected-duration` | Go duration, e.g. `4m` |
+| `opstide.mihnk.org/must-succeed-within` | The most time that may pass without a succeeded run, e.g. `26h` or `8d` ([how it is judged](docs/ui.md#success-deadlines)) |
 
 ## How it is built
 

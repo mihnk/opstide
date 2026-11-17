@@ -206,3 +206,17 @@ describe('what changed before a failure', () => {
       expect(section!.querySelectorAll('p details').length, 'the Note is never inside a <p>').toBe(0)
     })
 })
+
+describe('success deadlines', () => {
+  it.each([
+    ['/schedules', 'en', ['overdue · limit 26\u00a0h', 'no success within its limit', 'on time · limit 7\u00a0h']],
+    ['/schedules', 'tr', ['gecikti · sınır 26\u00a0sa', 'sınırı içinde başarılı çalışma yok', 'zamanında · sınır 7\u00a0sa']],
+    ['/operations/cj-backup', 'en', ['Overdue since ', ', limit 26\u00a0h']],
+    ['/operations/cj-backup', 'tr', ['itibarıyla gecikti, sınır 26\u00a0sa']],
+    ['/operations/cj-ledger', 'en', ['opstide.mihnk.org/must-succeed-within']],
+  ] as [string, Lang, string[]][])('%s in %s says where the limit stands', async (path, l, want) => {
+    const { main, errors } = await draw(path, l)
+    healthy(path, main, errors)
+    for (const w of want) expect(main.textContent).toContain(w)
+  })
+})

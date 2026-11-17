@@ -211,6 +211,30 @@ export const schedules: Record<string, string> = {
   "missed in the last 24 h": "son 24 saatte başlamadı",
   "not confirmed in the last 24 h": "son 24 saatte doğrulanmadı",
   "annotations need fixing": "annotation'lar düzeltilmeli",
+  "no success within its limit": "sınırı içinde başarılı çalışma yok",
+
+  // components/Deadline.tsx: opstide.mihnk.org/must-succeed-within (Schedules, Operation)
+  "overdue · limit {d}": "gecikti · sınır {d}",
+  "on time · limit {d}": "zamanında · sınır {d}",
+  "first success due {when}": "ilk başarı en geç {when}",
+  "limit {d} · not known": "sınır {d} · bilinmiyor",
+  "not known yet: OpsTide has watched for less than that": "henüz bilinmiyor: OpsTide bu süreden daha kısa süredir izliyor",
+  "not known: longer than the history OpsTide keeps": "bilinmiyor: OpsTide'ın sakladığı geçmişten uzun",
+  "not known: OpsTide was not watching for part of it, and a succeeded Job could have been deleted before it looked again":
+    "bilinmiyor: OpsTide bu sürenin bir kısmında izlemiyordu ve başarılı bir Job o tekrar bakmadan silinmiş olabilir",
+  "Must succeed": "Başarılı olmalı",
+  "Overdue since {when}, limit {d}": "{when} itibarıyla gecikti, sınır {d}",
+  "Overdue, limit {d}": "Gecikti, sınır {d}",
+  "On time, limit {d}": "Zamanında, sınır {d}",
+  "No success yet, limit {d}": "Henüz başarı yok, sınır {d}",
+  "Limit {d}": "Sınır {d}",
+  "last success {when}": "son başarı {when}",
+  "no success recorded": "kayıtlı başarı yok",
+  "due by {when}": "en geç {when}",
+  "not judged while suspended": "askıdayken değerlendirilmez",
+  "known from {when}": "{when} itibarıyla bilinecek",
+  "Limit: the most time a CronJob may go without a succeeded run ({annotation}). Overdue only when OpsTide was watching all that time.":
+    "Sınır: bir CronJob'ın başarılı çalışma olmadan geçirebileceği en uzun süre ({annotation}). Gecikti yalnızca OpsTide o sürenin tamamında izliyorsa denir.",
 
   // Run time: recent run durations against the baseline (components/Duration.tsx, Schedules, Operation)
   "Run time": "Çalışma süresi",

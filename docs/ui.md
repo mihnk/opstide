@@ -62,7 +62,8 @@ Seven pages, all reading the API below and updating live:
   Secret counts only while the Pod template named it, and an autoscaler's change is listed as the autoscaler's. Earlier is not a cause: the list
   says what happened before, never why. A failed run on its CronJob's page and a troubled release link to it.
 - **Schedules**: every CronJob with its last 7 days, last run, run time
-  (`p50 3m 10s · 7d`), next expected run, owner and criticality.
+  (`p50 3m 10s · 7d`), next expected run, owner and criticality, and where its
+  [success deadline](#success-deadlines) stands when it declares one.
 - **Operation detail**: what a CronJob does and what is expected of it,
   its last 7 days on one timeline each, its run time against its baseline,
   recent runs, and a run's Job and pods.
@@ -83,3 +84,26 @@ it did not see are not counted, and not counted as absent either. The Operation 
 Dark and light themes follow the system until you pick one. Times show in
 your browser's zone or UTC. The app is built into the binary; fonts and
 everything else are served by the collector itself.
+
+## Success deadlines
+
+A CronJob can declare how long it may go without a succeeded run: `opstide.mihnk.org/must-succeed-within: 26h` (a Go
+duration that may start with whole days: `8d`, `1d12h`; from 1 minute to 90 days). It is a promise its owners make
+("the backup succeeds at least once a day, with two hours to spare"), not something Kubernetes knows. OpsTide counts
+from the latest succeeded run it holds, whenever and however it ran (a manual `kubectl create job --from` counts), and
+says one of:
+
+| State | Meaning |
+|---|---|
+| on time | A run succeeded within the limit; the page says by when the next must |
+| no success yet | No run has succeeded, but the CronJob is younger than the limit |
+| overdue | OpsTide watched the CronJob's Jobs over the whole of the last <limit> and saw no run succeed |
+| not known | OpsTide cannot tell, and says why: it has watched for less than the limit, the limit is longer than the history it keeps, or it was not watching for a stretch in which a succeeded Job could have finished and been deleted before it looked again |
+| not judged | The CronJob is suspended |
+
+Overdue is never a guess. A stretch OpsTide was not watching (a restart, an upgrade) does not make it unknown when the
+cluster keeps the latest succeeded Job until a newer one replaces it (`successfulJobsHistoryLimit` of 1 or more, no
+`ttlSecondsAfterFinished`): OpsTide sees that Job when it looks again. With `successfulJobsHistoryLimit: 0`, or a TTL
+shorter than the stretch, it could have missed one, and says so. An overdue CronJob is listed under *Needs a look*
+("no success within its limit"), maintenance windows or not: the limit is the owners' promise. The state is DERIVED,
+worked out when asked, and is in `/metrics` (see [Metrics and alerting](metrics.md#alerting-on-a-cronjob)).
