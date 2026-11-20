@@ -2,9 +2,11 @@
 // Captures the website's product screenshots from a running OpsTide demo.
 //
 //   go run ./cmd/opstide -demo -listen 127.0.0.1:18436 &
-//   node website/scripts/screenshots.cjs http://127.0.0.1:18436
+//   node website/scripts/screenshots.cjs http://127.0.0.1:18436 [name]
 //
-// Writes website/assets/img/{hero,overview,explorer}-{en,tr}.webp (PNG first,
+// With a name (hero, overview, explorer or morning), only that image is taken, in both languages.
+//
+// Writes website/assets/img/{hero,overview,explorer,morning}-{en,tr}.webp (PNG first,
 // then converted with Python's Pillow when it is installed; otherwise the PNGs
 // are kept and the HTML must point at them). Needs Playwright with Chromium
 // (npm i -g playwright && npx playwright install chromium).
@@ -15,6 +17,7 @@ const { execFileSync } = require('child_process')
 const { chromium } = require('playwright')
 
 const base = (process.argv[2] || 'http://127.0.0.1:18436').replace(/\/$/, '')
+const only = process.argv[3] || ''
 const out = path.resolve(__dirname, '..', 'assets', 'img')
 const WIDTH = 2400 // stored width: sharp at the largest size the page shows them, small enough to load fast
 
@@ -81,8 +84,9 @@ function toWebp(png) {
         { theme: 'dark', file: `hero-${lang}`, url: `/explorer?range=24h&rec=${encodeURIComponent(rec)}`, waitFor: '[role="tabpanel"], [role="dialog"], aside' },
         { theme: 'light', file: `overview-${lang}`, url: '/' },
         { theme: 'light', file: `explorer-${lang}`, url: '/explorer?range=24h&namespace=shop&severity=warning' },
+        { theme: 'light', file: `morning-${lang}`, url: `/setup/morning?time=08:30&lang=${lang}`, waitFor: '.msg-frame' },
       ]
-      for (const s of shots) toWebp(await shoot(browser, { lang, ...s }))
+      for (const s of shots.filter((x) => !only || x.file.startsWith(only + '-'))) toWebp(await shoot(browser, { lang, ...s }))
     }
   } finally {
     await browser.close()

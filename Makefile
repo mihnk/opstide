@@ -80,5 +80,7 @@ demo-down:
 	kind delete cluster --name opstide-demo
 
 # The marketing site in website/ (static files), on http://127.0.0.1:8000.
+# make website-serve PORT=8001 when 8000 is taken.
+PORT ?= 8000
 website-serve:
-	cd website && python3 -m http.server 8000 --bind 127.0.0.1
+	cd website && python3 -m http.server $(PORT) --bind 127.0.0.1

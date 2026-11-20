@@ -10,21 +10,24 @@ tr/index.html         Turkish (lang="tr")
 404.html              Both languages
 assets/site.css       The only stylesheet
 assets/site.js        Copy buttons and the small-screen menu; the site works without it (only copying needs it)
-assets/img/           Screenshots, {hero,overview,explorer}-{en,tr}.webp, 2400×1500
+assets/img/           Screenshots, {hero,overview,explorer,morning}-{en,tr}.webp, 2400×1500
 assets/fonts/         Archivo (variable, wdth) and JetBrains Mono 400/600, latin + latin-ext, SIL OFL 1.1 (OFL-*.txt)
 favicon.svg, robots.txt
+scripts/build.py          Writes index.html and tr/index.html from one template
 scripts/screenshots.cjs   Recaptures the screenshots from the demo
 wrangler.jsonc, .assetsignore   Cloudflare Workers static assets
 ```
 
-The pages are plain HTML: edit `index.html` and `tr/index.html` side by side and keep
-their structure and claims the same. Paths are root-relative (`/assets/...`), so serve the
+Both pages are written by `scripts/build.py` from one template and two dictionaries of
+text, English and Turkish, so they keep the same structure and claims. Edit the script, not
+the HTML, then run `python3 website/scripts/build.py` from the repository root. Paths are root-relative (`/assets/...`), so serve the
 folder as a web root rather than opening the files directly.
 
 ## Preview locally
 
 ```bash
 make website-serve            # from the repository root; http://127.0.0.1:8000
+make website-serve PORT=8001  # when 8000 is taken
 # or
 cd website && python3 -m http.server 8000
 ```
@@ -36,7 +39,10 @@ device scale factor of 2, in English and Turkish, with the time zone Europe/Ista
 
 - `hero-*`: dark theme, the Explorer with the api Pod's OOMKilled restart open on its *Before* tab;
 - `overview-*`: light theme, the Overview;
-- `explorer-*`: light theme, the Explorer filtered by `namespace=shop` and `severity=warning` (two tokens).
+- `explorer-*`: light theme, the Explorer filtered by `namespace=shop` and `severity=warning` (two tokens);
+- `morning-*`: light theme, the first step of the morning summary's setup, with its preview.
+
+`node website/scripts/screenshots.cjs <demo address> morning` takes only one of them.
 
 ```bash
 cd web && npm run build && cd ..                      # the UI embedded in the binary
@@ -50,7 +56,7 @@ The script needs Playwright with Chromium (`npm i -g playwright && npx playwrigh
 and converts the captures to WebP with Python's Pillow (`pip install pillow`), at 2400 px wide
 and at most about 400 KB each; without Pillow it leaves PNGs, and the `src` attributes must
 then be changed to `.png`. If a screenshot changes what it shows, update its `alt` text in
-both pages.
+`scripts/build.py`, for both languages.
 
 ## Deploy (Cloudflare Workers static assets)
 
@@ -66,5 +72,5 @@ npx wrangler deploy
 
 Then attach a custom domain to the `opstide-website` Worker in the Cloudflare dashboard.
 Once the domain is known, make the Open Graph `og:url` and `og:image` and the `hreflang`
-links absolute (`https://<domain>/...`) in both pages, and add a `Sitemap:` line to
+links absolute (`https://<domain>/...`) in `scripts/build.py`, and add a `Sitemap:` line to
 `robots.txt` if you add a sitemap.

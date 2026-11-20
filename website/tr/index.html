@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>OpsTide — Kubernetes cluster’ınızın geçmişi</title>
-<meta name="description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; hiçbir şey cluster’dan çıkmaz.">
+<meta name="description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; siz bir sabah özeti istemedikçe hiçbir şey cluster’dan çıkmaz.">
 <meta name="theme-color" content="#0f1214">
 <link rel="alternate" hreflang="en" href="/">
 <link rel="alternate" hreflang="tr" href="/tr/">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="OpsTide">
 <meta property="og:title" content="OpsTide — Kubernetes cluster’ınızın geçmişi">
-<meta property="og:description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; hiçbir şey cluster’dan çıkmaz.">
+<meta property="og:description" content="OpsTide, Kubernetes için açık kaynaklı, salt okunur bir kayıt aracıdır: neyin değiştiğini, neyin çalıştığını ve neyin başarısız olduğunu kaydeder, izlemediği aralıkları da işaretler. Tek pod, SQLite; siz bir sabah özeti istemedikçe hiçbir şey cluster’dan çıkmaz.">
 <meta property="og:url" content="/tr/">
 <meta property="og:image" content="/assets/img/hero-tr.webp">
 <meta property="og:image:width" content="2400">
@@ -84,7 +84,7 @@
 <section class="facts" aria-label="Bir bakışta">
   <ul class="wrap">
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><div><strong>Yalnızca list ve watch</strong><span>Cluster’a asla yazmaz</span></div></li>
-      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Hiçbir şey dışarı çıkmaz</strong><span>Geçmiş cluster’ınızda kalır</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Varsayılan olarak hiçbir şey çıkmaz</strong><span>Yalnızca kurarsanız bir sabah özeti</span></div></li>
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg><div><strong>Tek pod, tek dosya</strong><span>SQLite ile tek bir binary</span></div></li>
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 15V9M12 15V5M17 15v-4"/></svg><div><strong>Apache 2.0</strong><span>Açık kaynak, hesap gerekmez</span></div></li>
   </ul>
@@ -146,6 +146,21 @@
   </figure>
 </section>
 
+<section class="feature wrap" aria-labelledby="mo-title">
+  <div class="feature-copy">
+    <p class="num">03 · Sabah özeti</p>
+    <h2 id="mo-title">Gece, gün başlamadan kanalınızda.</h2>
+    <p>Saat 08:30’da ya da sizin seçtiğiniz saatte OpsTide gecenin nasıl geçtiğini Slack’e, Microsoft Teams’e ya da kendi webhook’unuza gönderir: başarısız çalışmalar, başarılı çalışması geciken CronJob’lar, hemen öncesinde kaydedilen değişiklikle birlikte yeniden başlatmalar ve izlemediği süreler. Sakin bir gece de bunu söyler.</p>
+    <ul class="checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Arayüzden iki adımda kurulur; Secret komutunu ve chart değerlerini sizin için yazar</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Webhook URL’si bir Kubernetes Secret’ında kalır: hiç gösterilmez, log’a yazılmaz</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>OpsTide zamanında kapalıysa geç gönderilir, asla iki kez gönderilmez</span></li>
+    </ul>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/morning-tr.webp" width="2400" height="1500" alt="Açık temada sabah özeti kurulumu: seçmek için Slack, Microsoft Teams ya da webhook; saat, ne kadar geriye baktığı ve neleri içerdiği; yanında cluster’ın kaydından üretilmiş mesaj önizlemesi: iki başarısız çalışma, geciken bir CronJob ve OOMKill sonrası yeniden başlayan bir Pod." loading="lazy" decoding="async">
+  </figure>
+</section>
 <section class="keeps" aria-labelledby="keeps-title">
   <div class="wrap">
     <h2 id="keeps-title">Sizin için neleri saklar</h2>
@@ -173,7 +188,7 @@
         <li>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4M12 8v4l3 2"/></svg>
           <h3>Zamanlanmış işler, dürüstçe</h3>
-          <p>Kaçırılan başlangıçlar, sonucu doğrulanamayan çalışmalar ve 23 günlük referans döneme göre çalışma süresi.</p>
+          <p>Kaçırılan başlangıçlar, 23 günlük referans döneme göre çalışma süresi ve başarılı çalışması geciken CronJob’lar; yalnızca izlediği sürece söylenir.</p>
         </li>
         <li>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
@@ -206,7 +221,8 @@
     </div>
     <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
     <ul class="outputs">
-        <li><b>Prometheus</b><span>alarmlar için CronJob başına son başarı</span></li>
+        <li><b>Kanalınız</b><span>isterseniz Slack’e, Teams’e ya da bir webhook’a sabah özeti</span></li>
+        <li><b>Prometheus</b><span>alarmlar için geciken CronJob’lar ve kendi sağlığı</span></li>
         <li><b>Grafana</b><span>değişiklikler ve hatalar annotation olarak</span></li>
         <li><b>Ajanınız</b><span>sürümlü JSON kanıt dışa aktarımı</span></li>
     </ul>
@@ -218,14 +234,15 @@
     <div>
       <p class="eyebrow">Güvenlik</p>
       <h2 id="sec-title">Üretim ortamına girebilmek için tasarlandı.</h2>
-      <p>Kurmadan önce <a href="https://github.com/mihnk/opstide#install">RBAC’nin tamamını okuyun</a>. Kısa.</p>
+      <p>Kurmadan önce <a href="https://github.com/mihnk/opstide/blob/main/docs/install.md">RBAC’nin tamamını okuyun</a>. Kısa.</p>
     </div>
     <dl class="rbac">
       <dt>Verb’ler</dt><dd><span class="mono">list · watch</span></dd>
       <dt>Asla istenmez</dt><dd>exec, log’lar, Secret verisi, herhangi bir yazma</dd>
       <dt>Secret’lar</dt><dd>Varsayılan olarak kapalı. Açıkken yalnızca metadata istenir; last-applied annotation’ı ve managedFields geldiği anda atılır. Verilen izin ise secrets üzerinde list ve watch’tır.</dd>
       <dt>Kapsam</dt><dd>Tüm cluster ya da yalnızca listelediğiniz namespace’ler</dd>
-      <dt>Erişim</dt><dd>Arayüz ve API için token; hiçbir yere bir şey gönderilmez</dd>
+      <dt>Erişim</dt><dd>Arayüz ve API için token, ya da oauth2-proxy ile kişi bazlı giriş</dd>
+      <dt>Dışarı giden</dt><dd>Hiçbir şey; sabah özetini kurarsanız yalnızca listelediğiniz hedeflere HTTPS</dd>
     </dl>
   </div>
 </section>
@@ -267,7 +284,7 @@ kubectl -n opstide port-forward svc/opstide 8080:80
     <nav aria-label="Proje">
       <ul>
         <li><a href="https://github.com/mihnk/opstide">GitHub</a></li>
-        <li><a href="https://github.com/mihnk/opstide#readme">Belgeler</a></li>
+        <li><a href="https://github.com/mihnk/opstide/tree/main/docs">Belgeler</a></li>
         <li><a href="https://github.com/mihnk/opstide/releases">Sürümler</a></li>
       </ul>
     </nav>

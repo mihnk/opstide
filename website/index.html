@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>OpsTide — the history of your Kubernetes cluster</title>
-<meta name="description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite, nothing leaves the cluster.">
+<meta name="description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite; nothing leaves the cluster unless you ask for a morning summary.">
 <meta name="theme-color" content="#0f1214">
 <link rel="alternate" hreflang="en" href="/">
 <link rel="alternate" hreflang="tr" href="/tr/">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="OpsTide">
 <meta property="og:title" content="OpsTide — the history of your Kubernetes cluster">
-<meta property="og:description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite, nothing leaves the cluster.">
+<meta property="og:description" content="OpsTide is an open-source, read-only recorder for Kubernetes: what changed, what ran and what failed, with the stretches it was not watching marked. One pod, SQLite; nothing leaves the cluster unless you ask for a morning summary.">
 <meta property="og:url" content="/">
 <meta property="og:image" content="/assets/img/hero-en.webp">
 <meta property="og:image:width" content="2400">
@@ -84,7 +84,7 @@
 <section class="facts" aria-label="At a glance">
   <ul class="wrap">
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><div><strong>list &amp; watch only</strong><span>Never writes to the cluster</span></div></li>
-      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Nothing leaves</strong><span>History stays in your cluster</span></div></li>
+      <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><div><strong>Nothing leaves by default</strong><span>Only a morning summary, if you set one up</span></div></li>
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/></svg><div><strong>One pod, one file</strong><span>A single binary with SQLite</span></div></li>
       <li><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#17222d" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 19h16M7 15V9M12 15V5M17 15v-4"/></svg><div><strong>Apache 2.0</strong><span>Open source, no account</span></div></li>
   </ul>
@@ -146,6 +146,21 @@
   </figure>
 </section>
 
+<section class="feature wrap" aria-labelledby="mo-title">
+  <div class="feature-copy">
+    <p class="num">03 · Morning summary</p>
+    <h2 id="mo-title">The night, in your channel before the day starts.</h2>
+    <p>At 08:30, or whenever you set, OpsTide posts what the night looked like to Slack, Microsoft Teams or a webhook of yours: failed runs, CronJobs overdue for a success, restarts with the change recorded just before them, and the stretches it was not watching. A quiet night says so.</p>
+    <ul class="checks">
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Set up in two steps from the UI, which writes the Secret command and the chart values</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>The webhook URL stays in a Kubernetes Secret: never shown, never logged</span></li>
+        <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e8e6a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M5 12l5 5L20 7"/></svg><span>Sent late if OpsTide was down at its time, never twice</span></li>
+    </ul>
+  </div>
+  <figure class="shot">
+    <img src="/assets/img/morning-en.webp" width="2400" height="1500" alt="The morning summary setup in the light theme: Slack, Microsoft Teams or a webhook to choose from, the time, how far back it looks and what it includes, beside a preview of the message built from the cluster’s record, with two failed runs, an overdue CronJob and a Pod restarted after an OOMKill." loading="lazy" decoding="async">
+  </figure>
+</section>
 <section class="keeps" aria-labelledby="keeps-title">
   <div class="wrap">
     <h2 id="keeps-title">What it keeps for you</h2>
@@ -173,7 +188,7 @@
         <li>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v4h4M12 8v4l3 2"/></svg>
           <h3>Scheduled jobs, kept honest</h3>
-          <p>Missed starts, runs that never confirmed, and run time against a 23-day baseline.</p>
+          <p>Missed starts, run time against a 23-day baseline, and CronJobs overdue for a success — said only when it was watching.</p>
         </li>
         <li>
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1a62b8" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
@@ -206,7 +221,8 @@
     </div>
     <div class="arrow"><svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M2 10h34M28 3l8 7-8 7"/></svg></div>
     <ul class="outputs">
-        <li><b>Prometheus</b><span>last success per CronJob, for alerts</span></li>
+        <li><b>Your channel</b><span>a morning summary on Slack, Teams or a webhook, if you want one</span></li>
+        <li><b>Prometheus</b><span>overdue CronJobs and its own health, for alerts</span></li>
         <li><b>Grafana</b><span>changes &amp; failures as annotations</span></li>
         <li><b>Your agent</b><span>versioned JSON evidence export</span></li>
     </ul>
@@ -218,14 +234,15 @@
     <div>
       <p class="eyebrow">Security</p>
       <h2 id="sec-title">Built to be allowed in production.</h2>
-      <p><a href="https://github.com/mihnk/opstide#install">Read the full RBAC</a> before you install. It is short.</p>
+      <p><a href="https://github.com/mihnk/opstide/blob/main/docs/install.md">Read the full RBAC</a> before you install. It is short.</p>
     </div>
     <dl class="rbac">
       <dt>Verbs</dt><dd><span class="mono">list · watch</span></dd>
       <dt>Never asked for</dt><dd>exec, logs, Secret data, any write</dd>
       <dt>Secrets</dt><dd>Off by default. When on: metadata-only requests, with the last-applied annotation and managedFields dropped on arrival. The grant itself is list &amp; watch on secrets.</dd>
       <dt>Scope</dt><dd>Whole cluster, or only the namespaces you list</dd>
-      <dt>Access</dt><dd>Token for the UI and API; nothing is sent anywhere</dd>
+      <dt>Access</dt><dd>A token for the UI and API, or sign-in by name through oauth2-proxy</dd>
+      <dt>Outbound</dt><dd>Nothing, unless you set up the morning summary: then HTTPS to the destinations you list</dd>
     </dl>
   </div>
 </section>
@@ -267,7 +284,7 @@ kubectl -n opstide port-forward svc/opstide 8080:80
     <nav aria-label="Project">
       <ul>
         <li><a href="https://github.com/mihnk/opstide">GitHub</a></li>
-        <li><a href="https://github.com/mihnk/opstide#readme">Documentation</a></li>
+        <li><a href="https://github.com/mihnk/opstide/tree/main/docs">Documentation</a></li>
         <li><a href="https://github.com/mihnk/opstide/releases">Releases</a></li>
       </ul>
     </nav>
