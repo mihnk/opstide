@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -42,6 +43,12 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 		reply(w, r, s.log, nil, err)
 		return
 	}
+	out, err := s.summarize(r.Context(), from, to)
+	reply(w, r, s.log, out, err)
+}
+
+// summarize counts what was recorded in [from, to), by kind, and names the watches that were not whole.
+func (s *Server) summarize(c context.Context, from, to time.Time) (ExplorerSummary, error) {
 	out := ExplorerSummary{Schema: Schema, From: from, To: to, Items: []SummaryItem{}, NotWhole: []SummaryNotWhole{}}
 	for _, it := range []struct {
 		key, label, plural, note, query string
@@ -59,17 +66,15 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 	} {
 		q := it.q
 		q.From, q.To = from, to
-		n, err := s.db.ExplorerCount(r.Context(), q)
+		n, err := s.db.ExplorerCount(c, q)
 		if err != nil {
-			reply(w, r, s.log, nil, err)
-			return
+			return out, err
 		}
 		out.Items = append(out.Items, SummaryItem{Key: it.key, Label: it.label, Plural: it.plural, Note: it.note, Count: n, Query: it.query})
 	}
-	ctx, err := s.buildContext(r.Context(), from, to, "")
+	ctx, err := s.buildContext(c, from, to, "")
 	if err != nil {
-		reply(w, r, s.log, nil, err)
-		return
+		return out, err
 	}
 	// A watch turned off by configuration (Nodes, Secret metadata) is a choice, not a gap: System lists it, and the
 	// Explorer's coverage still says so for records of that kind. Here it would only repeat on every install.
@@ -81,5 +86,5 @@ func (s *Server) explorerSummary(w http.ResponseWriter, r *http.Request) {
 	if d, ok := s.w.(interface{ DroppedObjects() (uint64, time.Time) }); ok {
 		out.Dropped, _ = d.DroppedObjects()
 	}
-	reply(w, r, s.log, out, nil)
+	return out, nil
 }

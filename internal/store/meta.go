@@ -76,3 +76,12 @@ func (w *Writer) SetMeta(ctx context.Context, key, value string) error {
 func (s *Store) LastWorkloadEvent(ctx context.Context) (time.Time, error) {
 	return metaTime(ctx, s.db, "last_workload_event")
 }
+
+// Meta reads a value SetMeta stored; ok is false when there is none.
+func (s *Store) Meta(ctx context.Context, key string) (value string, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return value, err == nil, err
+}

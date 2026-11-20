@@ -54,6 +54,25 @@ releases:
 maintenance:
   windows: []
 
+# The morning summary: what the night looked like, sent to Slack, Microsoft Teams or a webhook of your own. It is the
+# one thing OpsTide sends out of the cluster, and only when destinations are listed. A destination's URL is a secret:
+# keep it in a Secret and name it here; OpsTide reads it each time it sends (no restart after a rotation) and never
+# shows it. The UI's setup page (System, Integrations) writes this block for you. See docs/notify.md.
+notify:
+  morningSummary:
+    schedule: "30 8 * * 1-5"  # five-field cron, read in timeZone
+    timeZone: UTC
+    covers: since-18h         # since-18h (18:00 the day before), 12h or 24h
+    language: en              # en or tr
+    include: [failures, troubles, gaps, due]  # add changes to list every change, not only their count
+  destinations: []
+  #  - type: slack            # slack, teams or webhook
+  #    name: "#ops-morning"
+  #    urlFrom: { secret: opstide-notify, key: slack }
+  # With networkPolicy.enabled: let OpsTide out to port 443 anywhere, since a destination's address is not known in
+  # advance. Set false and add a narrower rule (a proxy, a CIDR) to networkPolicy.extraEgress instead.
+  allowEgress443: true
+
 # Node conditions and scheduling changes. Nodes are cluster-scoped, so this needs
 # list and watch on nodes cluster-wide (a small ClusterRole is added); it is off by default,
 # also for installs limited to some namespaces. Capacity, labels, taints and images are not read.

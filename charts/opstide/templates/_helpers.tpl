@@ -92,3 +92,12 @@ after the first upgrade would restart the pod, which is a gap in the record, for
 {{- "generated-or-unknown" | sha256sum -}}
 {{- end -}}
 {{- end }}
+
+{{/* The Secrets the morning summary's destinations name, each once, as a JSON list. */}}
+{{- define "opstide.notifySecrets" -}}
+{{- $s := list -}}
+{{- range .Values.notify.destinations -}}
+{{- $s = append $s .urlFrom.secret -}}
+{{- end -}}
+{{- uniq $s | toJson -}}
+{{- end -}}

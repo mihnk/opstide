@@ -14,6 +14,7 @@ import (
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/demo"
 	"github.com/mihnk/opstide/internal/health"
+	"github.com/mihnk/opstide/internal/notify"
 	"github.com/mihnk/opstide/internal/store"
 	"github.com/mihnk/opstide/internal/webui"
 )
@@ -53,9 +54,11 @@ func runDemo(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	auth.New("").Register(mux) // no login: the session endpoint still answers
-	api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: now, Demo: true, ReleaseWindow: 10 * time.Minute,
+	srv := api.New(db, demo.Watcher{}, api.Config{Version: version + " (demo)", Cluster: "demo", StartedAt: now, Demo: true, ReleaseWindow: 10 * time.Minute,
 		WatchConfigMaps: true, WatchSecretMetadata: true, Maintenance: demo.Maintenance(now),
-		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}}, log).Register(mux)
+		Retention: store.Retention{Days: cfg.RetentionDays, MaxEvents: cfg.MaxEvents, MaxRoutine: cfg.MaxRoutineEvents}}, log)
+	srv.SetNotifier(notify.NewDemo(time.Now)) // a made-up destination; nothing is sent
+	srv.Register(mux)
 	mux.Handle("/", webui.Handler())
 	log.Info("demo: made-up data, no cluster; open the address below", "url", "http://"+listen)
 	return serve(ctx, listen, secure(mux), log)

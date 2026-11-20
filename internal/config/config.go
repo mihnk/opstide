@@ -65,6 +65,9 @@ type Config struct {
 	// ConfigMap). Empty: none. Maintenance is what it declares, validated at start: a bad entry refuses to start.
 	MaintenanceFile string
 	Maintenance     *maintenance.Set
+	// NotifyFile is a YAML (or JSON) file configuring the morning summary and where it goes (the chart renders it
+	// from notify.* values). Empty: no summary is sent. It is validated at start, destinations' URL files included.
+	NotifyFile string
 	// Demo serves a made-up history from a temporary database, with no cluster, kubeconfig or Docker. Nothing is
 	// collected, and the UI says so on every page.
 	Demo bool
@@ -128,6 +131,7 @@ func Load(args []string, getenv func(string) string) (Config, error) {
 	fs.BoolVar(&c.Demo, "demo", false, "serve a made-up history from a temporary database, with no cluster needed; nothing is collected")
 	fs.StringVar(&c.ClustrailURL, "clustrail-url", env("CLUSTRAIL_URL", ""), "link template for 'Open in Clustrail', with {cluster}, {namespace}, {name}; empty shows no link (OPSTIDE_CLUSTRAIL_URL)")
 	fs.StringVar(&c.PublicURL, "public-url", env("PUBLIC_URL", ""), "the address readers open OpsTide at, e.g. https://opstide.example.com, for links in Grafana annotations; empty gives paths (OPSTIDE_PUBLIC_URL)")
+	fs.StringVar(&c.NotifyFile, "notify-file", env("NOTIFY_FILE", ""), "YAML file configuring the morning summary (morningSummary: {schedule, timeZone, covers, language, include}, destinations: [{type, name, urlFile, source}]); empty sends none (OPSTIDE_NOTIFY_FILE)")
 	fs.StringVar(&c.MaintenanceFile, "maintenance-file", env("MAINTENANCE_FILE", ""), "YAML file declaring maintenance windows (windows: [{name, cron, duration, timeZone, namespaces, note} or {name, start, end, ...}]); empty declares none (OPSTIDE_MAINTENANCE_FILE)")
 	fs.StringVar(&level, "log-level", env("LOG_LEVEL", "info"), "debug, info, warn or error (OPSTIDE_LOG_LEVEL)")
 	if err := fs.Parse(args); err != nil {

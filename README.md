@@ -46,6 +46,8 @@ The interface is in English and Turkish, light and dark, and starts with a short
   resource, its owners, the ConfigMaps it references and its Node in the hour before.
 - **Kubernetes Events, images and Nodes.** Events as evidence, which images ran
   where at any past time, Node conditions.
+- **A morning summary.** The night's failures, overdue CronJobs and troubles, posted to
+  Slack, Teams or a webhook of yours before the day starts. Off until you set it up.
 - **Its own blind spots.** When a watch was not running, that stretch is a recorded
   gap, drawn on every page, and nothing inside it is called failed or missed.
 
@@ -120,6 +122,7 @@ CronJob / Job / Pod / Deployment / ConfigMap watches ──► collector ──�
 | [Install and configure](docs/install.md) | Chart, RBAC, values, the token, upgrading |
 | [The web UI](docs/ui.md) | Each page, and how run time is compared |
 | [Changes, ConfigMaps and Secrets](docs/configuration-changes.md) | The change ledger, what is kept and what turning on Secrets grants |
+| [The morning summary](docs/notify.md) | The night, posted to Slack, Teams or a webhook before the day starts |
 | [Maintenance windows](docs/maintenance-windows.md) | Declaring planned work so it reads as planned |
 | [Image inventory](docs/image-inventory.md) | What ran where, at any past time |
 | [Grafana annotations](docs/grafana.md) | Changes, failures and blind spots on your dashboards |

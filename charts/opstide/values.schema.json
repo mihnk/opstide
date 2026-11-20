@@ -290,6 +290,104 @@
           }
         }
       }
+    },
+    "notify": {
+      "type": "object",
+      "properties": {
+        "morningSummary": {
+          "type": "object",
+          "properties": {
+            "schedule": {
+              "type": "string",
+              "minLength": 9
+            },
+            "timeZone": {
+              "type": "string",
+              "minLength": 1
+            },
+            "covers": {
+              "type": "string",
+              "enum": [
+                "since-18h",
+                "12h",
+                "24h"
+              ]
+            },
+            "language": {
+              "type": "string",
+              "enum": [
+                "en",
+                "tr"
+              ]
+            },
+            "include": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "failures",
+                  "troubles",
+                  "gaps",
+                  "due",
+                  "changes"
+                ]
+              },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "destinations": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "name",
+              "urlFrom"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "slack",
+                  "teams",
+                  "webhook"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "urlFrom": {
+                "type": "object",
+                "required": [
+                  "secret",
+                  "key"
+                ],
+                "properties": {
+                  "secret": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$"
+                  },
+                  "key": {
+                    "type": "string",
+                    "pattern": "^[-._a-zA-Z0-9]{1,253}$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "allowEgress443": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

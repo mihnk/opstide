@@ -23,4 +23,7 @@ RFC 3339 in UTC; `tz` (an IANA zone) says where a day starts.
 | `GET /api/v1/owners` | The owners any CronJob has named, deleted ones included (the Explorer's Owner list) |
 | `GET /api/v1/system?tz=` | Watches and coverage today, permissions problems, storage, the configured maintenance windows and their next occurrences (`maintenance`) |
 | `GET /api/v1/annotations?from=&to=&kinds=changes,failures,gaps,maintenance&namespace=&workload=&limit=` | Changes, failures, the stretches OpsTide was not watching and the configured maintenance windows, as a flat array for Grafana annotations (see [Grafana annotations](grafana.md)). `from`/`to` in epoch ms or RFC 3339, at most 31 days; `limit` at most 1,000 |
+| `GET /api/v1/morning?tz=&covers=&lang=&include=` | The [morning summary](notify.md) as it would be sent now: `morning` (the data) and `lines` (as people read it). Without parameters, the configured one. `covers` is `since-18h`, `12h` or `24h`; `lang` `en` or `tr`; `include` a comma list of `failures`, `troubles`, `gaps`, `due`, `changes` |
+| `GET /api/v1/notify` | How the morning summary is configured and how its last deliveries went, per destination (`configured: false` when it is not); never a URL |
+| `POST /api/v1/notify/test` | `{"destination": name}` (JSON only): send a test message to a configured destination now; at most one per destination every 30 s. A URL never comes from a request |
 | `GET /api/v1/stream` | Server-sent events: `change` when the record changes, `ping` every 15 s |

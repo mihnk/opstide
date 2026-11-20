@@ -8,6 +8,8 @@ not your cluster: `opstide_ready`, `opstide_last_heartbeat_timestamp_seconds`
 `opstide_store_bytes`, `opstide_store_wal_bytes`, `opstide_store_volume_bytes` and
 `opstide_store_volume_free_bytes` (the filesystem the database is on, and the space left on it; on Linux and macOS),
 `opstide_store_oldest_event_timestamp_seconds`, `opstide_build_info`,
+`opstide_notify_deliveries_total`, `opstide_notify_last_success_timestamp_seconds` and `opstide_notify_next_timestamp_seconds`
+(the [morning summary](notify.md), when one is configured),
 `opstide_maintenance_active{name,scope}` (1 while a configured [maintenance window](maintenance-windows.md) is open somewhere
 in its scope, `cluster` or its namespaces; one series per window) and `opstide_http_requests_total` by kind of request and status code. A scrape
 config with the token:

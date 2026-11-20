@@ -66,6 +66,7 @@ Useful values (see `charts/opstide/values.yaml` for all):
 | `maintenance.windows` | Planned work, so what happens in it reads as planned: a list of `{name, cron, duration, timeZone, namespaces, note}` (recurring) or `{name, start, end, namespaces, note}` (one-off). Empty by default; see [Maintenance windows](maintenance-windows.md) |
 | `clustrail.url` | Adds "Open in Clustrail" to each CronJob: a URL template with `{cluster}`, `{namespace}`, `{name}` (http, https or `clustrail://`) |
 | `serviceMonitor.enabled` | A Prometheus Operator ServiceMonitor for `/metrics` |
+| `notify.destinations`, `notify.morningSummary` | The [morning summary](notify.md): where it goes (each URL from a Secret) and when; nothing is sent unless destinations are listed |
 | `prometheusRule.enabled` | Alerts about OpsTide itself (down, not ready, stuck, watches failing, records dropped, volume filling) as a PrometheusRule; see [Metrics and alerting](metrics.md#alerts-about-opstide-itself). `prometheusRule.labels` for your Prometheus's rule selector, `prometheusRule.disabled` to leave some out |
 | `networkPolicy.enabled` | Only the UI port in; out only DNS and the Kubernetes API's ports. Set `networkPolicy.apiServer.cidrs` to your API server's address to limit the destination too. Not for Cilium with a self-managed control plane (see values.yaml) |
 | `ingress.enabled` | Off by default |

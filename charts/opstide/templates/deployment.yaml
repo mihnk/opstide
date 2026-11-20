@@ -17,7 +17,7 @@ spec:
       labels:
         {{- /* the selector labels win over podLabels */}}
         {{- toYaml (merge (dict "app.kubernetes.io/name" (include "opstide.name" .) "app.kubernetes.io/instance" .Release.Name) (.Values.podLabels | default dict)) | nindent 8 }}
-      {{- if or .Values.podAnnotations .Values.auth.enabled .Values.maintenance.windows }}
+      {{- if or .Values.podAnnotations .Values.auth.enabled .Values.maintenance.windows .Values.notify.destinations }}
       annotations:
         {{- if .Values.auth.enabled }}
         {{- /* The token is read at start: a changed Secret restarts the pod. */}}
@@ -26,6 +26,10 @@ spec:
         {{- if .Values.maintenance.windows }}
         {{- /* So are the maintenance windows. */}}
         checksum/maintenance: {{ toYaml .Values.maintenance.windows | sha256sum }}
+        {{- end }}
+        {{- if .Values.notify.destinations }}
+        {{- /* So is the morning summary's configuration (not its URLs, which are read when sending). */}}
+        checksum/notify: {{ toYaml .Values.notify | sha256sum }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -88,6 +92,10 @@ spec:
             - name: OPSTIDE_MAINTENANCE_FILE
               value: /etc/opstide-maintenance/maintenance.yaml
             {{- end }}
+            {{- if .Values.notify.destinations }}
+            - name: OPSTIDE_NOTIFY_FILE
+              value: /etc/opstide-notify-config/notify.yaml
+            {{- end }}
             # SQLite may write temporary files; the root filesystem is read-only.
             - name: TMPDIR
               value: /tmp
@@ -135,6 +143,16 @@ spec:
               mountPath: /etc/opstide-maintenance
               readOnly: true
             {{- end }}
+            {{- if .Values.notify.destinations }}
+            - name: notify
+              mountPath: /etc/opstide-notify-config
+              readOnly: true
+            {{- range $i, $s := include "opstide.notifySecrets" . | fromJsonArray }}
+            - name: notify-secret-{{ $i }}
+              mountPath: /etc/opstide-notify/{{ $s }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -160,6 +178,18 @@ spec:
           configMap:
             name: {{ include "opstide.fullname" . }}-maintenance
             defaultMode: 0444
+        {{- end }}
+        {{- if .Values.notify.destinations }}
+        - name: notify
+          configMap:
+            name: {{ include "opstide.fullname" . }}-notify
+            defaultMode: 0444
+        {{- range $i, $s := include "opstide.notifySecrets" . | fromJsonArray }}
+        - name: notify-secret-{{ $i }}
+          secret:
+            secretName: {{ $s }}
+            defaultMode: 0444
+        {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

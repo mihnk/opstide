@@ -26,6 +26,7 @@ import (
 	"github.com/mihnk/opstide/internal/config"
 	"github.com/mihnk/opstide/internal/health"
 	"github.com/mihnk/opstide/internal/metrics"
+	"github.com/mihnk/opstide/internal/notify"
 	"github.com/mihnk/opstide/internal/store"
 	"github.com/mihnk/opstide/internal/webui"
 )
@@ -42,6 +43,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "opstide:", err)
 		os.Exit(2)
 	}
+	notifyCfg, err := notify.LoadFile(cfg.NotifyFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "opstide:", err)
+		os.Exit(2)
+	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -52,13 +58,13 @@ func main() {
 		}
 		return
 	}
-	if err := run(ctx, cfg, log); err != nil {
+	if err := run(ctx, cfg, log, notifyCfg); err != nil {
 		log.Error("stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+func run(ctx context.Context, cfg config.Config, log *slog.Logger, notifyCfg *notify.Config) error {
 	started := time.Now()
 	log.Info("starting", "version", version, "cluster", cfg.Cluster, "namespaces", cfg.Namespaces, "maintenanceWindows", cfg.Maintenance.Len())
 
@@ -132,6 +138,12 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}, log)
 	reg := &metrics.Registry{}
 	reg.Add(ownMetrics(db, col, version, cfg.Cluster, started, cfg.Maintenance, srv.Deadlines))
+	if notifyCfg != nil {
+		n := notify.New(notifyCfg, srv.Morning, db, log, version)
+		srv.SetNotifier(n)
+		reg.Add(n.Metrics())
+		go n.Run(ctx)
+	}
 	mux := http.NewServeMux()
 	probes.Register(mux)
 	guard.Register(mux)

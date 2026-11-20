@@ -42,6 +42,12 @@ spec:
         - port: {{ . }}
           protocol: TCP
         {{- end }}
+    {{- if and .Values.notify.destinations .Values.notify.allowEgress443 }}
+    # The morning summary's destinations: HTTPS anywhere, since their addresses are not known in advance.
+    - ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}
     {{- with .Values.networkPolicy.extraEgress }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

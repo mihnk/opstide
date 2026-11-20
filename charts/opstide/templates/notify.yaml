@@ -1,0 +1,21 @@
+{{- if .Values.notify.destinations }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opstide.fullname" . }}-notify
+  labels:
+    {{- include "opstide.labels" . | nindent 4 }}
+data:
+  # Read once at start (-notify-file); a change restarts the pod through the checksum on the Deployment. The URLs are
+  # not here: each is read from its Secret, mounted under /etc/opstide-notify, when a message is sent.
+  notify.yaml: |
+    morningSummary:
+      {{- toYaml .Values.notify.morningSummary | nindent 6 }}
+    destinations:
+      {{- range .Values.notify.destinations }}
+      - type: {{ .type | quote }}
+        name: {{ .name | quote }}
+        urlFile: {{ printf "/etc/opstide-notify/%s/%s" .urlFrom.secret .urlFrom.key | quote }}
+        source: {{ printf "Secret %s, key %s" .urlFrom.secret .urlFrom.key | quote }}
+      {{- end }}
+{{- end }}

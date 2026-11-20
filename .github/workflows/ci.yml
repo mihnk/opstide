@@ -60,6 +60,7 @@ jobs:
           helm template t charts/opstide --kube-version 1.32.0 > /dev/null
           helm template t charts/opstide --kube-version 1.32.0 --set 'namespaces={payments,data}' --set networkPolicy.enabled=true --set ingress.enabled=true > /dev/null
           helm template t charts/opstide --kube-version 1.32.0 --set serviceMonitor.enabled=true --set prometheusRule.enabled=true > /dev/null
+          helm template t charts/opstide --kube-version 1.32.0 --set networkPolicy.enabled=true --set 'notify.destinations[0].type=slack' --set 'notify.destinations[0].name=ops' --set 'notify.destinations[0].urlFrom.secret=opstide-notify' --set 'notify.destinations[0].urlFrom.key=slack' > /dev/null
 
   image:
     runs-on: ubuntu-latest

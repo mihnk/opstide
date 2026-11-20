@@ -69,6 +69,8 @@ type Server struct {
 
 	streams chan struct{} // bounds concurrent event streams
 
+	notifier Notifier // sends the morning summary; nil when none is configured (SetNotifier)
+
 	retMu  sync.Mutex // guards the cached retention sources
 	retAt  time.Time
 	retVal []RetentionSourceView
@@ -133,6 +135,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/explorer/export", s.explorerExportSelected)
 	mux.HandleFunc("POST /api/v1/explorer/lookup", s.explorerLookup)
 	mux.HandleFunc("GET /api/v1/annotations", heavy(s.annotations)) // Grafana pulls these over a long range
+	mux.HandleFunc("GET /api/v1/morning", heavy(s.morning))         // the morning summary that would be sent now
+	mux.HandleFunc("GET /api/v1/notify", s.notifyGet)
+	mux.HandleFunc("POST /api/v1/notify/test", s.notifyTest)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "no such API endpoint")
