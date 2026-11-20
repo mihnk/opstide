@@ -4,7 +4,7 @@ import { LangChoice, ThemeChoice } from '../components/Shell'
 import { t, tn } from '../i18n'
 import { useApi } from '../live'
 import { savedTheme, savedZone, systemTheme, type Theme } from '../prefs'
-import { navigate } from '../router'
+import { Link, navigate } from '../router'
 import {
   ConnectionsArt, ExplorerArt, Figure, GapsArt, IntegrationsArt, NoCauseArt, OverviewArt, Pin, PointInTimeArt, PreviewArt, ProvenanceArt,
   ReadOnlyArt, RecordArt, SchedulesArt, SystemArt, WatchingArt,
@@ -327,7 +327,12 @@ function stepBody(key: string, c: Ctx): { text: ReactNode; visual: ReactNode; wi
       }
     case 'integrations':
       return {
-        text: <p className="ob-lead">{t('All optional, all set in the Helm values. OpsTide sends nothing out: the others read from it.')}</p>,
+        text: (
+          <>
+            <p className="ob-lead">{t('All optional, all set in the Helm values. The others read from OpsTide; the one thing it can send out is a morning summary, to Slack, Teams or a webhook, once you set one up.')}</p>
+            <p className="ob-note"><Link href="/setup/morning">{t('Set up the morning summary')}</Link> · {t('optional, two steps')}</p>
+          </>
+        ),
         visual: <IntegrationsArt sys={c.sys} />,
       }
     default: {

@@ -37,6 +37,7 @@ export function System({ tz }: { tz: string }) {
         <span className="grow" />
         <span className="mono muted fine" style={{ paddingBottom: 6 }}>opstide {data.version} · {data.cluster} · {t('read-only')} · <Link href="/welcome">{t('Guide')}</Link></span>
       </div>
+      <SystemTabs current="coverage" />
 
       {data.dropped.count > 0 && (
         <div className="banner" role="note">
@@ -208,5 +209,15 @@ export function System({ tz }: { tz: string }) {
         </section>
       </div>
     </div>
+  )
+}
+
+/** The two pages of System: what OpsTide can see, and what it reports. */
+export function SystemTabs({ current }: { current: 'coverage' | 'integrations' }) {
+  return (
+    <nav className="sys-tabs" aria-label={t('System')}>
+      <Link href="/system" aria-current={current === 'coverage' ? 'page' : undefined}>{t('Coverage')}</Link>
+      <Link href="/system/integrations" aria-current={current === 'integrations' ? 'page' : undefined}>{t('Integrations')}</Link>
+    </nav>
   )
 }

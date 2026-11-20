@@ -5,6 +5,8 @@ import { savedZone, saveZone } from './prefs'
 import { logToExplorer } from './explorer'
 import { navigate, useLocation } from './router'
 import { Explorer } from './screens/Explorer'
+import { Integrations } from './screens/Integrations'
+import { SetupMorning } from './screens/SetupMorning'
 import { Operation } from './screens/Operation'
 import { Schedules } from './screens/Schedules'
 import { System as SystemScreen } from './screens/System'
@@ -46,7 +48,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/images': 'Images', '/schedules': 'Schedules', '/system': 'System' }
+    const names: Record<string, string> = { '/': 'Overview', '/explorer': 'Explorer', '/workspace': 'Workspace', '/releases': 'Releases', '/workloads': 'Workloads', '/images': 'Images', '/schedules': 'Schedules', '/system': 'System', '/system/integrations': 'Integrations', '/setup/morning': 'Setup' }
     const intro = path === '/welcome' || (path === '/' && !onboarded() && params.toString() === '')
     document.title = `${t(intro ? 'Welcome' : names[path] ?? (path.startsWith('/images/') ? 'Image' : 'Operation'))} · OpsTide${cluster ? ` · ${cluster}` : ''}`
   }, [path, params, cluster])
@@ -61,6 +63,7 @@ export function App() {
   // that names a window (/?date=…) is someone sharing what they saw: it opens that, not the introduction.
   const intro = path === '/welcome' || (path === '/' && params.toString() === '' && !onboarded())
   if (intro) return <Onboarding params={params} />
+  if (path === '/setup/morning') return <SetupMorning params={params} tz={tz} />
   if (path === '/') screen = <Overview params={params} tz={tz} setTz={setTz} />
   else if (path === '/explorer') screen = <Explorer params={params} tz={tz} setTz={setTz} />
   else if (path === '/workspace') screen = <Workspace tz={tz} setTz={setTz} />
@@ -75,6 +78,7 @@ export function App() {
   else if (path === '/schedules') screen = <Schedules params={params} tz={tz} setTz={setTz} />
   else if (op) screen = <Operation key={op[1]} id={decodeURIComponent(op[1])} params={params} tz={tz} />
   else if (path === '/system') screen = <SystemScreen tz={tz} />
+  else if (path === '/system/integrations') screen = <Integrations tz={tz} />
   else screen = <div className="page"><div className="empty">{t('There is no page here.')} <a href="/">{t('Go to the Overview')}</a></div></div>
 
   return <Shell path={path} cluster={cluster} demo={demo}>{screen}</Shell>

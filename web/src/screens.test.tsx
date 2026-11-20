@@ -220,3 +220,34 @@ describe('success deadlines', () => {
     for (const w of want) expect(main.textContent).toContain(w)
   })
 })
+
+describe('the morning summary', () => {
+  it('Integrations shows where it goes, how the last delivery went, and the message itself', async () => {
+    const { main, errors } = await draw('/system/integrations', 'en')
+    healthy('/system/integrations', main, errors)
+    const text = main.textContent ?? ''
+    for (const w of ['#ops-morning', 'Secret opstide-notify, key slack', '● Delivered', 'The destination below is made up', 'Morning summary · demo', 'Failed', 'Microsoft Teams', 'Not set up']) {
+      expect(text).toContain(w)
+    }
+    expect(main.querySelector('pre.code-block')?.textContent).toContain('urlFrom: { secret: opstide-notify, key: slack }')
+  })
+  it('setup step 1 offers the three destinations and a preview from the record', async () => {
+    const { main, errors } = await draw('/setup/morning', 'en')
+    healthy('/setup/morning', main, errors)
+    expect([...main.querySelectorAll('[role=radio]')].map((b) => b.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false'])
+    expect(main.querySelector('.msg-frame')?.textContent).toContain('Morning summary · demo')
+  })
+  it('setup step 2 writes the Secret and the values, and never shows the URL', async () => {
+    const path = '/setup/morning?step=2&type=teams&name=ops-room&lang=tr'
+    const { main, errors } = await draw(path, 'tr')
+    healthy(path, main, errors)
+    expect(main.textContent).toContain('Upgrade bekleniyor.')
+    expect(main.querySelector('.msg-frame')?.textContent).toContain('Sabah özeti · demo')
+    const input = main.querySelector<HTMLInputElement>('#setup-url')!
+    await act(async () => { fireEvent.change(input, { target: { value: 'https://example.invalid/workflows/secret-path' } }) })
+    const blocks = [...main.querySelectorAll('pre.code-block')].map((p) => p.textContent ?? '')
+    expect(blocks[0]).toContain("--from-literal=teams='••••••••••••'")
+    expect(blocks[1]).toContain('name: "ops-room"')
+    expect(main.textContent).not.toContain('secret-path')
+  })
+})

@@ -813,3 +813,38 @@ export function imageRef(image: string): string {
   for (const b of bytes) bin += String.fromCharCode(b)
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
+
+/** One line of the morning summary as people read it (internal/digest): a heading, a text, an item or a note. */
+export interface DigestLine {
+  kind: 'heading' | 'text' | 'item' | 'note'
+  parts: { text: string; bold?: boolean; fail?: boolean; mono?: boolean; link?: string }[]
+}
+
+/** GET /api/v1/morning: the summary as it would be sent now. */
+export interface MorningPreview {
+  morning: { cluster: string; from: string; to: string; timeZone: string; language: string; include: string[]; demo?: boolean }
+  lines: DigestLine[]
+}
+
+/** One attempt to deliver a message. */
+export interface Delivery {
+  at: string
+  ok: boolean
+  test?: boolean
+  status?: number
+  error?: string
+}
+
+/** GET /api/v1/notify: how the morning summary is configured, and how its deliveries went. Never a URL. */
+export interface NotifyStatus {
+  configured: boolean
+  demo?: boolean
+  schedule?: string
+  timeZone?: string
+  covers?: string
+  language?: string
+  include?: string[]
+  next?: string
+  lastSent?: string
+  destinations: { name: string; type: 'slack' | 'teams' | 'webhook'; source: string; last?: Delivery; lastOk?: string }[]
+}

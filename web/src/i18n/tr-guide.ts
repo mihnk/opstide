@@ -159,7 +159,6 @@ export const guide: Record<string, string> = {
 
   // 11
   "It fits what you already run.": "Zaten kullandıklarınıza uyar.",
-  "All optional, all set in the Helm values. OpsTide sends nothing out: the others read from it.": "Hepsi isteğe bağlı, hepsi Helm values ile ayarlanır. OpsTide dışarıya bir şey göndermez; diğerleri ondan okur.",
   "Prometheus metrics": "Prometheus metrikleri",
   "OpsTide's own health and each CronJob's last success.": "OpsTide'ın kendi sağlığı ve her CronJob'un son başarılı çalışması.",
   "Grafana annotations": "Grafana notları",
