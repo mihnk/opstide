@@ -65,7 +65,7 @@ func New(token string) *Auth {
 // an error: it would silently turn the login off.
 func LoadToken(file, env string) (string, error) {
 	if file != "" {
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(file) //nolint:gosec // the path is the operator's own -token-file setting
 		if err != nil {
 			return "", fmt.Errorf("token file: %w", err)
 		}
@@ -187,7 +187,7 @@ func (a *Auth) Register(mux *http.ServeMux) {
 }
 
 func (a *Auth) cookie(r *http.Request, value string, maxAge int) *http.Cookie {
-	return &http.Cookie{
+	return &http.Cookie{ //nolint:gosec // Secure is set whenever the request came over HTTPS; plain HTTP is a port-forward to 127.0.0.1
 		Name: cookieName, Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		// Behind a TLS-terminating proxy the request itself is plain HTTP.
 		Secure: r.TLS != nil || forwardedHTTPS(r),

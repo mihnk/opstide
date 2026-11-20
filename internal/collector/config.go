@@ -81,11 +81,11 @@ func configWord(kind string) (word, k8sKind string) {
 // classOfFields says whether a managedFields entry's field set includes data ("data"), only metadata ("metadata"), or
 // neither (""). It says what a manager owns, not what its latest write changed.
 func classOfFields(f *metav1.FieldsV1) string {
-	if f == nil || len(f.Raw) == 0 {
+	if f == nil || len(f.GetRawBytes()) == 0 {
 		return ""
 	}
 	var top map[string]json.RawMessage
-	if json.Unmarshal(f.Raw, &top) != nil {
+	if json.Unmarshal(f.GetRawBytes(), &top) != nil {
 		return ""
 	}
 	for _, k := range []string{"f:data", "f:binaryData", "f:stringData", "f:immutable", "f:type"} {
@@ -108,7 +108,7 @@ func slimConfigFields(mf []metav1.ManagedFieldsEntry) []metav1.ManagedFieldsEntr
 		if c == "" {
 			continue
 		}
-		e.FieldsV1 = &metav1.FieldsV1{Raw: []byte(`{"f:` + c + `":{}}`)}
+		e.FieldsV1 = metav1.NewFieldsV1(`{"f:` + c + `":{}}`)
 		out = append(out, e)
 	}
 	return out
@@ -203,7 +203,7 @@ func (t *configTrim) configMap(obj any) (any, error) {
 func (t *configTrim) secretMeta(obj any) (any, error) {
 	p, ok := obj.(*metav1.PartialObjectMetadata)
 	if !ok {
-		return nil, fmt.Errorf("Secret metadata watch: unexpected %T", obj)
+		return nil, fmt.Errorf("secret metadata watch: unexpected %T", obj)
 	}
 	if t.done(p) {
 		return p, nil

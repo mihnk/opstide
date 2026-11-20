@@ -283,7 +283,7 @@ func (q ExplorerQuery) useEvents() bool {
 			return false
 		}
 	}
-	if len(q.Sources) > 0 && !(has(q.Sources, SourceKubernetesAPI) || has(q.Sources, SourceOpsTideRule) || has(q.Sources, SourceCoverage)) {
+	if len(q.Sources) > 0 && !has(q.Sources, SourceKubernetesAPI) && !has(q.Sources, SourceOpsTideRule) && !has(q.Sources, SourceCoverage) {
 		return false
 	}
 	return true

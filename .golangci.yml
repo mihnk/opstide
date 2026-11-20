@@ -30,9 +30,12 @@ linters:
       # Unchecked Close and similar where the error changes nothing the caller can act on.
       - std-error-handling
     rules:
+      # Tests: helpers read and close response bodies, and test helpers make their own contexts.
       - path: _test\.go
         linters:
           - gosec
+          - bodyclose
+          - contextcheck
       # Coverage is written with its own context on purpose (see tracker.write).
       - path: internal/collector/(coverage|collector)\.go
         linters:

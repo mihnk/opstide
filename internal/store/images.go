@@ -202,6 +202,7 @@ func (s *Store) ImageRevisions(ctx context.Context, namespace string) ([]ImageRe
 	if namespace != "" {
 		wwhere = " WHERE w.namespace = ?"
 	}
+	//nolint:gosec // where and wwhere are fixed clauses; values are placeholders
 	q := `SELECT r.workload_id, coalesce(w.kind, 'Deployment'), r.namespace, r.workload, w.deleted_at, r.id, r.revision, r.revision_num,
 	r.started_at, r.observed_at, r.updated_at, r.superseded_at, r.origin, r.state,
 	coalesce(json_extract(CASE WHEN json_valid(r.snapshot) THEN r.snapshot END, '$.containers'), ''),

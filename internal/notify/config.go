@@ -71,7 +71,7 @@ func LoadFile(path string) (*Config, error) {
 	if path == "" {
 		return nil, nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // the path is the operator's own -notify-file setting
 	if err != nil {
 		return nil, fmt.Errorf("notify file: %w", err)
 	}

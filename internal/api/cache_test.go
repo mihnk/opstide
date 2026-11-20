@@ -160,7 +160,8 @@ func TestCacheKeyCarriesTheRecordVersion(t *testing.T) {
 	c := newCache(func(context.Context) (string, error) { return string(rune('a' + version.Load())), nil })
 	var calls atomic.Int32
 	h := c.wrap(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte{byte('0' + calls.Add(1))}) })
-	if serveVia(h, "/v").Body.String() != "1" || serveVia(h, "/v").Body.String() != "1" {
+	first, second := serveVia(h, "/v").Body.String(), serveVia(h, "/v").Body.String()
+	if first != "1" || second != "1" {
 		t.Fatal("same version must reuse")
 	}
 	version.Store(1) // a run failed

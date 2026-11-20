@@ -543,7 +543,9 @@ func TestRunsBetweenAgreesWithTheOneQueryItReplaced(t *testing.T) {
 		var ids []string
 		for rows.Next() {
 			var id string
-			rows.Scan(&id)
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
 			ids = append(ids, id)
 		}
 		return ids

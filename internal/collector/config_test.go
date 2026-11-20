@@ -632,7 +632,7 @@ func TestKeyDiffNamesKeysOnly(t *testing.T) {
 		t.Fatalf("without the earlier per-key hashes the changed keys are not known, and it says so: %v", got)
 	}
 	for raw, want := range map[string]string{`{"f:data":{}}`: "data", `{"f:stringData":{}}`: "data", `{"f:metadata":{"f:labels":{}}}`: "metadata", `{"f:status":{}}`: ""} {
-		if got := classOfFields(&metav1.FieldsV1{Raw: []byte(raw)}); got != want {
+		if got := classOfFields(metav1.NewFieldsV1(raw)); got != want {
 			t.Fatalf("%s: %q", raw, got)
 		}
 	}

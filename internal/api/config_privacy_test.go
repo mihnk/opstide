@@ -50,7 +50,7 @@ func TestConfigValuesAndSecretKeyNamesAreNotInAnyAnswer(t *testing.T) {
 	}
 	mfe := func(manager, fields string, at time.Time) metav1.ManagedFieldsEntry {
 		tm := metav1.NewTime(at)
-		return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationUpdate, Time: &tm, FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+		return metav1.ManagedFieldsEntry{Manager: manager, Operation: metav1.ManagedFieldsOperationUpdate, Time: &tm, FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(fields)}
 	}
 	created := now.Add(-time.Minute)
 	sec := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"}, ObjectMeta: metav1.ObjectMeta{

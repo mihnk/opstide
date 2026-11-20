@@ -119,7 +119,7 @@ func LoadFile(path string) (*Set, error) {
 	if path == "" {
 		return &Set{}, nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // the path is the operator's own -maintenance-file setting
 	if err != nil {
 		return nil, fmt.Errorf("maintenance file: %w", err)
 	}

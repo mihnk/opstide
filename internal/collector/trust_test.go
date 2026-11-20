@@ -83,7 +83,7 @@ func TestEventsAndAutoscalersHaveTheirOwnQueue(t *testing.T) {
 
 func mf(manager string, op metav1.ManagedFieldsOperationType, sub, fields string, at time.Time) metav1.ManagedFieldsEntry {
 	t := metav1.NewTime(at)
-	return metav1.ManagedFieldsEntry{Manager: manager, Operation: op, Subresource: sub, Time: &t, FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(fields)}}
+	return metav1.ManagedFieldsEntry{Manager: manager, Operation: op, Subresource: sub, Time: &t, FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(fields)}
 }
 
 // The change ledger names the client that wrote an object's spec, from managedFields: only the manager's name, the kind of
@@ -97,7 +97,7 @@ func TestSpecWritesAreRecordedWithTheirFieldManager(t *testing.T) {
 		mf("kube-controller-manager", metav1.ManagedFieldsOperationUpdate, "status", `{"f:status":{"f:readyReplicas":{}}}`, old.Add(time.Hour)),
 		mf("kube-controller-manager", metav1.ManagedFieldsOperationUpdate, "", `{"f:metadata":{"f:annotations":{"f:deployment.kubernetes.io/revision":{}}}}`, old.Add(2*time.Hour)),
 		// Kubernetes gives some writes no time (the scale subresource's): they are left out, not given a date.
-		{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationUpdate, Subresource: "scale", FieldsType: "FieldsV1", FieldsV1: &metav1.FieldsV1{Raw: []byte(`{"f:spec":{"f:replicas":{}}}`)}},
+		{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationUpdate, Subresource: "scale", FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(`{"f:spec":{"f:replicas":{}}}`)},
 	}
 	client, ctx := start(t, db, Options{}, d)
 	ledger := func() []store.Event {

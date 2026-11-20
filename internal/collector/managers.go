@@ -29,11 +29,11 @@ type specWrite struct {
 
 // touchesSpec says whether a managedFields entry's field set has spec at its top level, without keeping the fields.
 func touchesSpec(f *metav1.FieldsV1) bool {
-	if f == nil || len(f.Raw) == 0 {
+	if f == nil || len(f.GetRawBytes()) == 0 {
 		return false
 	}
 	var top map[string]json.RawMessage
-	if json.Unmarshal(f.Raw, &top) != nil {
+	if json.Unmarshal(f.GetRawBytes(), &top) != nil {
 		return false
 	}
 	_, ok := top["f:spec"]
@@ -48,7 +48,7 @@ func slimManagedFields(mf []metav1.ManagedFieldsEntry) []metav1.ManagedFieldsEnt
 		if !touchesSpec(e.FieldsV1) {
 			continue
 		}
-		e.FieldsV1 = &metav1.FieldsV1{Raw: []byte(`{"f:spec":{}}`)}
+		e.FieldsV1 = metav1.NewFieldsV1(`{"f:spec":{}}`)
 		out = append(out, e)
 	}
 	return out

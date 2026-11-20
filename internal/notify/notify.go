@@ -85,12 +85,16 @@ func (n *Notifier) Run(ctx context.Context) {
 		if next.IsZero() {
 			return
 		}
-		t := time.NewTimer(time.Until(next))
+		// One clock for both: when the summary is due and how long to wait for it.
+		t := time.NewTimer(next.Sub(n.now()))
 		select {
 		case <-ctx.Done():
 			t.Stop()
 			return
 		case <-t.C:
+		}
+		if !next.After(n.lastFire()) {
+			continue // already sent for this time
 		}
 		n.fire(ctx, next, false)
 	}
